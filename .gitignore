@@ -1,0 +1,9 @@
+/bin/
+/data/
+/server/internal/webui/dist/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example

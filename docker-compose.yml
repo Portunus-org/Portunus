@@ -1,0 +1,42 @@
+# Portunus — single service: Go control plane with the embedded web UI,
+# SQLite on a named volume, and (from stage 2) sing-box as a child process.
+#
+#   docker compose up -d
+#   docker compose logs portunus | grep password     # initial admin password
+#   ssh -L 2053:127.0.0.1:2053 user@server           # then open http://localhost:2053
+services:
+  portunus:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: portunus:local
+    container_name: portunus
+    # Host networking: proxy inbounds (TCP and QUIC/UDP) are created at runtime
+    # on arbitrary ports, and bypassing docker-proxy/NAT matters at 1 Gbit/s.
+    network_mode: host
+    restart: unless-stopped
+    # Values come from .env (see .env.example); the defaults below apply
+    # when it is absent.
+    environment:
+      # Loopback only. Reach the panel through an SSH tunnel.
+      PORTUNUS_LISTEN: ${PORTUNUS_LISTEN:-127.0.0.1:2053}
+      PORTUNUS_LOG_LEVEL: ${PORTUNUS_LOG_LEVEL:-info}
+      PORTUNUS_LOG_FORMAT: ${PORTUNUS_LOG_FORMAT:-json}
+      PORTUNUS_COOKIE_SECURE: ${PORTUNUS_COOKIE_SECURE:-auto}
+    volumes:
+      - portunus-data:/var/lib/portunus
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  portunus-data:

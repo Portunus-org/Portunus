@@ -1,0 +1,171 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Portunus design tokens.
+ *
+ * Near-monochrome palette with exactly one accent (--signal), hairline
+ * borders instead of shadows, small radii. See docs/DESIGN.md.
+ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* Fraunces has no Cyrillic; Source Serif 4 fills those glyphs in. */
+  --font-serif: var(--font-fraunces), var(--font-source-serif), Georgia, serif;
+  /* shadcn uses font-heading for card/sheet titles — those are UI chrome, so sans. */
+  --font-heading: var(--font-sans);
+  --color-signal: var(--signal);
+  --color-signal-foreground: var(--signal-foreground);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  --background: #ffffff;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  /* shadcn's "accent" is the neutral hover tint, not the brand accent. */
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #a1a1aa;
+
+  /* The single accent: active nav marker, status dots, critical alerts. */
+  --signal: oklch(0.62 0.2 36);
+  --signal-foreground: #ffffff;
+  --destructive: var(--signal);
+
+  --chart-1: #18181b;
+  --chart-2: #52525b;
+  --chart-3: #a1a1aa;
+  --chart-4: #d4d4d8;
+  --chart-5: var(--signal);
+
+  --sidebar: #fafafa;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #18181b;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #f0f0f1;
+  --sidebar-accent-foreground: #0a0a0a;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #a1a1aa;
+}
+
+.dark {
+  --background: #111113;
+  --foreground: #f5f5f5;
+  --card: #111113;
+  --card-foreground: #f5f5f5;
+  --popover: #161618;
+  --popover-foreground: #f5f5f5;
+  --primary: #f5f5f5;
+  --primary-foreground: #111113;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #f5f5f5;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa;
+  --accent: #1c1c1f;
+  --accent-foreground: #f5f5f5;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #52525b;
+
+  --signal: oklch(0.7 0.18 40);
+  --signal-foreground: #0a0a0a;
+  --destructive: var(--signal);
+
+  --chart-1: #f5f5f5;
+  --chart-2: #a1a1aa;
+  --chart-3: #52525b;
+  --chart-4: #27272a;
+  --chart-5: var(--signal);
+
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: #f5f5f5;
+  --sidebar-primary-foreground: #0a0a0a;
+  --sidebar-accent: #18181b;
+  --sidebar-accent-foreground: #f5f5f5;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #52525b;
+}
+
+/* Serif display type: wordmark, page titles, editorial moments only. */
+@utility font-display {
+  font-family: var(--font-serif);
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 36;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* Lucide icons at 1.5px to match the logo's line weight. */
+  svg.lucide {
+    stroke-width: 1.5;
+  }
+}
