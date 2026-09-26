@@ -9,13 +9,17 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/PaulichP/Portunus/server/internal/auth"
 	"github.com/PaulichP/Portunus/server/internal/config"
+	"github.com/PaulichP/Portunus/server/internal/core"
 	"github.com/PaulichP/Portunus/server/internal/db"
+	"github.com/PaulichP/Portunus/server/internal/secrets"
+	"github.com/PaulichP/Portunus/server/internal/singbox"
 	"github.com/PaulichP/Portunus/server/internal/store"
 )
 
@@ -23,6 +27,8 @@ type testEnv struct {
 	srv      *httptest.Server
 	client   *http.Client
 	password string
+	store    *store.Store
+	auth     *auth.Service
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -54,10 +60,31 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatal("bootstrap ran twice")
 	}
 
-	srv := httptest.NewServer(New(cfg, log, st, as).Handler(http.NotFoundHandler()))
+	box, _, err := secrets.LoadOrCreate(filepath.Join(cfg.DataDir, "master.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without PORTUNUS_TEST_SINGBOX the data plane cannot start; config
+	// apply errors are then only reported, which is what the API promises.
+	bin := os.Getenv("PORTUNUS_TEST_SINGBOX")
+	if bin == "" {
+		bin = "/nonexistent/sing-box"
+	}
+	mgr := singbox.New(bin, filepath.Join(cfg.DataDir, "sing-box"), log)
+	mgr.Init(ctx)
+	ctxRun, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { mgr.Run(ctxRun); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	c := core.New(st, box, mgr, core.Options{
+		StatsAPI: "127.0.0.1:1",
+		ACME:     core.ACMEPaths{DataDirectory: "acme", StorageDir: filepath.Join(cfg.DataDir, "sing-box", "acme")},
+	}, log)
+
+	srv := httptest.NewServer(New(cfg, log, st, as, c, mgr).Handler(http.NotFoundHandler()))
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
-	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, password: pw}
+	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, password: pw, store: st, auth: as}
 }
 
 func (e *testEnv) do(t *testing.T, method, path string, body any, hdr map[string]string) (*http.Response, map[string]any) {

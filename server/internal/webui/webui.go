@@ -103,7 +103,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Routes are exported with trailingSlash, i.e. /login/ -> login/index.html.
 	if st, err := fs.Stat(h.files, name); err == nil && st.IsDir() {
 		if !strings.HasSuffix(r.URL.Path, "/") {
-			http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
+			// Built from the cleaned name, never from the raw path: a
+			// request for //evil.example must not redirect off-site.
+			target := "/" + name + "/"
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- target is a cleaned local path, always "/name/"
 			return
 		}
 		name = path.Join(name, "index.html")
@@ -150,6 +156,6 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request, p *page, sta
 	hdr.Set("Cache-Control", "no-cache")
 	w.WriteHeader(status)
 	if r.Method != http.MethodHead {
-		w.Write(p.body)
+		w.Write(p.body) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- the embedded, prebuilt page; no request data
 	}
 }

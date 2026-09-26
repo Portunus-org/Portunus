@@ -5,23 +5,15 @@ import { useRouter } from "next/navigation"
 
 import { LogoMark } from "@/components/brand/logo"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api, ApiError, setCsrfToken } from "@/lib/api"
-
-function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    switch (err.code) {
-      case "invalid_credentials":
-        return "Incorrect username or password."
-      case "rate_limited":
-        return `Too many attempts. Try again in ${err.retryAfter ?? 30}s.`
-    }
-  }
-  return "Could not reach the panel. Check that it is running."
-}
+import { useI18n } from "@/lib/i18n"
+import { setHandoffPassword } from "@/lib/session"
 
 export default function LoginPage() {
+  const { t } = useI18n()
   const router = useRouter()
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -33,45 +25,56 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const form = new FormData(e.currentTarget)
+    const f = new FormData(e.currentTarget)
+    const password = String(f.get("password"))
     setPending(true)
     setError(null)
     try {
-      const s = await api.login(String(form.get("username")), String(form.get("password")))
+      const s = await api.login(String(f.get("username")), password)
       setCsrfToken(s.csrfToken)
-      router.replace(s.user.mustChangePassword ? "/account/" : "/")
+      if (s.user.mustChangePassword) {
+        setHandoffPassword(password)
+        router.replace("/welcome/")
+      } else {
+        router.replace("/")
+      }
     } catch (err) {
-      setError(errorMessage(err))
+      if (err instanceof ApiError && err.code === "invalid_credentials") setError(t("login.error.credentials"))
+      else if (err instanceof ApiError && err.code === "rate_limited") setError(t("login.error.rateLimited", { s: err.retryAfter ?? 30 }))
+      else setError(t("login.error.network"))
       setPending(false)
     }
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center px-6">
-      <div className="w-full max-w-xs">
-        <div className="mb-10 flex flex-col items-center gap-4 text-center">
-          <LogoMark className="size-10" />
-          <h1 className="font-display text-3xl">Portunus</h1>
+    <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <div className="flex items-center gap-2 self-center font-medium">
+          <LogoMark />
+          Portunus
         </div>
-
-        <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-          <div className="grid gap-1.5">
-            <Label htmlFor="username">Username</Label>
-            <Input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required autoFocus />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" name="password" type="password" autoComplete="current-password" required />
-          </div>
-          {error && (
-            <p role="alert" className="text-sm text-signal">
-              {error}
-            </p>
-          )}
-          <Button type="submit" className="mt-2 w-full" disabled={pending}>
-            {pending ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl">{t("login.title")}</CardTitle>
+            <CardDescription>{t("login.subtitle")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={onSubmit} className="grid gap-6" noValidate>
+              <div className="grid gap-3">
+                <Label htmlFor="username">{t("login.username")}</Label>
+                <Input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required autoFocus />
+              </div>
+              <div className="grid gap-3">
+                <Label htmlFor="password">{t("login.password")}</Label>
+                <Input id="password" name="password" type="password" autoComplete="current-password" required />
+              </div>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <Button type="submit" className="w-full" disabled={pending}>
+                {pending ? t("login.pending") : t("login.submit")}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </main>
   )

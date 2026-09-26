@@ -3,10 +3,11 @@
 A lightweight, self-hosted control panel for [sing-box](https://sing-box.sagernet.org).
 One container, tens of megabytes of RAM, loopback-only by default.
 
-> **Status: early development (stage 1 of 8).** The panel shell, local
-> accounts and deployment are in place. sing-box management, multihop,
-> list-based routing, failover, probe resistance and SSO follow. See
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: early development (stage 2 of 8).** A single node works end to
+> end: inbounds (VLESS+REALITY, Hysteria2, TUIC, Trojan, Shadowsocks-2022),
+> clients with limits and traffic accounting, subscriptions and QR codes,
+> Let's Encrypt certificates. Multihop, list-based routing, failover and SSO
+> follow. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Goals
 

@@ -4,24 +4,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * Portunus design tokens.
- *
- * Near-monochrome palette with exactly one accent (--signal), hairline
- * borders instead of shadows, small radii. See docs/DESIGN.md.
- */
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  /* Fraunces has no Cyrillic; Source Serif 4 fills those glyphs in. */
-  --font-serif: var(--font-fraunces), var(--font-source-serif), Georgia, serif;
-  /* shadcn uses font-heading for card/sheet titles — those are UI chrome, so sans. */
   --font-heading: var(--font-sans);
-  --color-signal: var(--signal);
-  --color-signal-foreground: var(--signal-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -61,93 +49,72 @@
 }
 
 :root {
-  --radius: 0.5rem;
-
-  --background: #ffffff;
-  --foreground: #18181b;
-  --card: #ffffff;
-  --card-foreground: #18181b;
-  --popover: #ffffff;
-  --popover-foreground: #18181b;
-  --primary: #18181b;
-  --primary-foreground: #fafafa;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  /* shadcn's "accent" is the neutral hover tint, not the brand accent. */
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --border: #e5e5e5;
-  --input: #e5e5e5;
-  --ring: #a1a1aa;
-
-  /* The single accent: active nav marker, status dots, critical alerts. */
-  --signal: oklch(0.62 0.2 36);
-  --signal-foreground: #ffffff;
-  --destructive: var(--signal);
-
-  --chart-1: #18181b;
-  --chart-2: #52525b;
-  --chart-3: #a1a1aa;
-  --chart-4: #d4d4d8;
-  --chart-5: var(--signal);
-
-  --sidebar: #fafafa;
-  --sidebar-foreground: #18181b;
-  --sidebar-primary: #18181b;
-  --sidebar-primary-foreground: #fafafa;
-  --sidebar-accent: #f0f0f1;
-  --sidebar-accent-foreground: #0a0a0a;
-  --sidebar-border: #e5e5e5;
-  --sidebar-ring: #a1a1aa;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-  --background: #111113;
-  --foreground: #f5f5f5;
-  --card: #111113;
-  --card-foreground: #f5f5f5;
-  --popover: #161618;
-  --popover-foreground: #f5f5f5;
-  --primary: #f5f5f5;
-  --primary-foreground: #111113;
-  --secondary: #1c1c1f;
-  --secondary-foreground: #f5f5f5;
-  --muted: #1c1c1f;
-  --muted-foreground: #a1a1aa;
-  --accent: #1c1c1f;
-  --accent-foreground: #f5f5f5;
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #52525b;
-
-  --signal: oklch(0.7 0.18 40);
-  --signal-foreground: #0a0a0a;
-  --destructive: var(--signal);
-
-  --chart-1: #f5f5f5;
-  --chart-2: #a1a1aa;
-  --chart-3: #52525b;
-  --chart-4: #27272a;
-  --chart-5: var(--signal);
-
-  --sidebar: #0a0a0a;
-  --sidebar-foreground: #f5f5f5;
-  --sidebar-primary: #f5f5f5;
-  --sidebar-primary-foreground: #0a0a0a;
-  --sidebar-accent: #18181b;
-  --sidebar-accent-foreground: #f5f5f5;
-  --sidebar-border: #27272a;
-  --sidebar-ring: #52525b;
-}
-
-/* Serif display type: wordmark, page titles, editorial moments only. */
-@utility font-display {
-  font-family: var(--font-serif);
-  font-weight: 550;
-  letter-spacing: -0.02em;
-  font-variation-settings: "opsz" 36;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
@@ -157,15 +124,23 @@
   body {
     @apply bg-background text-foreground;
   }
-  button:not(:disabled),
-  [role="button"]:not(:disabled) {
+  button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
   }
   html {
     @apply font-sans;
   }
-  /* Lucide icons at 1.5px to match the logo's line weight. */
-  svg.lucide {
-    stroke-width: 1.5;
+}
+/* The welcome greeting: the pen's strokes reveal the ink as they are drawn. */
+@keyframes pen-write {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pen {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
   }
 }

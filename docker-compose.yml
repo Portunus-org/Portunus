@@ -1,5 +1,5 @@
-# Portunus — single service: Go control plane with the embedded web UI,
-# SQLite on a named volume, and (from stage 2) sing-box as a child process.
+# Portunus: a single service. The Go control plane with the embedded web UI
+# supervises sing-box as a child process; state lives on a named volume.
 #
 #   docker compose up -d
 #   docker compose logs portunus | grep password     # initial admin password
@@ -23,15 +23,21 @@ services:
       PORTUNUS_LOG_LEVEL: ${PORTUNUS_LOG_LEVEL:-info}
       PORTUNUS_LOG_FORMAT: ${PORTUNUS_LOG_FORMAT:-json}
       PORTUNUS_COOKIE_SECURE: ${PORTUNUS_COOKIE_SECURE:-auto}
+      PORTUNUS_SUB_LISTEN: ${PORTUNUS_SUB_LISTEN:-}
     volumes:
       - portunus-data:/var/lib/portunus
+      # Existing certificates (certbot, Nginx Proxy Manager…), read-only:
+      # - /etc/letsencrypt:/certs:ro
     read_only: true
     tmpfs:
       - /tmp:size=16m
+    # Everything dropped except binding ports below 1024, which the sing-box
+    # binary receives through a file capability. File capabilities do not
+    # work under no-new-privileges, so that option is intentionally absent.
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
+    cap_add:
+      - NET_BIND_SERVICE
     logging:
       driver: json-file
       options:

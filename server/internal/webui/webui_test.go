@@ -15,6 +15,7 @@ func TestHandler(t *testing.T) {
 		"404.html":                   {Data: []byte(`<html>not here</html>`)},
 		"_next/static/chunks/app.js": {Data: []byte(`console.log(1)`)},
 		"icon.svg":                   {Data: []byte(`<svg/>`)},
+		"evil.example/index.html":    {Data: []byte(`<html></html>`)},
 	}
 	h, err := New(files)
 	if err != nil {
@@ -27,11 +28,14 @@ func TestHandler(t *testing.T) {
 		wantCSP    string // substring
 		wantCache  string
 		wantHeader string
+		location   string
 	}{
 		// sha256("boot()")
 		{path: "/", status: 200, wantCSP: "script-src 'self' 'sha256-"},
 		{path: "/login/", status: 200, wantCSP: "frame-ancestors 'none'"},
-		{path: "/login", status: 301},
+		{path: "/login", status: 301, location: "/login/"},
+		// The redirect stays on this site whatever the raw path looks like.
+		{path: "//evil.example", status: 301, location: "/evil.example/"},
 		{path: "/_next/static/chunks/app.js", status: 200, wantCache: "immutable"},
 		{path: "/icon.svg", status: 200, wantCache: "no-cache"},
 		{path: "/missing", status: 404, wantCSP: "default-src 'self'"},
@@ -42,6 +46,9 @@ func TestHandler(t *testing.T) {
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.path, nil))
 		if rec.Code != c.status {
 			t.Errorf("%s: status %d, want %d", c.path, rec.Code, c.status)
+		}
+		if loc := rec.Header().Get("Location"); loc != c.location {
+			t.Errorf("%s: Location %q, want %q", c.path, loc, c.location)
 		}
 		if c.wantCSP != "" && !strings.Contains(rec.Header().Get("Content-Security-Policy"), c.wantCSP) {
 			t.Errorf("%s: CSP %q lacks %q", c.path, rec.Header().Get("Content-Security-Policy"), c.wantCSP)

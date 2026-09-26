@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,13 +12,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/PaulichP/Portunus/server/internal/api"
 	"github.com/PaulichP/Portunus/server/internal/auth"
 	"github.com/PaulichP/Portunus/server/internal/config"
+	"github.com/PaulichP/Portunus/server/internal/core"
 	"github.com/PaulichP/Portunus/server/internal/db"
+	"github.com/PaulichP/Portunus/server/internal/secrets"
+	"github.com/PaulichP/Portunus/server/internal/singbox"
 	"github.com/PaulichP/Portunus/server/internal/store"
 	"github.com/PaulichP/Portunus/server/internal/version"
 	"github.com/PaulichP/Portunus/server/internal/webui"
@@ -107,6 +114,39 @@ func serve() error {
 	}
 	go authSvc.RunJanitor(ctx)
 
+	box, created, err := secrets.LoadOrCreate(cfg.MasterKeyPath())
+	if err != nil {
+		return err
+	}
+	if created {
+		log.Warn("generated a new master key; back it up together with the database", "path", cfg.MasterKeyPath())
+	}
+
+	// The data plane. A missing sing-box binary does not stop the panel:
+	// it is reported in the UI and in the logs.
+	mgr := singbox.New(cfg.SingBoxBin, cfg.SingBoxDir(), log)
+	// A stable QUIC stateless-reset key lets Hysteria2/TUIC clients notice a
+	// reload at once instead of after their 30 s idle timeout. Read by the
+	// patched sing-quic in our sing-box build (docs/DECISIONS.md, D-17).
+	mgr.Env = []string{"SING_QUIC_STATELESS_RESET_KEY=" + hex.EncodeToString(box.Derive("sing-quic stateless reset"))}
+	if err := mgr.Init(ctx); err != nil {
+		log.Error("sing-box unavailable; proxy inbounds will not start", "err", err)
+	}
+	coreSvc := core.New(st, box, mgr, core.Options{
+		StatsAPI: cfg.SingBoxAPI,
+		Reserved: reservedPorts(cfg),
+		ACME: core.ACMEPaths{
+			DataDirectory: "acme", // relative to sing-box's working directory
+			StorageDir:    filepath.Join(cfg.SingBoxDir(), "acme"),
+			Directory:     cfg.ACMEDirectory,
+		},
+		SubListen: cfg.SubListen,
+	}, log)
+
+	var wg sync.WaitGroup
+	wg.Go(func() { mgr.Run(ctx) })
+	wg.Go(func() { coreSvc.Run(ctx, 30*time.Second) })
+
 	ui, err := webui.New(webui.Dist())
 	if err != nil {
 		return fmt.Errorf("load web ui: %w", err)
@@ -115,16 +155,8 @@ func serve() error {
 		log.Warn("built without web ui (-tags noui); serving API only")
 	}
 
-	srv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           api.New(cfg, log, st, authSvc).Handler(ui),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    64 << 10,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-	}
+	apiSrv := api.New(cfg, log, st, authSvc, coreSvc, mgr)
+	srv := newHTTPServer(apiSrv.Handler(ui), log)
 
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
@@ -142,8 +174,12 @@ func serve() error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 
+	wg.Go(func() { apiSrv.RunSubscriptions(ctx) })
+
 	select {
 	case err := <-errc:
+		stop()
+		wg.Wait()
 		return err
 	case <-ctx.Done():
 	}
@@ -153,7 +189,38 @@ func serve() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	// Stops sing-box (the manager's Run returns once it has exited).
+	wg.Wait()
 	return nil
+}
+
+func newHTTPServer(h http.Handler, log *slog.Logger) *http.Server {
+	return &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	}
+}
+
+// reservedPorts are TCP ports the panel itself listens on; inbounds may not
+// use them (host networking means they share the host's port space).
+func reservedPorts(cfg *config.Config) []core.ReservedPort {
+	var out []core.ReservedPort
+	add := func(addr, what string) {
+		if p, err := strconv.Atoi(portOf(addr)); err == nil {
+			out = append(out, core.ReservedPort{Port: p, What: what})
+		}
+	}
+	add(cfg.Listen, "panel")
+	add(cfg.SingBoxAPI, "sing-box stats API")
+	if cfg.SubListen != "" {
+		add(cfg.SubListen, "subscriptions")
+	}
+	return out
 }
 
 func portOf(addr string) string {

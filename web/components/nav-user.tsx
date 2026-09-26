@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { useTheme } from "next-themes"
-import { EllipsisVerticalIcon, LogOutIcon, UserRoundIcon } from "lucide-react"
+import { CircleUserRoundIcon, EllipsisVerticalIcon, LanguagesIcon, LogOutIcon, PaletteIcon } from "lucide-react"
 
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,20 +14,34 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from "@/components/ui/sidebar"
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar"
+import { useI18n } from "@/lib/i18n"
+import { localeNames, type Locale } from "@/lib/messages"
 import { useSession } from "@/lib/session"
 
 export function NavUser() {
   const { isMobile } = useSidebar()
   const { user, logout } = useSession()
+  const { t, locale, setLocale } = useI18n()
   const { theme, setTheme } = useTheme()
+  const initials = user.username.slice(0, 2).toUpperCase()
+
+  const identity = (
+    <>
+      <Avatar className="h-8 w-8 rounded-lg grayscale">
+        <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+      </Avatar>
+      <div className="grid flex-1 text-left text-sm leading-tight">
+        <span className="truncate font-medium">{user.username}</span>
+        <span className="truncate text-xs text-muted-foreground">{t(`role.${user.role}`)}</span>
+      </div>
+    </>
+  )
 
   return (
     <SidebarMenu>
@@ -37,41 +52,60 @@ export function NavUser() {
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border font-mono text-xs uppercase">
-                {user.username.slice(0, 2)}
-              </span>
-              <span className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.username}</span>
-                <span className="truncate text-xs text-muted-foreground">{user.role}</span>
-              </span>
+              {identity}
               <EllipsisVerticalIcon className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
           >
+            <DropdownMenuLabel className="p-0 font-normal">
+              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">{identity}</div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
                 <Link href="/account/">
-                  <UserRoundIcon />
-                  Account
+                  <CircleUserRoundIcon />
+                  {t("nav.account")}
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <PaletteIcon />
+                  {t("nav.theme")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+                    <DropdownMenuRadioItem value="system">{t("nav.theme.system")}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="light">{t("nav.theme.light")}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="dark">{t("nav.theme.dark")}</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <LanguagesIcon />
+                  {t("nav.language")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+                    {(Object.keys(localeNames) as Locale[]).map((l) => (
+                      <DropdownMenuRadioItem key={l} value={l}>
+                        {localeNames[l]}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Theme</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-              <DropdownMenuRadioItem value="system">System</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => logout()}>
               <LogOutIcon />
-              Sign out
+              {t("nav.signOut")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

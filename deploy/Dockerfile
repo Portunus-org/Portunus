@@ -16,6 +16,46 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
+# --- data plane: sing-box built from source ---------------------------------
+# Built here rather than taken from the release archive: Portunus needs the
+# v2ray_api stats service (per-client traffic), which release builds omit,
+# and does not need tailscale, cloudflared & co. (smaller binary, less RAM).
+FROM ${GO_IMAGE} AS singbox
+ARG SINGBOX_VERSION=v1.14.1
+ARG SINGBOX_COMMIT=1ac1a339cb1223e9c70eae14c44411c75033c02d
+ARG SINGBOX_TAGS=with_quic,with_utls,with_acme,with_clash_api,with_v2ray_api,badlinkname,tfogo_checklinkname0
+RUN apk add --no-cache git patch
+RUN git clone --depth 1 --branch "${SINGBOX_VERSION}" https://github.com/SagerNet/sing-box.git /src/sing-box \
+ && test "$(git -C /src/sing-box rev-parse HEAD)" = "${SINGBOX_COMMIT}"
+WORKDIR /src/sing-box
+# Security bumps of sing-box's dependencies ahead of its own release: fixes
+# for CVEs in grpc (v2ray_api), x/crypto and x/mod that trivy reports in the
+# release's module graph. Pinned, so builds stay reproducible; drop an entry
+# once sing-box itself requires that version or newer.
+ARG SINGBOX_DEP_BUMPS="golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.83.2"
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go get ${SINGBOX_DEP_BUMPS} && go mod tidy
+# Patched sing-quic: a stable stateless-reset key so Hysteria2/TUIC clients
+# reconnect immediately after a reload instead of after a 30 s idle timeout
+# (docs/DECISIONS.md, D-17). The patch targets one sing-quic version; the
+# build fails loudly if a sing-box upgrade moves it.
+ARG SINGQUIC_VERSION=v0.7.0
+COPY deploy/patches/sing-quic-stable-stateless-reset.patch /patches/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    test "$(go list -m -f '{{.Version}}' github.com/sagernet/sing-quic)" = "${SINGQUIC_VERSION}" \
+ && cp -r "$(go mod download -json github.com/sagernet/sing-quic@${SINGQUIC_VERSION} | sed -n 's/.*"Dir": "\(.*\)",/\1/p')" /src/sing-quic \
+ && chmod -R u+w /src/sing-quic \
+ && patch -d /src/sing-quic -p1 < /patches/sing-quic-stable-stateless-reset.patch \
+ && go mod edit -replace github.com/sagernet/sing-quic=/src/sing-quic
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -tags "${SINGBOX_TAGS}" \
+      -ldflags "-s -w -X github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION#v} -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0" \
+      -o /out/sing-box ./cmd/sing-box
+# Let the unprivileged process bind ports below 1024 (443), nothing else.
+# Set here so the runtime image does not store the binary twice; COPY keeps
+# the security.capability attribute.
+RUN apk add --no-cache libcap-setcap && setcap cap_net_bind_service=+ep /out/sing-box
+
 # --- backend: static Go binary with the frontend embedded ------------------
 FROM ${GO_IMAGE} AS build
 ARG VERSION=dev
@@ -31,9 +71,10 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
       -o /out/portunus ./cmd/portunus
 
 # --- runtime --------------------------------------------------------------
-# Alpine rather than distroless: the sing-box stage needs setcap on the
-# binary to bind :443 without root (see docs/DECISIONS.md, D-07).
+# Alpine rather than distroless: setcap on the sing-box binary needs a
+# package manager at build time (see docs/DECISIONS.md, D-07).
 FROM ${RUNTIME_IMAGE}
+COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
 RUN addgroup -S -g 10001 portunus \
  && adduser -S -D -H -u 10001 -G portunus -s /sbin/nologin portunus \
  && install -d -o portunus -g portunus -m 0700 /var/lib/portunus

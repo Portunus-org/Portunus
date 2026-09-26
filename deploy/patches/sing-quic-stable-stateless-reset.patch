@@ -1,0 +1,90 @@
+--- a/quic.go
++++ b/quic.go
+@@ -2,7 +2,6 @@
+ 
+ import (
+ 	"context"
+-	"crypto/rand"
+ 	"crypto/tls"
+ 	"net"
+ 	"net/http"
+@@ -250,7 +249,7 @@
+ }
+ 
+ func Listen(conn net.PacketConn, config aTLS.ServerConfig, quicConfig *quic.Config) (Listener, error) {
+-	return ListenWithOptions(conn, config, quicConfig, ListenOptions{})
++	return ListenWithOptions(conn, config, quicConfig, ListenOptions{StatelessReset: statelessResetKeyConfigured()})
+ }
+ 
+ func ListenWithOptions(conn net.PacketConn, config aTLS.ServerConfig, quicConfig *quic.Config, options ListenOptions) (Listener, error) {
+@@ -266,8 +265,7 @@
+ 	transport := quic.Transport{Conn: conn, DisableVersionNegotiationPackets: options.DisableVersionNegotiationPackets}
+ 	transport.SetSingleUse(true)
+ 	if options.StatelessReset {
+-		transport.StatelessResetKey = new(quic.StatelessResetKey)
+-		_, err = rand.Read(transport.StatelessResetKey[:])
++		transport.StatelessResetKey, err = statelessResetKey()
+ 		if err != nil {
+ 			return nil, err
+ 		}
+@@ -277,7 +275,7 @@
+ }
+ 
+ func ListenEarly(conn net.PacketConn, config aTLS.ServerConfig, quicConfig *quic.Config) (EarlyListener, error) {
+-	return ListenEarlyWithOptions(conn, config, quicConfig, ListenOptions{})
++	return ListenEarlyWithOptions(conn, config, quicConfig, ListenOptions{StatelessReset: statelessResetKeyConfigured()})
+ }
+ 
+ func ListenEarlyWithOptions(conn net.PacketConn, config aTLS.ServerConfig, quicConfig *quic.Config, options ListenOptions) (EarlyListener, error) {
+@@ -293,8 +291,7 @@
+ 	transport := quic.Transport{Conn: conn, DisableVersionNegotiationPackets: options.DisableVersionNegotiationPackets}
+ 	transport.SetSingleUse(true)
+ 	if options.StatelessReset {
+-		transport.StatelessResetKey = new(quic.StatelessResetKey)
+-		_, err = rand.Read(transport.StatelessResetKey[:])
++		transport.StatelessResetKey, err = statelessResetKey()
+ 		if err != nil {
+ 			return nil, err
+ 		}
+--- a/stateless_reset.go
++++ b/stateless_reset.go
+@@ -0,0 +1,39 @@
++package qtls
++
++import (
++	"crypto/rand"
++	"encoding/hex"
++	"errors"
++	"os"
++
++	"github.com/sagernet/quic-go"
++)
++
++// statelessResetKey returns the key used to derive QUIC stateless reset
++// tokens. By default it is random per listener, so after a restart the new
++// instance cannot produce resets that clients accept, and clients wait for
++// their idle timeout before reconnecting. Setting
++// SING_QUIC_STATELESS_RESET_KEY (64 hex characters, kept secret) keeps the
++// key stable across restarts: clients of a reloaded server are reset at once
++// and reconnect immediately.
++//
++// With the key set, listeners created without explicit options (TUIC) send
++// stateless resets too. Callers that disable them on purpose (Hysteria2 with
++// obfuscation, which must stay silent to unknown packets) are unaffected.
++func statelessResetKeyConfigured() bool {
++	return os.Getenv("SING_QUIC_STATELESS_RESET_KEY") != ""
++}
++
++func statelessResetKey() (*quic.StatelessResetKey, error) {
++	key := new(quic.StatelessResetKey)
++	if v := os.Getenv("SING_QUIC_STATELESS_RESET_KEY"); v != "" {
++		b, err := hex.DecodeString(v)
++		if err != nil || len(b) != len(key) {
++			return nil, errors.New("SING_QUIC_STATELESS_RESET_KEY: want 64 hex characters")
++		}
++		copy(key[:], b)
++		return key, nil
++	}
++	_, err := rand.Read(key[:])
++	return key, err
++}

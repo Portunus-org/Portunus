@@ -20,11 +20,11 @@ project spec.
 │   ├─ HTTP API + embedded web UI  [built]                     │
 │   ├─ auth: local accounts, sessions  [built] · OIDC [st. 7]  │
 │   ├─ SQLite (WAL) on volume  [built]                         │
-│   ├─ config generator → sing-box JSON  [st. 2]               │
+│   ├─ config generator → sing-box JSON  [built]               │
 │   ├─ rule-set compiler / updater  [st. 4]                    │
 │   └─ agent hub (mTLS WebSocket)  [st. 3]                     │
 │          │ spawns, reloads, supervises                       │
-│  sing-box (child process)                  DATA PLANE [st. 2]│
+│  sing-box (child process)               DATA PLANE [built]   │
 │   inbounds: VLESS+REALITY, Hysteria2, Trojan, SS, TUIC       │
 └──────┬───────────────────────────────▲───────────────────────┘
        │ hop (sing-box outbound, D-15) │ agent control channel
@@ -95,9 +95,10 @@ API responses carry `Content-Security-Policy: default-src 'none'` and
 lists the SHA-256 hashes of that page's inline Next.js bootstrap scripts,
 computed at startup. There is no `'unsafe-inline'` for scripts.
 
-Planned additions: subscription endpoints (`/sub/<token>`, unauthenticated but
-unguessable, rate-limited) [st. 2] and the join script
-(`/join/<token>`) [st. 3]. When the panel is published behind the decoy
+Stage 2 endpoints: `/api/inbounds`, `/api/clients` (+ `/access` with links
+and QR codes), `/api/settings`, `/api/singbox` (status, restart, logs, masked
+config), and `GET /sub/<token>` (also on the optional public listener).
+Planned: the join script (`/join/<token>`) [st. 3]. When the panel is published behind the decoy
 [st. 6], only these paths and the secret panel prefix are routed to Portunus;
 everything else returns the decoy site.
 
@@ -110,8 +111,10 @@ everything else returns the decoy site.
   change or reset); later all config mutations.
 - `settings`: key/value for panel-wide settings.
 
-Planned: `inbounds`, `clients` (+ traffic counters, limits, expiry),
-`nodes`, `join_tokens`, `chains`, `list_sources`, `route_rules`, `oidc_providers`.
+Stage 2: `inbounds` (public settings JSON + encrypted secret) and `clients`
+(credentials, subscription token, limit, expiry, traffic counters).
+Planned: `nodes`, `join_tokens`, `chains`, `list_sources`, `route_rules`,
+`oidc_providers`.
 
 ## 6. Multihop, routing and failover (design) [planned: stages 3–5]
 

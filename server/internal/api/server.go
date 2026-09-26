@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/PaulichP/Portunus/server/internal/auth"
 	"github.com/PaulichP/Portunus/server/internal/config"
+	"github.com/PaulichP/Portunus/server/internal/core"
+	"github.com/PaulichP/Portunus/server/internal/singbox"
 	"github.com/PaulichP/Portunus/server/internal/store"
 )
 
@@ -31,11 +34,34 @@ type Server struct {
 	log     *slog.Logger
 	store   *store.Store
 	auth    *auth.Service
+	core    *core.Core
+	mgr     *singbox.Manager
 	started time.Time
+	sub     subState
 }
 
-func New(cfg *config.Config, log *slog.Logger, st *store.Store, as *auth.Service) *Server {
-	return &Server{cfg: cfg, log: log, store: st, auth: as, started: time.Now()}
+func New(cfg *config.Config, log *slog.Logger, st *store.Store, as *auth.Service, c *core.Core, mgr *singbox.Manager) *Server {
+	return &Server{cfg: cfg, log: log, store: st, auth: as, core: c, mgr: mgr, started: time.Now(),
+		sub: subState{kick: make(chan struct{}, 1)}}
+}
+
+// SubscriptionHandler serves only /sub/{token}; it is what the optional
+// public subscription listener exposes.
+func (s *Server) SubscriptionHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sub/{token}", s.handleSubscription)
+	// The CA certificate is public by nature; serving it here lets a phone
+	// download it by scanning a QR code.
+	mux.HandleFunc("GET /ca.crt", func(w http.ResponseWriter, r *http.Request) {
+		ca, err := s.core.CA(r.Context())
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		writeCACertificate(w, r, ca)
+	})
+	mux.HandleFunc("/", http.NotFound)
+	return s.recoverer(s.logRequests(securityHeaders(mux)))
 }
 
 // Handler returns the root handler; ui serves every non-API path.
@@ -50,6 +76,9 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 	mux.Handle("POST /api/auth/password", s.requireSession(s.handleChangePassword))
 
 	mux.Handle("GET /api/system", s.requireSession(s.handleSystem))
+	s.routesProxy(mux)
+	s.routesSetup(mux)
+	mux.HandleFunc("GET /sub/{token}", s.handleSubscription)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
@@ -104,6 +133,7 @@ func (s *Server) requireSession(next http.HandlerFunc) http.Handler {
 
 var passwordChangeAllowed = map[string]bool{
 	"/api/auth/me":       true,
+	"/api/setup":         true, // read-only: tells the UI whether the welcome continues
 	"/api/auth/password": true,
 	"/api/auth/logout":   true,
 }
@@ -215,6 +245,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
+
+func base64Std(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
 func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]string{"error": code})
