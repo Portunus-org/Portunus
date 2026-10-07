@@ -5,7 +5,6 @@ import Link from "next/link"
 import { ArrowRightIcon, CircleAlertIcon } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
-import { StatusBadge } from "@/components/status"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,7 +17,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 import { api, type Client } from "@/lib/api"
 import { formatBytes, formatDuration } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
@@ -44,11 +43,13 @@ function StatCard({
     <Card className="@container/card">
       <CardHeader>
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">{value}</CardTitle>
+        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+          {value === undefined || value === null || value === false ? <Skeleton className="h-8 w-20" /> : value}
+        </CardTitle>
         {badge && <CardAction>{badge}</CardAction>}
       </CardHeader>
       <CardFooter className="flex-col items-start gap-1.5 text-sm">
-        <div className="line-clamp-1 flex gap-2 font-medium">{footer}</div>
+        <div className="line-clamp-1 flex gap-2 font-medium">{footer || <Skeleton className="h-4 w-32" />}</div>
         {sub && <div className="text-muted-foreground">{sub}</div>}
       </CardFooter>
     </Card>
@@ -161,37 +162,34 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
         <StatCard
           label={t("overview.activeClients")}
-          value={clients ? active : "—"}
-          badge={clients && <Badge variant="outline">{t("overview.ofTotal", { n: cs.length })}</Badge>}
+          value={clients && active}
           footer={attention > 0 ? tp("overview.needAttention", attention) : t("overview.allWithinLimits")}
-          sub={
-            <Link href="/clients/" className="hover:text-foreground hover:underline">
-              {t("overview.manageClients")}
-            </Link>
-          }
+          sub={clients && tp("overview.clientsTotal", cs.length)}
         />
         <StatCard
           label={t("overview.traffic")}
-          value={clients ? formatBytes(traffic, locale) : "—"}
-          footer={t("overview.trafficFooter")}
-          sub={t("overview.trafficSub")}
+          value={clients && formatBytes(traffic, locale)}
+          footer={
+            clients &&
+            t("overview.trafficSplit", {
+              down: formatBytes(cs.reduce((n, c) => n + c.download, 0), locale),
+              up: formatBytes(cs.reduce((n, c) => n + c.upload, 0), locale),
+            })
+          }
+          sub={t("overview.chart.description")}
         />
         <StatCard
           label={t("overview.inbounds")}
-          value={inbounds ? enabled.length : "—"}
-          badge={inbounds && <Badge variant="outline">{t("overview.ofTotal", { n: inbounds.length })}</Badge>}
+          value={inbounds && enabled.length}
           footer={
-            enabled.length ? [...new Set(enabled.map((i) => protocols[i.protocol].label))].join(", ") : t("overview.noneEnabled")
+            inbounds &&
+            (enabled.length ? [...new Set(enabled.map((i) => protocols[i.protocol].label))].join(", ") : t("overview.noneEnabled"))
           }
-          sub={
-            <Link href="/inbounds/" className="hover:text-foreground hover:underline">
-              {t("overview.manageInbounds")}
-            </Link>
-          }
+          sub={inbounds && tp("overview.inboundsTotal", inbounds.length)}
         />
         <StatCard
           label={t("overview.singbox")}
-          value={state ? t(`state.${state}`) : "—"}
+          value={state && t(`state.${state}`)}
           badge={sb?.status.version && <Badge variant="outline">{sb.status.version}</Badge>}
           footer={
             problem
@@ -200,49 +198,12 @@ export default function OverviewPage() {
                 ? t("overview.up", { d: formatDuration(sb.uptimeSeconds, locale) })
                 : t("overview.startsWithInbound")
           }
-          sub={tp("overview.restarts", sb?.status.restarts ?? 0)}
+          sub={sb && sb.status.restarts > 0 ? tp("overview.restarts", sb.status.restarts) : settings?.publicHost}
         />
       </div>
 
       <div className="px-4 lg:px-6">
         <TrafficChart clients={cs} />
-      </div>
-
-      <div className="px-4 lg:px-6">
-        <div className="overflow-hidden rounded-lg border">
-          <Table>
-            <TableHeader className="bg-muted">
-              <TableRow>
-                <TableHead>{t("overview.table.node")}</TableHead>
-                <TableHead>{t("overview.table.role")}</TableHead>
-                <TableHead className="hidden md:table-cell">{t("settings.server.publicHost")}</TableHead>
-                <TableHead className="hidden sm:table-cell">{t("overview.table.memory")}</TableHead>
-                <TableHead>sing-box</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell className="font-medium">main</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="px-1.5 text-muted-foreground">
-                    {t("overview.table.entry")}
-                  </Badge>
-                </TableCell>
-                <TableCell className="hidden font-mono text-muted-foreground md:table-cell">{settings?.publicHost || "—"}</TableCell>
-                <TableCell className="hidden tabular-nums sm:table-cell">
-                  {system ? formatBytes(system.memory.rssBytes, locale) : "—"}
-                </TableCell>
-                <TableCell>
-                  {state && (
-                    <StatusBadge tone={state === "running" ? "ok" : state === "failed" ? "error" : state === "starting" ? "pending" : "off"}>
-                      {t(`state.${state}`)}
-                    </StatusBadge>
-                  )}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
       </div>
     </>
   )

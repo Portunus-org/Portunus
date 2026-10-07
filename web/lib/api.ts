@@ -93,6 +93,24 @@ export interface InboundInput {
   obfs?: boolean
 }
 
+/** The editable fields of an inbound, as the API accepts them back. */
+export function inboundInput(inb: Inbound): InboundInput {
+  return {
+    name: inb.name,
+    port: inb.port,
+    enabled: inb.enabled,
+    realityServer: inb.realityServer,
+    realityServerPort: inb.realityServerPort,
+    serverName: inb.serverName,
+    tlsMode: inb.tlsMode,
+    certificatePath: inb.certificatePath,
+    keyPath: inb.keyPath,
+    strictTls: inb.strictTls,
+    masqueradeUrl: inb.masqueradeUrl,
+    obfs: inb.obfs,
+  }
+}
+
 export type ClientStatus = "active" | "disabled" | "expired" | "limited"
 
 export interface Client {
@@ -123,6 +141,9 @@ export interface ClientAccess {
   links: {
     inboundId: number
     label: string
+    /** The inbound's own name, "" when unnamed. */
+    name: string
+    port: number
     protocol: Protocol
     url: string
     qr: string

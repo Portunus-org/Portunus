@@ -2,17 +2,17 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useTheme } from "next-themes"
-import { CirclePlusIcon, MoonIcon, SunIcon } from "lucide-react"
+import { CirclePlusIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
+import { NEW_CLIENT_EVENT } from "@/components/clients/client-drawer"
 import { useI18n } from "@/lib/i18n"
 import { useCanEdit } from "@/lib/session"
 
@@ -31,34 +31,34 @@ export function NavMain({ items }: { items: NavItem[] }) {
   const { t } = useI18n()
   const pathname = usePathname()
   const canEdit = useCanEdit()
-  const { resolvedTheme, setTheme } = useTheme()
+  const { setOpenMobile } = useSidebar()
 
   return (
     <SidebarGroup>
       <SidebarGroupContent className="flex flex-col gap-2">
         <SidebarMenu>
-          <SidebarMenuItem className="flex items-center gap-2">
+          <SidebarMenuItem>
             {canEdit && (
               <SidebarMenuButton
                 asChild
                 tooltip={t("nav.newClient")}
                 className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
               >
-                <Link href="/clients/#new">
+                <Link
+                  href="/clients/#new"
+                  onClick={(e) => {
+                    // Already on the page: the hash would not change, so ask it directly.
+                    if (!isActivePath(pathname, "/clients/")) return
+                    e.preventDefault()
+                    setOpenMobile(false)
+                    window.dispatchEvent(new Event(NEW_CLIENT_EVENT))
+                  }}
+                >
                   <CirclePlusIcon />
                   <span>{t("nav.newClient")}</span>
                 </Link>
               </SidebarMenuButton>
             )}
-            <Button
-              size="icon"
-              className="size-8 group-data-[collapsible=icon]:opacity-0"
-              variant="outline"
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-            >
-              {resolvedTheme === "dark" ? <SunIcon /> : <MoonIcon />}
-              <span className="sr-only">{t("nav.theme")}</span>
-            </Button>
           </SidebarMenuItem>
         </SidebarMenu>
         <SidebarMenu>

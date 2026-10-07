@@ -29,12 +29,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   ]
   const navSecondary = [
     { title: t("nav.settings"), url: "/settings/", icon: <Settings2Icon /> },
-    {
-      title: t("nav.docs"),
-      url: "https://github.com/PaulichP/Portunus/blob/main/docs/DEPLOY.md",
-      icon: <BookOpenIcon />,
-      external: true,
-    },
+    { title: t("nav.docs"), url: "/docs/", icon: <BookOpenIcon /> },
   ]
 
   return (

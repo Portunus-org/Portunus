@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { api, errorText, type Inbound } from "@/lib/api"
+import { api, errorText, inboundInput, type Inbound } from "@/lib/api"
 import { daysUntil, formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { protocols } from "@/lib/protocols"
@@ -81,22 +81,19 @@ export default function InboundsPage() {
             </div>
           ),
         }),
-        col.accessor((r) => protocols[r.protocol].transport, {
-          id: "transport",
-          header: t("inbounds.col.transport"),
-        }),
         col.accessor((r) => r.tlsMode ?? "", {
           id: "certificate",
           header: t("inbounds.col.certificate"),
           enableSorting: false,
           cell: ({ row }) => {
             const r = row.original
-            if (!r.tlsMode) return <span className="text-muted-foreground">{r.protocol === "vless" ? t("inbounds.cert.reality") : "—"}</span>
+            if (!r.tlsMode) return <span className="text-muted-foreground">{r.protocol === "vless" ? t("inbounds.cert.reality") : t("inbounds.cert.none")}</span>
             if (r.tlsMode === "self-signed")
               return (
                 <StatusBadge tone="ok">
-                  {t("inbounds.cert.selfSigned")}
-                  {r.privateCertExpires && ` · ${t("inbounds.cert.until", { date: formatDate(r.privateCertExpires, locale) })}`}
+                  {r.privateCertExpires
+                    ? t("inbounds.cert.privateUntil", { date: formatDate(r.privateCertExpires, locale) })
+                    : t("inbounds.cert.selfSigned")}
                 </StatusBadge>
               )
             if (!r.certificate) return <StatusBadge tone="pending">{t("inbounds.cert.pending")}</StatusBadge>
@@ -109,7 +106,11 @@ export default function InboundsPage() {
         }),
         col.accessor("port", {
           header: () => <div className="w-full text-right">{t("inbounds.col.port")}</div>,
-          cell: ({ getValue }) => <div className="text-right tabular-nums">{getValue()}</div>,
+          cell: ({ row }) => (
+            <div className="text-right tabular-nums">
+              <span className="text-muted-foreground">{protocols[row.original.protocol].transport}</span> {row.original.port}
+            </div>
+          ),
         }),
         col.accessor("enabled", {
           header: t("inbounds.col.status"),
@@ -135,7 +136,7 @@ export default function InboundsPage() {
                   <DropdownMenuItem
                     onSelect={() =>
                       act(
-                        () => api.updateInbound(inb.id, { ...inb, enabled: !inb.enabled }),
+                        () => api.updateInbound(inb.id, { ...inboundInput(inb), enabled: !inb.enabled }),
                         t(inb.enabled ? "inbounds.toast.disabled" : "inbounds.toast.enabled")
                       )
                     }
@@ -159,7 +160,7 @@ export default function InboundsPage() {
                     variant="destructive"
                     onSelect={() =>
                       confirm({
-                        title: t("inbounds.confirm.delete", { name: inb.name || inb.tag }),
+                        title: t("inbounds.confirm.delete", { name: inb.name || protocols[inb.protocol].label }),
                         description: t("inbounds.confirm.deleteText"),
                         action: t("common.delete"),
                         destructive: true,
@@ -197,7 +198,6 @@ export default function InboundsPage() {
         onViewChange={setView}
         columnLabels={{
           protocol: t("inbounds.col.protocol"),
-          transport: t("inbounds.col.transport"),
           certificate: t("inbounds.col.certificate"),
           port: t("inbounds.col.port"),
           enabled: t("inbounds.col.status"),

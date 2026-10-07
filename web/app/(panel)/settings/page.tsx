@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -306,7 +307,7 @@ function SingBoxCard() {
           {t(`state.${s.state}`)}
         </StatusBadge>
       ) : (
-        "—"
+        <Skeleton className="h-5 w-20" />
       ),
     ],
     [t("settings.singbox.version"), <span key="v" className="font-mono">{s?.version || t("settings.singbox.notFound")}</span>],

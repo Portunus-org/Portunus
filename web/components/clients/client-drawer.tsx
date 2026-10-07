@@ -63,15 +63,17 @@ function Usage({ client }: { client: Client }) {
         <span className="tabular-nums">
           {formatBytes(used, locale)}
           <span className="text-muted-foreground">
-            {" / "}
-            {client.trafficLimit > 0 ? formatBytes(client.trafficLimit, locale) : t("clients.drawer.unlimited")}
+            {" "}
+            {client.trafficLimit > 0
+              ? t("clients.ofLimit", { limit: formatBytes(client.trafficLimit, locale) })
+              : t("clients.drawer.unlimited")}
           </span>
         </span>
       </div>
       {client.trafficLimit > 0 && <Progress value={pct} />}
       <div className="flex justify-between gap-2 text-muted-foreground tabular-nums">
         <span>
-          ↑ {formatBytes(client.upload, locale)} · ↓ {formatBytes(client.download, locale)}
+          {t("overview.trafficSplit", { down: formatBytes(client.download, locale), up: formatBytes(client.upload, locale) })}
         </span>
         <span>
           {client.expiresAt
@@ -99,7 +101,7 @@ function Access({ clientId, version }: { clientId: number; version: number }) {
         const first = a.subscriptionQr
           ? { svg: a.subscriptionQr, label: t("clients.drawer.subscription") }
           : a.links[0]
-            ? { svg: a.links[0].qr, label: a.links[0].label }
+            ? { svg: a.links[0].qr, label: a.links[0].name || protocols[a.links[0].protocol].label }
             : null
         setQr(first)
       },
@@ -142,7 +144,13 @@ function Access({ clientId, version }: { clientId: number; version: number }) {
           },
         ]
       : []),
-    ...access.links.map((l) => ({ key: `l${l.inboundId}`, label: l.label, sub: protocols[l.protocol].label, url: l.url, qr: l.qr })),
+    ...access.links.map((l) => ({
+      key: `l${l.inboundId}`,
+      label: l.name || protocols[l.protocol].label,
+      sub: t("clients.drawer.linkSub", { transport: protocols[l.protocol].transport, port: l.port }),
+      url: l.url,
+      qr: l.qr,
+    })),
   ]
 
   return (
@@ -262,6 +270,9 @@ function ClientForm({
     </form>
   )
 }
+
+/** Fired on window by the sidebar's "New client" button. */
+export const NEW_CLIENT_EVENT = "portunus:new-client"
 
 /**
  * Details and editing for one client, or the creation form when client is

@@ -1,10 +1,11 @@
 "use client"
 
+import * as React from "react"
 import { usePathname } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar"
 import { useI18n } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/messages"
 import { SessionGate } from "@/lib/session"
@@ -14,8 +15,19 @@ const titles: [string, MessageKey][] = [
   ["/inbounds/new/", "wizard.title"],
   ["/inbounds/", "inbounds.title"],
   ["/settings/", "settings.title"],
+  ["/docs/", "docs.title"],
   ["/account/", "account.title"],
 ]
+
+/** On phones the sidebar is a sheet over the page: close it after navigating. */
+function CloseSidebarOnNavigate() {
+  const pathname = usePathname()
+  const { setOpenMobile } = useSidebar()
+  React.useEffect(() => {
+    setOpenMobile(false)
+  }, [pathname, setOpenMobile])
+  return null
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { t } = useI18n()
@@ -32,6 +44,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         } as React.CSSProperties
       }
     >
+      <CloseSidebarOnNavigate />
       <AppSidebar variant="inset" />
       <SidebarInset>
         <SiteHeader title={t(title)} />

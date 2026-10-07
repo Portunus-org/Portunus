@@ -57,9 +57,8 @@ export function CAInstall({ compact = false }: { compact?: boolean }) {
           </div>
           {ca && (
             <div className="grid gap-1">
-              <span className="text-muted-foreground">
-                {ca.subject} · {t("ca.expires", { date: formatDate(ca.notAfter, locale) })}
-              </span>
+              <span>{ca.subject}</span>
+              <span className="text-muted-foreground">{t("ca.expires", { date: formatDate(ca.notAfter, locale) })}</span>
               <span className="text-muted-foreground">{t("ca.fingerprint")}</span>
               <span className="flex items-start gap-1">
                 <code className="min-w-0 font-mono text-xs break-all">{ca.fingerprint.match(/.{2}/g)?.join(":")}</code>

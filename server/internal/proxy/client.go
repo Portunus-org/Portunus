@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -151,13 +152,22 @@ func ClientProfile(host string, inbounds []Inbound, c Client) ([]byte, error) {
 	var (
 		tags      []string
 		outbounds []any
+		used      = map[string]bool{"proxy": true, "auto": true, "direct": true, "remote": true, "local": true}
 	)
 	for _, in := range inbounds {
 		if !in.Enabled {
 			continue
 		}
 		ob := ClientOutbound(host, in, c)
-		tags = append(tags, ob["tag"].(string))
+		// Tags must be unique in a sing-box config, but inbound names are
+		// free text: two may match, or collide with the group tags below.
+		tag := ob["tag"].(string)
+		for n := 2; used[tag]; n++ {
+			tag = fmt.Sprintf("%s %d", ob["tag"], n)
+		}
+		used[tag] = true
+		ob["tag"] = tag
+		tags = append(tags, tag)
 		outbounds = append(outbounds, ob)
 	}
 

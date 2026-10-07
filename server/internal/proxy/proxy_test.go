@@ -89,6 +89,41 @@ func TestClientProfile(t *testing.T) {
 	singBoxCheck(t, cfg)
 }
 
+// Inbound names are free text: equal names, or names equal to the profile's
+// own group tags, must still give a config with unique tags.
+func TestClientProfileUniqueTags(t *testing.T) {
+	ins := testInbounds(t)
+	ins[0].Name, ins[1].Name, ins[2].Name = "Main", "Main", "proxy"
+	cfg, err := ClientProfile("203.0.113.10", ins, testClients[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Outbounds []struct {
+			Tag string `json:"tag"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(cfg, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, o := range parsed.Outbounds {
+		if seen[o.Tag] {
+			t.Fatalf("duplicate outbound tag %q", o.Tag)
+		}
+		seen[o.Tag] = true
+	}
+	if !seen["Main"] || !seen["Main 2"] || !seen["proxy 2"] {
+		t.Fatalf("tags: %v", seen)
+	}
+	singBoxCheck(t, cfg)
+
+	// Unnamed inbounds are labelled by protocol and port, not by the internal tag.
+	if got := (Inbound{Protocol: Hysteria2, Port: 443, Tag: "hysteria2-443"}).Label(); got != "Hysteria2 443" {
+		t.Fatalf("label: %q", got)
+	}
+}
+
 func TestShareLinks(t *testing.T) {
 	for _, in := range testInbounds(t) {
 		link := ShareLink("203.0.113.10", in, testClients[0])

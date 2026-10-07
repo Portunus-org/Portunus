@@ -37,11 +37,11 @@ type Step = "protocol" | "camouflage" | "certificate" | "protect" | "review"
 const usesTLS = (p: Protocol) => p === "hysteria2" || p === "tuic" || p === "trojan"
 
 const protocolTags: Record<Protocol, MessageKey[]> = {
-  vless: ["wizard.tag.recommended", "wizard.tag.fast"],
-  hysteria2: ["wizard.tag.resilient", "wizard.tag.cert"],
+  vless: [],
+  hysteria2: ["wizard.tag.recommended", "wizard.tag.cert"],
   tuic: ["wizard.tag.cert"],
   trojan: ["wizard.tag.cert"],
-  shadowsocks: ["wizard.tag.plain"],
+  shadowsocks: [],
 }
 
 function stepsFor(p: Protocol): Step[] {
@@ -80,7 +80,7 @@ interface Draft {
 }
 
 const emptyDraft: Draft = {
-  protocol: "vless",
+  protocol: "hysteria2",
   name: "",
   port: 443,
   reality: "",
@@ -428,9 +428,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function certLabel(d: Draft, t: ReturnType<typeof useI18n>["t"]) {
-  if (d.tlsMode === "acme") return `${t("wizard.cert.acme")} · ${d.domain.trim()}`
-  if (d.tlsMode === "file") return `${t("wizard.cert.file")} · ${d.domain.trim()}`
-  return `${t("wizard.cert.private")} · ${d.serverName.trim()}`
+  const name = d.tlsMode === "self-signed" ? d.serverName.trim() : d.domain.trim()
+  const source = t(d.tlsMode === "acme" ? "wizard.cert.acme" : d.tlsMode === "file" ? "wizard.cert.file" : "wizard.cert.private")
+  return (
+    <span className="grid">
+      <span>{source}</span>
+      <span className="text-muted-foreground">{name}</span>
+    </span>
+  )
 }
 
 function ReviewStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>) => void; sug: InboundSuggestion | null }) {
@@ -476,7 +481,7 @@ function ReviewStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>
         {usesTLS(p) && <Row label={t("wizard.review.certificate")}>{certLabel(draft, t)}</Row>}
         {p === "hysteria2" && (
           <>
-            <Row label={t("wizard.review.masquerade")}>{draft.masquerade || "—"}</Row>
+            <Row label={t("wizard.review.masquerade")}>{draft.masquerade || t("wizard.review.off")}</Row>
             <Row label={t("wizard.review.obfs")}>{t(draft.obfs ? "wizard.review.on" : "wizard.review.off")}</Row>
           </>
         )}

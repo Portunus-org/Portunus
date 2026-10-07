@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation"
 
 import { LogoMark } from "@/components/brand/logo"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api, ApiError, setCsrfToken } from "@/lib/api"
@@ -47,34 +46,26 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted p-6 md:p-10">
-      <div className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex items-center gap-2 self-center font-medium">
-          <LogoMark />
-          Portunus
+    <main className="flex min-h-svh flex-col items-center justify-center bg-background p-6">
+      <div className="flex w-full max-w-72 flex-col gap-10">
+        <div className="flex flex-col items-center gap-5">
+          <LogoMark className="size-9" strokeWidth={1.5} />
+          <h1 className="font-serif text-3xl font-medium tracking-tight">Portunus</h1>
         </div>
-        <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-xl">{t("login.title")}</CardTitle>
-            <CardDescription>{t("login.subtitle")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={onSubmit} className="grid gap-6" noValidate>
-              <div className="grid gap-3">
-                <Label htmlFor="username">{t("login.username")}</Label>
-                <Input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required autoFocus />
-              </div>
-              <div className="grid gap-3">
-                <Label htmlFor="password">{t("login.password")}</Label>
-                <Input id="password" name="password" type="password" autoComplete="current-password" required />
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              <Button type="submit" className="w-full" disabled={pending}>
-                {pending ? t("login.pending") : t("login.submit")}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+        <form onSubmit={onSubmit} className="grid gap-5" noValidate>
+          <div className="grid gap-2">
+            <Label htmlFor="username">{t("login.username")}</Label>
+            <Input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required autoFocus />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="password">{t("login.password")}</Label>
+            <Input id="password" name="password" type="password" autoComplete="current-password" required />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" className="mt-2 w-full" disabled={pending}>
+            {pending ? t("login.pending") : t("login.submit")}
+          </Button>
+        </form>
       </div>
     </main>
   )

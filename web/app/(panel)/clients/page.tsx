@@ -4,10 +4,11 @@ import * as React from "react"
 import { EllipsisVerticalIcon, PlusIcon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { ClientDrawer } from "@/components/clients/client-drawer"
+import { ClientDrawer, NEW_CLIENT_EVENT } from "@/components/clients/client-drawer"
 import { ClientStatus } from "@/components/clients/client-status"
 import { useConfirm } from "@/components/confirm"
 import { columnHelper, DataTable } from "@/components/data-table"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -27,7 +28,7 @@ const col = columnHelper<Client>()
 const used = (c: Client) => c.upload + c.download
 
 export default function ClientsPage() {
-  const { t, locale } = useI18n()
+  const { t, tp, locale } = useI18n()
   const canEdit = useCanEdit()
   const { data, reload } = useResource(api.clients, 30_000)
   const [view, setView] = React.useState("all")
@@ -36,8 +37,13 @@ export default function ClientsPage() {
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [confirm, confirmDialog] = useConfirm()
 
+  // Bumped on every open so the drawer starts from a clean state: after a
+  // client is created the drawer shows it, and the next "new" must be empty.
+  const [drawerKey, setDrawerKey] = React.useState(0)
+
   const open = React.useCallback((c: Client | null) => {
     setSelected(c)
+    setDrawerKey((k) => k + 1)
     setDrawerOpen(true)
   }, [])
 
@@ -50,8 +56,15 @@ export default function ClientsPage() {
       }
     }
     onHash()
+    // Client-side navigation to the same page changes the hash without a
+    // hashchange event, so the sidebar button also announces itself.
+    const onNew = () => canEdit && open(null)
     window.addEventListener("hashchange", onHash)
-    return () => window.removeEventListener("hashchange", onHash)
+    window.addEventListener(NEW_CLIENT_EVENT, onNew)
+    return () => {
+      window.removeEventListener("hashchange", onHash)
+      window.removeEventListener(NEW_CLIENT_EVENT, onNew)
+    }
   }, [canEdit, open])
 
   const act = React.useCallback(
@@ -90,7 +103,7 @@ export default function ClientsPage() {
             <div className="text-right tabular-nums">
               {formatBytes(used(row.original), locale)}
               {row.original.trafficLimit > 0 && (
-                <span className="text-muted-foreground"> / {formatBytes(row.original.trafficLimit, locale)}</span>
+                <span className="text-muted-foreground"> {t("clients.ofLimit", { limit: formatBytes(row.original.trafficLimit, locale) })}</span>
               )}
             </div>
           ),
@@ -103,9 +116,13 @@ export default function ClientsPage() {
             if (!e) return <span className="text-muted-foreground">{t("common.never")}</span>
             const d = daysUntil(e)
             return (
-              <span className="tabular-nums">
+              <span className="flex items-center gap-2 tabular-nums">
                 {formatDate(e, locale)}
-                {d > 0 && d <= 7 && <span className="text-muted-foreground"> · {d}</span>}
+                {d > 0 && d <= 7 && (
+                  <Badge variant="outline" className="px-1.5 text-muted-foreground">
+                    {tp("clients.drawer.daysLeft", d)}
+                  </Badge>
+                )}
               </span>
             )
           },
@@ -170,7 +187,7 @@ export default function ClientsPage() {
           },
         }),
       ]),
-    [act, canEdit, confirm, open, t, locale]
+    [act, canEdit, confirm, open, t, tp, locale]
   )
 
   const clients = data ?? []
@@ -229,7 +246,7 @@ export default function ClientsPage() {
         empty={!data ? t("common.loading") : clients.length === 0 ? t("clients.empty") : t("common.nothingMatches")}
       />
 
-      <ClientDrawer key={selected?.id ?? "new"} open={drawerOpen} onOpenChange={setDrawerOpen} client={selected} onChanged={reload} />
+      <ClientDrawer key={drawerKey} open={drawerOpen} onOpenChange={setDrawerOpen} client={selected} onChanged={reload} />
       {confirmDialog}
     </>
   )

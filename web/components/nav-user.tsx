@@ -33,8 +33,8 @@ export function NavUser() {
 
   const identity = (
     <>
-      <Avatar className="h-8 w-8 rounded-lg grayscale">
-        <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
+      <Avatar>
+        <AvatarFallback>{initials}</AvatarFallback>
       </Avatar>
       <div className="grid flex-1 text-left text-sm leading-tight">
         <span className="truncate font-medium">{user.username}</span>

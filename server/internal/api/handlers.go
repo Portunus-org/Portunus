@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -159,25 +158,15 @@ func (s *Server) cookieSecure(r *http.Request) bool {
 		return false
 	}
 	// Auto: Secure whenever the browser reached the panel over HTTPS, either
-	// directly or through a TLS-terminating reverse proxy, and on localhost
-	// (an SSH tunnel), where browsers accept Secure cookies over plain HTTP.
-	// A forged X-Forwarded-Proto can only make the cookie stricter.
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		return true
-	}
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsLoopback()
+	// directly or through a TLS-terminating reverse proxy. A forged
+	// X-Forwarded-Proto can only make the cookie stricter. Plain HTTP (an SSH
+	// tunnel to localhost) stays without it: not every browser keeps Secure
+	// cookies on http://localhost.
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, sess *auth.Session) {
-	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is decided per request by cookieSecure (TLS, proxy or localhost); a plain-HTTP deployment needs it off
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is decided per request by cookieSecure (TLS or a TLS-terminating proxy); a plain-HTTP deployment needs it off
 	http.SetCookie(w, &http.Cookie{
 		Name:  sessionCookie,
 		Value: sess.Token,
@@ -191,7 +180,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, sess *
 }
 
 func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is decided per request by cookieSecure (TLS, proxy or localhost); a plain-HTTP deployment needs it off
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is decided per request by cookieSecure (TLS or a TLS-terminating proxy); a plain-HTTP deployment needs it off
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    "",

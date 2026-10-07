@@ -30,7 +30,7 @@ a global passive observer.
 | Passwords | argon2id (m=19 MiB, t=2, p=1); min. length 12; constant-time compare; same-duration failure for unknown users. | built |
 | Bootstrap | Random initial admin password, logged once, must be changed before the API allows anything else. | built |
 | Brute force | Per-IP token bucket and per-username exponential lockout; `429` with `Retry-After`. | built |
-| Sessions | Opaque 256-bit tokens, stored hashed (SHA-256); `HttpOnly`, `SameSite=Strict`, `Secure` under TLS, behind a TLS-terminating proxy (`X-Forwarded-Proto: https`) and on localhost; 24 h idle, 7 d absolute; password change revokes other sessions. | built |
+| Sessions | Opaque 256-bit tokens, stored hashed (SHA-256); `HttpOnly`, `SameSite=Strict`, `Secure` under TLS and behind a TLS-terminating proxy (`X-Forwarded-Proto: https`); 24 h idle, 7 d absolute; password change revokes other sessions. | built |
 | CSRF | Per-session token header on all state-changing requests; cross-origin `Origin` rejected; JSON-only bodies. | built |
 | Browser hardening | Per-page CSP with hashed inline scripts (no `unsafe-inline` for scripts), `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, COOP/CORP; self-hosted fonts. | built |
 | Audit | Login, failed login, logout, password change and reset are written to `audit_log`. | built; UI in stage 8 |

@@ -26,7 +26,7 @@ export function formatDuration(seconds: number, locale: Locale = "en"): string {
 }
 
 export function formatDate(iso: string | null | undefined, locale: Locale = "en"): string {
-  return iso ? new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(new Date(iso)) : "—"
+  return iso ? new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(new Date(iso)) : ""
 }
 
 /** Days until iso (negative when in the past). */

@@ -10,7 +10,7 @@ export interface ProtocolInfo {
 // that gets through lossy or throttled links.
 export const protocols: Record<Protocol, ProtocolInfo> = {
   vless: {
-    label: "VLESS · REALITY",
+    label: "VLESS Reality",
     transport: "TCP",
     defaultPort: 443,
   },
@@ -36,4 +36,5 @@ export const protocols: Record<Protocol, ProtocolInfo> = {
   },
 }
 
-export const protocolOrder: Protocol[] = ["vless", "hysteria2", "tuic", "trojan", "shadowsocks"]
+// Hysteria2 first: the recommended default in the inbound wizard.
+export const protocolOrder: Protocol[] = ["hysteria2", "vless", "tuic", "trojan", "shadowsocks"]

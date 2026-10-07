@@ -58,8 +58,10 @@ After the first sign-in the panel greets you, asks for a new password and
 for the basics: it shows the detected public address and asks whether the
 server has a domain (checked against DNS as you type).
 
+The panel has its own user guide under **Documentation** in the sidebar.
+
 Connections are then created in **Connections → Add connection**, a
-step-by-step wizard for the chosen protocol. It picks a free port, measures
+step-by-step wizard for the chosen protocol (Hysteria2 is preselected). It picks a free port, measures
 REALITY camouflage sites from the server, and for Hysteria2, TUIC and Trojan
 asks where the certificate comes from:
 

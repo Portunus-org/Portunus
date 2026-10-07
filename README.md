@@ -35,6 +35,10 @@ Full instructions: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Documentation
 
+The user guide is built into the panel (**Documentation** in the sidebar):
+protocols, certificates, clients and subscriptions, apps, firewall,
+troubleshooting, backups. The files below cover deployment and design.
+
 - [Architecture](docs/ARCHITECTURE.md)
 - [Decisions](docs/DECISIONS.md)
 - [Deployment](docs/DEPLOY.md)

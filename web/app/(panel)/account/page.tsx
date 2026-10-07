@@ -48,8 +48,8 @@ export default function AccountPage() {
           <CardTitle>{t("account.profile")}</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center gap-4">
-          <Avatar className="size-12 rounded-lg grayscale">
-            <AvatarFallback className="rounded-lg">{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+          <Avatar className="size-12">
+            <AvatarFallback>{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
           <div className="grid">
             <span className="font-medium">{user.username}</span>

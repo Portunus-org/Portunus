@@ -122,9 +122,7 @@ export function InboundDrawer({
       <DrawerContent>
         <DrawerHeader className="gap-1">
           <DrawerTitle>{inbound.name || protocols[protocol].label}</DrawerTitle>
-          <DrawerDescription>
-            {protocols[protocol].label} · {inbound.tag}
-          </DrawerDescription>
+          <DrawerDescription>{t("inbounds.drawer.subtitle", { protocol: protocols[protocol].label, port: inbound.port })}</DrawerDescription>
         </DrawerHeader>
 
         <form id="inbound-form" onSubmit={onSubmit} className="flex flex-col gap-4 overflow-y-auto px-4 text-sm" noValidate>
@@ -278,7 +276,7 @@ export function InboundDrawer({
                   <span className="text-right">
                     {inbound.certificate.issuer}
                     <span className="text-muted-foreground">
-                      {" · "}
+                      {", "}
                       {t("inbounds.cert.until", { date: formatDate(inbound.certificate.notAfter, locale) })}
                     </span>
                   </span>
@@ -293,7 +291,7 @@ export function InboundDrawer({
                 <span className="text-right">
                   Portunus CA
                   <span className="text-muted-foreground">
-                    {" · "}
+                    {", "}
                     {t("inbounds.cert.until", { date: formatDate(inbound.privateCertExpires, locale) })}
                   </span>
                 </span>

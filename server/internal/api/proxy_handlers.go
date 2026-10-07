@@ -390,6 +390,8 @@ func (s *Server) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
 type accessLink struct {
 	InboundID int64          `json:"inboundId"`
 	Label     string         `json:"label"`
+	Name      string         `json:"name"`
+	Port      int            `json:"port"`
 	Protocol  proxy.Protocol `json:"protocol"`
 	URL       string         `json:"url"`
 	QR        string         `json:"qr"`
@@ -446,7 +448,7 @@ func (s *Server) handleClientAccess(w http.ResponseWriter, r *http.Request) {
 			s.internalError(w, r, err)
 			return
 		}
-		out.Links = append(out.Links, accessLink{InboundID: in.ID, Label: in.Label(), Protocol: in.Protocol, URL: link, QR: qr})
+		out.Links = append(out.Links, accessLink{InboundID: in.ID, Label: in.Label(), Name: in.Name, Port: in.Port, Protocol: in.Protocol, URL: link, QR: qr})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

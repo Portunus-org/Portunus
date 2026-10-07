@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import { Geist, Geist_Mono, Newsreader } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 
 import { Toaster } from "@/components/ui/sonner"
@@ -19,8 +19,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin", "cyrillic"],
 })
 
+// The wordmark on the sign-in page.
+const newsreader = Newsreader({
+  variable: "--font-newsreader",
+  subsets: ["latin"],
+  weight: "500",
+})
+
 export const metadata: Metadata = {
-  title: { default: "Portunus", template: "%s · Portunus" },
+  title: { default: "Portunus", template: "%s | Portunus" },
   description: "Self-hosted sing-box control panel",
   robots: { index: false, follow: false },
   referrer: "no-referrer",
@@ -31,7 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>

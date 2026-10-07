@@ -400,11 +400,21 @@ Releases must have no HIGH or CRITICAL findings from trivy (image and
 repository) and semgrep (`p/default`, `p/golang`, `p/typescript`,
 `p/dockerfile`, `p/secrets`). Findings are fixed where real (an open
 redirect on directory URLs; the Secure cookie flag now also follows
-`X-Forwarded-Proto: https` and localhost; the sing-box binary is resolved
+`X-Forwarded-Proto: https`; the sing-box binary is resolved
 to an absolute path once). Reviewed false positives carry a `nosemgrep`
 comment with the reason. sing-box's own dependencies are bumped in the
 Dockerfile (`SINGBOX_DEP_BUMPS`, pinned) when its release lags behind a
 fix; each entry is dropped once sing-box requires that version.
+
+## D-28 Documentation inside the panel — Accepted
+
+The user guide ships in the panel (`/docs/`, ten topics) instead of linking
+to the repository: it is available on a server without internet access to
+GitHub, matches the installed version, follows the interface language and
+links straight to the pages it describes. Content is typed data in
+`web/lib/docs.ts` (English and Russian side by side) rendered by one
+component; topics are prerendered by the static export. The files in
+`docs/` stay for deployment and design notes.
 
 ## Open questions for the owner
 

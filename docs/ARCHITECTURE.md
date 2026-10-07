@@ -151,6 +151,10 @@ Planned: `nodes`, `join_tokens`, `chains`, `list_sources`, `route_rules`,
 Next.js App Router, static export, shadcn/ui only. Route groups:
 
 - `app/login`: public sign-in page.
+- `app/welcome`: first-run basics (password, public address, domain).
+- `app/(panel)/inbounds/new`: the inbound wizard.
+- `app/(panel)/docs`: the built-in user guide; content in `lib/docs.ts`,
+  one prerendered page per topic.
 - `app/(panel)/…`: authenticated shell (sidebar + header, based on
   dashboard-01). `SessionGate` loads `/api/auth/me` and redirects to `/login/`
   on 401. This is a UX guard only; the API enforces authorization itself.

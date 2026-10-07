@@ -105,12 +105,30 @@ type Inbound struct {
 	Secret   Secret
 }
 
-// Label is the human-readable name of an inbound.
+// Label is the human-readable name of an inbound: what client apps show for
+// its link. Unnamed inbounds are called after their protocol and port.
 func (in Inbound) Label() string {
 	if in.Name != "" {
 		return in.Name
 	}
-	return in.Tag
+	return fmt.Sprintf("%s %d", in.Protocol.Display(), in.Port)
+}
+
+// Display is the protocol's name as shown to people.
+func (p Protocol) Display() string {
+	switch p {
+	case VLESS:
+		return "VLESS Reality"
+	case Hysteria2:
+		return "Hysteria2"
+	case TUIC:
+		return "TUIC"
+	case Trojan:
+		return "Trojan"
+	case Shadowsocks:
+		return "Shadowsocks"
+	}
+	return string(p)
 }
 
 type TLSMode string
