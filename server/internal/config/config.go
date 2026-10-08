@@ -7,8 +7,10 @@ package config
 
 import (
 	"fmt"
+	"github.com/PaulichP/Portunus/server/internal/version"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +50,31 @@ type Config struct {
 
 	// SingBoxBin is the sing-box executable to supervise.
 	SingBoxBin string
+	// SingBoxMemory is the Go soft memory limit (GOMEMLIMIT) given to
+	// sing-box. The panel's own limit is small; the proxy needs room for
+	// its connections, or its garbage collector runs without pause once
+	// hundreds of them are open.
+	SingBoxMemory string
+	// SingBoxCtl is the loopback address of sing-box's control API, which
+	// the panel uses to measure exits.
+	SingBoxCtl string
+	// NodeImage is the container image the join command for new nodes
+	// uses: by default the published node image of this very version. A
+	// name without a registry is a local build, and the panel then also
+	// shows how to copy it to the server.
+	NodeImage string
+	// GeoLookup is the service that tells where a server is, for the map of
+	// nodes: the panel requests GeoLookup + IP for its own public address
+	// and for each node's. "off" disables it; servers can still be placed
+	// on the map by hand.
+	GeoLookup string
+	// MapTiles is where the panel fetches map tiles for the map of nodes:
+	// a URL template with {z}, {x}, {y} and optionally {style} ("light" or
+	// "dark") for a provider that has both. The default is OpenStreetMap's
+	// own tile server, which needs no key; the panel caches what it fetches
+	// and the browser gets tiles from the panel only. "off" leaves a plain
+	// outline map.
+	MapTiles string
 	// SingBoxAPI is the loopback address of sing-box's stats API (v2ray_api),
 	// used for per-client traffic accounting.
 	SingBoxAPI string
@@ -63,7 +90,18 @@ type Config struct {
 
 const (
 	DefaultListen = "127.0.0.1:2053"
+	// NodeImageRepository is where releases publish the node image.
+	NodeImageRepository = "ghcr.io/paulichp/portunus-node"
 )
+
+// DefaultNodeImage is the published node image that goes with this build:
+// the same release, or the newest one for a build that is not a release.
+func DefaultNodeImage() string {
+	if strings.HasPrefix(version.Version, "v") {
+		return NodeImageRepository + ":" + version.Version
+	}
+	return NodeImageRepository + ":latest"
+}
 
 func Load() (*Config, error) {
 	c := &Config{
@@ -76,6 +114,11 @@ func Load() (*Config, error) {
 		SecretKeyFile: env("PORTUNUS_SECRET_KEY_FILE", ""),
 		SingBoxBin:    env("PORTUNUS_SINGBOX_BIN", "sing-box"),
 		SingBoxAPI:    env("PORTUNUS_SINGBOX_API", "127.0.0.1:2054"),
+		SingBoxCtl:    env("PORTUNUS_SINGBOX_CTL", "127.0.0.1:2055"),
+		SingBoxMemory: env("PORTUNUS_SINGBOX_MEMLIMIT", "256MiB"),
+		NodeImage:     env("PORTUNUS_NODE_IMAGE", DefaultNodeImage()),
+		GeoLookup:     env("PORTUNUS_GEO_LOOKUP", "https://ipwho.is/"),
+		MapTiles:      env("PORTUNUS_MAP_TILES", "https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
 		SubListen:     env("PORTUNUS_SUB_LISTEN", ""),
 		ACMEDirectory: env("PORTUNUS_ACME_DIRECTORY", ""),
 	}
@@ -93,8 +136,23 @@ func Load() (*Config, error) {
 	default:
 		return nil, fmt.Errorf("PORTUNUS_COOKIE_SECURE: must be auto, always or never, got %q", c.CookieSecure)
 	}
+	if strings.EqualFold(c.MapTiles, "off") {
+		c.MapTiles = ""
+	} else if u, err := url.Parse(c.MapTiles); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || !strings.Contains(c.MapTiles, "{z}") {
+		return nil, fmt.Errorf("PORTUNUS_MAP_TILES: must be a tile URL template or \"off\", got %q", c.MapTiles)
+	}
+	if strings.EqualFold(c.GeoLookup, "off") {
+		c.GeoLookup = ""
+	} else if u, err := url.Parse(c.GeoLookup); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return nil, fmt.Errorf("PORTUNUS_GEO_LOOKUP: must be a URL or \"off\", got %q", c.GeoLookup)
+	}
 	if _, _, err := net.SplitHostPort(c.Listen); err != nil {
 		return nil, fmt.Errorf("PORTUNUS_LISTEN: %w", err)
+	}
+	if host, _, err := net.SplitHostPort(c.SingBoxCtl); err != nil {
+		return nil, fmt.Errorf("PORTUNUS_SINGBOX_CTL: %w", err)
+	} else if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return nil, fmt.Errorf("PORTUNUS_SINGBOX_CTL: must be a loopback address, got %q", host)
 	}
 	if host, _, err := net.SplitHostPort(c.SingBoxAPI); err != nil {
 		return nil, fmt.Errorf("PORTUNUS_SINGBOX_API: %w", err)
@@ -120,6 +178,10 @@ func Load() (*Config, error) {
 }
 
 // DBPath is the location of the SQLite database file.
+// InitialLoginPath holds the first password of the admin account until it
+// is replaced (see cmd/portunus: showInitialLogin).
+func (c *Config) InitialLoginPath() string { return filepath.Join(c.DataDir, "initial-password") }
+
 func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "portunus.db") }
 
 // MasterKeyPath is where the database encryption key is read from.

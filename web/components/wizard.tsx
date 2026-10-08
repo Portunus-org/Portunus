@@ -4,7 +4,7 @@ import * as React from "react"
 import { CircleAlertIcon, CircleCheckIcon, LoaderIcon } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field"
 import { Progress } from "@/components/ui/progress"
 import { RadioGroupItem } from "@/components/ui/radio-group"
 import { useI18n } from "@/lib/i18n"
@@ -33,10 +33,7 @@ export function StepFrame({
 }) {
   const { t } = useI18n()
   return (
-    <div
-      key={step}
-      className={cn("flex w-full max-w-xl flex-col gap-6 duration-500 animate-in fade-in slide-in-from-bottom-2", className)}
-    >
+    <div key={step} className={cn("flex w-full max-w-xl flex-col gap-6 duration-500 animate-in fade-in slide-in-from-bottom-2", className)}>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>{t("welcome.step", { n: step, total })}</span>
         {aside}
@@ -54,7 +51,10 @@ export function StepFrame({
   )
 }
 
-/** A large radio option: title, explanation and optional badges. */
+/**
+ * A large radio option: title, explanation and optional badges. Composed as
+ * shadcn's "Choice Card": a Field inside its FieldLabel.
+ */
 export function ChoiceCard({
   value,
   id,
@@ -71,20 +71,19 @@ export function ChoiceCard({
   children?: React.ReactNode
 }) {
   return (
-    <Label
-      htmlFor={id}
-      className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 font-normal has-data-[state=checked]:border-primary has-data-[state=checked]:bg-muted/50"
-    >
-      <RadioGroupItem value={value} id={id} className="mt-0.5" />
-      <div className="grid min-w-0 flex-1 gap-1.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{title}</span>
-          {badges}
-        </div>
-        {description && <span className="text-sm text-muted-foreground">{description}</span>}
-        {children}
-      </div>
-    </Label>
+    <FieldLabel htmlFor={id}>
+      <Field orientation="horizontal">
+        <FieldContent>
+          <FieldTitle className="flex-wrap">
+            <span>{title}</span>
+            {badges}
+          </FieldTitle>
+          {description && <FieldDescription>{description}</FieldDescription>}
+          {children}
+        </FieldContent>
+        <RadioGroupItem value={value} id={id} />
+      </Field>
+    </FieldLabel>
   )
 }
 

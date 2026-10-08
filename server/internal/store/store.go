@@ -233,3 +233,10 @@ func truncate(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// Snapshot copies the whole database, as of one moment, into a new file
+// while it stays in use.
+func (s *Store) Snapshot(ctx context.Context, to string) error {
+	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, to)
+	return err
+}

@@ -21,15 +21,15 @@ project spec.
 │   ├─ auth: local accounts, sessions  [built] · OIDC [st. 7]  │
 │   ├─ SQLite (WAL) on volume  [built]                         │
 │   ├─ config generator → sing-box JSON  [built]               │
-│   ├─ rule-set compiler / updater  [st. 4]                    │
-│   └─ agent hub (mTLS WebSocket)  [st. 3]                     │
+│   ├─ route list updater  [built]                             │
+│   └─ node client (mTLS HTTPS)  [built]                       │
 │          │ spawns, reloads, supervises                       │
 │  sing-box (child process)               DATA PLANE [built]   │
 │   inbounds: VLESS+REALITY, Hysteria2, Trojan, SS, TUIC       │
 └──────┬───────────────────────────────▲───────────────────────┘
        │ hop (sing-box outbound, D-15) │ agent control channel
 ┌──────▼───────────────────────────────┴───────┐
-│ hop / backup node · `portunus agent` + sing-box │  [stage 3, 5]
+│ exit / backup node · `portunus agent` + sing-box │  [built]
 └───────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ One container, one entrypoint (`portunus serve`), which:
    starts sing-box as a child process, and restarts it with backoff if it exits;
 5. serves HTTP on `PORTUNUS_LISTEN` until SIGTERM, then shuts down gracefully.
 
-The same binary runs `portunus agent` on other nodes [st. 3], plus the
+The same binary runs `portunus agent` on other nodes, plus the
 utility commands `healthcheck`, `reset-password` and `version`.
 
 ## 3. Code layout
@@ -58,6 +58,7 @@ utility commands `healthcheck`, `reset-password` and `version`.
 ```
 server/                     Go module (go.mod, go.sum)
   cmd/portunus              entrypoint and subcommands
+  cmd/portunus-node         what a node runs: the agent alone (its own image)
   internal/config           env-based configuration
   internal/db               SQLite open + embedded forward-only migrations
   internal/store            all SQL; the only package that touches database/sql
@@ -73,10 +74,9 @@ scripts/                    build.sh
 docs/                       this document, DECISIONS, DEPLOY, SECURITY, DESIGN
 ```
 
-Planned packages (under `server/`): `internal/singbox` (config model, generator, process
-supervisor), `internal/nodes` (agent hub, join tokens, health),
-`internal/routing` (list sources, rule-set compiler), `internal/subscription`,
-`internal/secrets`, `internal/oidc`.
+Nodes and routing live in `internal/agent` (both ends of the control
+channel), `internal/proxy` (routing rules, hops, link import) and
+`internal/core` (nodes, lists, rules, sync). Planned: `internal/oidc`.
 
 ## 4. HTTP surface [built]
 
@@ -98,7 +98,8 @@ computed at startup. There is no `'unsafe-inline'` for scripts.
 Stage 2 endpoints: `/api/inbounds`, `/api/clients` (+ `/access` with links
 and QR codes), `/api/settings`, `/api/singbox` (status, restart, logs, masked
 config), and `GET /sub/<token>` (also on the optional public listener).
-Planned: the join script (`/join/<token>`) [st. 3]. When the panel is published behind the decoy
+Nodes and routing: `/api/nodes` (with `/join` and `/check`) and
+`/api/routing` (default, lists, rules). When the panel is published behind the decoy
 [st. 6], only these paths and the secret panel prefix are routed to Portunus;
 everything else returns the decoy site.
 
@@ -113,38 +114,35 @@ everything else returns the decoy site.
 
 Stage 2: `inbounds` (public settings JSON + encrypted secret) and `clients`
 (credentials, subscription token, limit, expiry, traffic counters).
-Planned: `nodes`, `join_tokens`, `chains`, `list_sources`, `route_rules`,
-`oidc_providers`.
+Nodes and routing: `nodes` (roles, public settings, encrypted keys),
+`route_lists`, `route_rules`. Planned: `oidc_providers`.
 
-## 6. Multihop, routing and failover (design) [planned: stages 3–5]
+## 6. Nodes, routing and failover [built]
 
-- **Join**: the panel issues a one-time token with a TTL →
-  `curl -fsSL https://<panel>/join/<token> | sh` on the new node installs
-  the agent and sing-box. The agent exchanges the token for an mTLS client
-  certificate (D-14) and receives its config. The token is burnt on first use.
-- **Chains**: declared as ordered node lists (entry → hop1 → … → exit). The
-  generator emits one outbound per hop, linked with sing-box `detour`. The
-  node-to-node transport is a VLESS+REALITY hop (proposed, D-15).
-- **Routing**: domain lists (URL sources such as itdoginfo/allow-domains, or
-  local lists) are compiled to sing-box binary rule-sets (`.srs`), cached in the
-  data dir and refreshed on a schedule. Ordered rules map a list to
-  `direct | via chain X | block`.
+- **Join**: the panel issues the node's keys and shows one `docker run …
+  agent` command with a `PORTUNUS_JOIN` token. The agent listens for the
+  panel over mutually authenticated TLS; the panel sends it a complete
+  sing-box configuration and polls it every 30 s (D-29).
+- **Exits**: a node of ours (VLESS + REALITY hop, D-15) or a proxy imported
+  from a share link. Each becomes an outbound. Every client is bound to one
+  exit (D-34); the route target `auto` sends traffic through it.
+- **Routing**: text lists of sites and addresses, typed or downloaded daily,
+  inlined as sing-box rule-sets. Ordered rules map a list to `direct`, an
+  exit, `auto` or `block`; a default covers the rest (D-30).
 - **Failover**:
-  - *client side*: subscriptions contain a `urltest` group (auto-select by
-    latency) wrapped in a `selector`, over all entry points of the same
-    service, so a dead entry is skipped without operator action;
-  - *server side*: agents send heartbeats, the panel actively probes. A node
-    is marked down after N missed probes, and chains that use it are re-rendered
-    to use a backup exit.
+  - *client side*: subscriptions contain every entry point (the main server
+    and backup entries) in one `urltest` group, so a dead entry is skipped
+    without operator action;
+  - *exits*: the panel moves the clients of an exit that has not answered
+    for two minutes to the other exits (D-34); until then, and for a rule
+    bound to one exit, traffic fails closed.
 - **Degradation**:
-  - *exit/hop node down*: only chains through it are affected. They switch to
-    a backup exit, and `direct` traffic is untouched.
-  - *panel down*: every sing-box keeps its last config. Clients keep working,
-    but nothing can be changed and no failover re-render happens. Client-side
-    `urltest` still covers entry-node failure.
-  - *main node down*: its entry disappears. Clients fail over to other entries
-    in their subscription (backup nodes deployed with the entry role). The panel
-    itself is unavailable until the main node returns. Panel HA is out of scope.
+  - *exit down*: only traffic routed to it is affected; `direct` traffic is
+    untouched.
+  - *panel or main server down*: every node keeps its last configuration,
+    also across restarts. Clients keep working through backup entries, but
+    nothing can be changed and limits are not enforced until the panel is
+    back. Panel HA is out of scope.
 
 ## 7. Frontend [built]
 

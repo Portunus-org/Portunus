@@ -5,37 +5,18 @@ import { toast } from "sonner"
 
 import { CopyButton } from "@/components/copy-button"
 import { StatusBadge } from "@/components/status"
+import { FormField, SwitchField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer"
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { api, errorText, type Inbound, type TLSMode } from "@/lib/api"
 import { formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/messages"
 import { protocols } from "@/lib/protocols"
-
-function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      {hint && <p className="text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
 
 function Value({ label, value }: { label: string; value?: string | number }) {
   if (value === undefined || value === "") return null
@@ -122,15 +103,20 @@ export function InboundDrawer({
       <DrawerContent>
         <DrawerHeader className="gap-1">
           <DrawerTitle>{inbound.name || protocols[protocol].label}</DrawerTitle>
-          <DrawerDescription>{t("inbounds.drawer.subtitle", { protocol: protocols[protocol].label, port: inbound.port })}</DrawerDescription>
+          <DrawerDescription>
+            {t("inbounds.drawer.subtitle", {
+              protocol: protocols[protocol].label,
+              port: inbound.port,
+            })}
+          </DrawerDescription>
         </DrawerHeader>
 
         <form id="inbound-form" onSubmit={onSubmit} className="flex flex-col gap-4 overflow-y-auto px-4 text-sm" noValidate>
           <div className="grid grid-cols-[1fr_7rem] gap-4">
-            <Field id="name" label={t("inbounds.form.name")}>
+            <FormField id="name" label={t("inbounds.form.name")}>
               <Input id="name" name="name" defaultValue={inbound.name} placeholder={protocols[protocol].label} maxLength={64} />
-            </Field>
-            <Field id="port" label={t("inbounds.form.port", { transport: info.transport })}>
+            </FormField>
+            <FormField id="port" label={t("inbounds.form.port", { transport: info.transport })}>
               <Input
                 id="port"
                 name="port"
@@ -140,13 +126,13 @@ export function InboundDrawer({
                 required
                 className="tabular-nums"
                 defaultValue={inbound.port ?? info.defaultPort}
-                              />
-            </Field>
+              />
+            </FormField>
           </div>
 
           {protocol === "vless" && (
             <div className="grid grid-cols-[1fr_7rem] gap-4">
-              <Field id="realityServer" label={t("inbounds.form.realityTarget")} hint={t("inbounds.form.realityTargetHint")}>
+              <FormField id="realityServer" label={t("inbounds.form.realityTarget")} hint={t("inbounds.form.realityTargetHint")}>
                 <Input
                   id="realityServer"
                   name="realityServer"
@@ -154,8 +140,8 @@ export function InboundDrawer({
                   autoCapitalize="none"
                   spellCheck={false}
                 />
-              </Field>
-              <Field id="realityServerPort" label={t("inbounds.form.targetPort")}>
+              </FormField>
+              <FormField id="realityServerPort" label={t("inbounds.form.targetPort")}>
                 <Input
                   id="realityServerPort"
                   name="realityServerPort"
@@ -165,13 +151,13 @@ export function InboundDrawer({
                   className="tabular-nums"
                   defaultValue={inbound.realityServerPort ?? 443}
                 />
-              </Field>
+              </FormField>
             </div>
           )}
 
           {usesTLS && (
             <>
-              <Field id="tlsMode" label={t("inbounds.form.certificate")} hint={t(tlsHint[tlsMode])}>
+              <FormField id="tlsMode" label={t("inbounds.form.certificate")} hint={t(tlsHint[tlsMode])}>
                 <Select value={tlsMode} onValueChange={(v) => setTlsMode(v as TLSMode)}>
                   <SelectTrigger id="tlsMode" className="w-full">
                     <SelectValue />
@@ -184,8 +170,8 @@ export function InboundDrawer({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-              </Field>
-              <Field
+              </FormField>
+              <FormField
                 id="serverName"
                 label={t(tlsMode === "self-signed" ? "inbounds.form.serverName" : "inbounds.form.domain")}
                 hint={t(tlsMode === "self-signed" ? "inbounds.form.serverNameHint" : "inbounds.form.domainHint")}
@@ -198,22 +184,23 @@ export function InboundDrawer({
                   autoCapitalize="none"
                   spellCheck={false}
                 />
-              </Field>
+              </FormField>
               {tlsMode === "self-signed" && (
-                <div className="flex items-start justify-between gap-4">
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="strictTls">{t("wizard.cert.strict")}</Label>
-                    <p className="text-muted-foreground">{t("wizard.cert.strictHint")}</p>
-                    <a href={api.caCertificateUrl("pem")} download className="w-fit underline underline-offset-4">
-                      {t("ca.download")}
-                    </a>
-                  </div>
-                  <Switch id="strictTls" checked={strictTls} onCheckedChange={setStrictTls} />
-                </div>
+                <SwitchField
+                  id="strictTls"
+                  label={t("wizard.cert.strict")}
+                  hint={t("wizard.cert.strictHint")}
+                  checked={strictTls}
+                  onCheckedChange={setStrictTls}
+                >
+                  <a href={api.caCertificateUrl("pem")} download className="w-fit underline underline-offset-4">
+                    {t("ca.download")}
+                  </a>
+                </SwitchField>
               )}
               {tlsMode === "file" && (
                 <>
-                  <Field id="certificatePath" label={t("inbounds.form.certPath")}>
+                  <FormField id="certificatePath" label={t("inbounds.form.certPath")}>
                     <Input
                       id="certificatePath"
                       name="certificatePath"
@@ -221,8 +208,8 @@ export function InboundDrawer({
                       defaultValue={inbound.certificatePath}
                       spellCheck={false}
                     />
-                  </Field>
-                  <Field id="keyPath" label={t("inbounds.form.keyPath")} hint={t("inbounds.form.pathsHint")}>
+                  </FormField>
+                  <FormField id="keyPath" label={t("inbounds.form.keyPath")} hint={t("inbounds.form.pathsHint")}>
                     <Input
                       id="keyPath"
                       name="keyPath"
@@ -230,7 +217,7 @@ export function InboundDrawer({
                       defaultValue={inbound.keyPath}
                       spellCheck={false}
                     />
-                  </Field>
+                  </FormField>
                 </>
               )}
             </>
@@ -238,7 +225,7 @@ export function InboundDrawer({
 
           {protocol === "hysteria2" && (
             <>
-              <Field id="masqueradeUrl" label={t("inbounds.form.masquerade")} hint={t("inbounds.form.masqueradeHint")}>
+              <FormField id="masqueradeUrl" label={t("inbounds.form.masquerade")} hint={t("inbounds.form.masqueradeHint")}>
                 <Input
                   id="masqueradeUrl"
                   name="masqueradeUrl"
@@ -247,21 +234,18 @@ export function InboundDrawer({
                   autoCapitalize="none"
                   spellCheck={false}
                 />
-              </Field>
-              <div className="flex items-start justify-between gap-4">
-                <div className="grid gap-1.5">
-                  <Label htmlFor="obfs">{t("inbounds.form.obfs")}</Label>
-                  <p className="text-muted-foreground">{t("inbounds.form.obfsHint")}</p>
-                </div>
-                <Switch id="obfs" checked={obfs} onCheckedChange={setObfs} />
-              </div>
+              </FormField>
+              <SwitchField
+                id="obfs"
+                label={t("inbounds.form.obfs")}
+                hint={t("inbounds.form.obfsHint")}
+                checked={obfs}
+                onCheckedChange={setObfs}
+              />
             </>
           )}
 
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="enabled">{t("inbounds.form.enabled")}</Label>
-            <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} />
-          </div>
+          <SwitchField id="enabled" label={t("inbounds.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
 
           <Separator />
           <div className="flex flex-col gap-2">
@@ -277,7 +261,9 @@ export function InboundDrawer({
                     {inbound.certificate.issuer}
                     <span className="text-muted-foreground">
                       {", "}
-                      {t("inbounds.cert.until", { date: formatDate(inbound.certificate.notAfter, locale) })}
+                      {t("inbounds.cert.until", {
+                        date: formatDate(inbound.certificate.notAfter, locale),
+                      })}
                     </span>
                   </span>
                 ) : (
@@ -292,13 +278,15 @@ export function InboundDrawer({
                   Portunus CA
                   <span className="text-muted-foreground">
                     {", "}
-                    {t("inbounds.cert.until", { date: formatDate(inbound.privateCertExpires, locale) })}
+                    {t("inbounds.cert.until", {
+                      date: formatDate(inbound.privateCertExpires, locale),
+                    })}
                   </span>
                 </span>
               </div>
             )}
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          <FormError>{error}</FormError>
         </form>
 
         <DrawerFooter>

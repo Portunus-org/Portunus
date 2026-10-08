@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { EllipsisVerticalIcon, PlusIcon } from "lucide-react"
+import { EllipsisVerticalIcon, KeyRoundIcon, PencilIcon, PlusIcon, PowerIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm"
@@ -87,19 +87,28 @@ export default function InboundsPage() {
           enableSorting: false,
           cell: ({ row }) => {
             const r = row.original
-            if (!r.tlsMode) return <span className="text-muted-foreground">{r.protocol === "vless" ? t("inbounds.cert.reality") : t("inbounds.cert.none")}</span>
+            if (!r.tlsMode)
+              return (
+                <span className="text-muted-foreground">
+                  {r.protocol === "vless" ? t("inbounds.cert.reality") : t("inbounds.cert.none")}
+                </span>
+              )
             if (r.tlsMode === "self-signed")
               return (
                 <StatusBadge tone="ok">
                   {r.privateCertExpires
-                    ? t("inbounds.cert.privateUntil", { date: formatDate(r.privateCertExpires, locale) })
+                    ? t("inbounds.cert.privateUntil", {
+                        date: formatDate(r.privateCertExpires, locale),
+                      })
                     : t("inbounds.cert.selfSigned")}
                 </StatusBadge>
               )
             if (!r.certificate) return <StatusBadge tone="pending">{t("inbounds.cert.pending")}</StatusBadge>
             return (
               <StatusBadge tone={daysUntil(r.certificate.notAfter) > 14 ? "ok" : "error"}>
-                {t("inbounds.cert.until", { date: formatDate(r.certificate.notAfter, locale) })}
+                {t("inbounds.cert.until", {
+                  date: formatDate(r.certificate.notAfter, locale),
+                })}
               </StatusBadge>
             )
           },
@@ -132,15 +141,23 @@ export default function InboundsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onSelect={() => open(inb)}>{t("common.edit")}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => open(inb)}>
+                    <PencilIcon />
+                    {t("common.edit")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
                       act(
-                        () => api.updateInbound(inb.id, { ...inboundInput(inb), enabled: !inb.enabled }),
+                        () =>
+                          api.updateInbound(inb.id, {
+                            ...inboundInput(inb),
+                            enabled: !inb.enabled,
+                          }),
                         t(inb.enabled ? "inbounds.toast.disabled" : "inbounds.toast.enabled")
                       )
                     }
                   >
+                    <PowerIcon />
                     {t(inb.enabled ? "common.disable" : "common.enable")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -153,6 +170,7 @@ export default function InboundsPage() {
                       })
                     }
                   >
+                    <KeyRoundIcon />
                     {t("inbounds.rotateKeys")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -160,7 +178,9 @@ export default function InboundsPage() {
                     variant="destructive"
                     onSelect={() =>
                       confirm({
-                        title: t("inbounds.confirm.delete", { name: inb.name || protocols[inb.protocol].label }),
+                        title: t("inbounds.confirm.delete", {
+                          name: inb.name || protocols[inb.protocol].label,
+                        }),
                         description: t("inbounds.confirm.deleteText"),
                         action: t("common.delete"),
                         destructive: true,
@@ -168,6 +188,7 @@ export default function InboundsPage() {
                       })
                     }
                   >
+                    <Trash2Icon />
                     {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -191,8 +212,16 @@ export default function InboundsPage() {
         getRowId={(r) => String(r.id)}
         views={[
           { value: "all", label: t("inbounds.view.all") },
-          { value: "enabled", label: t("inbounds.view.enabled"), count: enabled.length },
-          { value: "disabled", label: t("inbounds.view.disabled"), count: inbounds.length - enabled.length },
+          {
+            value: "enabled",
+            label: t("inbounds.view.enabled"),
+            count: enabled.length,
+          },
+          {
+            value: "disabled",
+            label: t("inbounds.view.disabled"),
+            count: inbounds.length - enabled.length,
+          },
         ]}
         view={view}
         onViewChange={setView}
@@ -207,7 +236,7 @@ export default function InboundsPage() {
             <Button variant="outline" size="sm" asChild>
               <Link href="/inbounds/new/">
                 <PlusIcon />
-                <span className="hidden lg:inline">{t("inbounds.add")}</span>
+                <span className="sr-only lg:not-sr-only">{t("inbounds.add")}</span>
               </Link>
             </Button>
           )
@@ -215,9 +244,7 @@ export default function InboundsPage() {
         empty={data ? t("inbounds.empty") : t("common.loading")}
       />
 
-      {editing && (
-        <InboundDrawer key={editing.id} open={drawerOpen} onOpenChange={setDrawerOpen} inbound={editing} onSaved={reload} />
-      )}
+      {editing && <InboundDrawer key={editing.id} open={drawerOpen} onOpenChange={setDrawerOpen} inbound={editing} onSaved={reload} />}
       {confirmDialog}
     </>
   )

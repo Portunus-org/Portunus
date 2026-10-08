@@ -57,7 +57,7 @@ func singBoxCheck(t *testing.T, cfg []byte) {
 
 func TestServerConfig(t *testing.T) {
 	ins := testInbounds(t)
-	cfg, err := ServerConfig(ins, testClients, "127.0.0.1:2054", ACMEOptions{})
+	cfg, err := ServerConfig(ins, testClients, "127.0.0.1:2054", ACMEOptions{}, Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestServerConfig(t *testing.T) {
 	}
 
 	// No clients yet: inbounds must still produce a valid config.
-	cfg, err = ServerConfig(ins, nil, "127.0.0.1:2054", ACMEOptions{})
+	cfg, err = ServerConfig(ins, nil, "127.0.0.1:2054", ACMEOptions{}, Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,13 +76,13 @@ func TestServerConfig(t *testing.T) {
 	for i := range ins {
 		ins[i].Enabled = false
 	}
-	if cfg, _ := ServerConfig(ins, testClients, "127.0.0.1:2054", ACMEOptions{}); cfg != nil {
+	if cfg, _ := ServerConfig(ins, testClients, "127.0.0.1:2054", ACMEOptions{}, Routing{}); cfg != nil {
 		t.Fatal("expected no config when every inbound is disabled")
 	}
 }
 
 func TestClientProfile(t *testing.T) {
-	cfg, err := ClientProfile("203.0.113.10", testInbounds(t), testClients[0])
+	cfg, err := ClientProfile([]EntryPoint{{Host: "203.0.113.10", Inbounds: testInbounds(t)}}, testClients[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestClientProfile(t *testing.T) {
 func TestClientProfileUniqueTags(t *testing.T) {
 	ins := testInbounds(t)
 	ins[0].Name, ins[1].Name, ins[2].Name = "Main", "Main", "proxy"
-	cfg, err := ClientProfile("203.0.113.10", ins, testClients[0])
+	cfg, err := ClientProfile([]EntryPoint{{Host: "203.0.113.10", Inbounds: ins}, {Host: "203.0.113.11", Inbounds: ins}}, testClients[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestACMEConfig(t *testing.T) {
 		{DataDirectory: "acme", HTTPPort: 8088},
 		{DataDirectory: "acme", CloudflareToken: "token", Directory: "https://acme-staging-v02.api.letsencrypt.org/directory"},
 	} {
-		cfg, err := ServerConfig(ins, testClients, "127.0.0.1:2054", acme)
+		cfg, err := ServerConfig(ins, testClients, "127.0.0.1:2054", acme, Routing{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -216,7 +216,7 @@ func TestFileCertificateConfig(t *testing.T) {
 			ins[i].Settings.CertificatePath, ins[i].Settings.KeyPath = certPath, keyPath
 		}
 	}
-	cfg, err := ServerConfig(ins, testClients, "127.0.0.1:2054", ACMEOptions{})
+	cfg, err := ServerConfig(ins, testClients, "127.0.0.1:2054", ACMEOptions{}, Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestPrivateCA(t *testing.T) {
 	if l := ShareLink("vpn.example.com", in, testClients[0]); strings.Contains(l, "insecure") {
 		t.Fatalf("strict link skips verification: %s", l)
 	}
-	cfg, err := ServerConfig([]Inbound{in}, testClients, "127.0.0.1:2054", ACMEOptions{})
+	cfg, err := ServerConfig([]Inbound{in}, testClients, "127.0.0.1:2054", ACMEOptions{}, Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}

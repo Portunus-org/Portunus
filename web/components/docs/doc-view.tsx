@@ -49,7 +49,7 @@ function Inline({ text }: { text: string }) {
 }
 
 function Block({ block }: { block: DocBlock }) {
-  if ("h" in block) return <h3 className="mt-4 text-lg font-semibold text-foreground">{block.h}</h3>
+  if ("h" in block) return <h3 className="mt-4 font-heading text-xl font-medium text-foreground">{block.h}</h3>
   if ("p" in block) {
     return (
       <p>
@@ -102,14 +102,17 @@ export function DocView({ slug }: { slug: string }) {
   return (
     <div className="grid gap-6 px-4 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:px-6">
       <nav aria-label={t("docs.title")} className="hidden lg:block">
-        <ul className="sticky top-6 grid gap-1">
+        <ul className="sticky top-0 grid gap-1">
           {docs.map((d) => (
             <li key={d.slug}>
               <Button
                 asChild
                 variant="ghost"
                 size="sm"
-                className={cn("w-full justify-start font-normal text-muted-foreground", d.slug === topic.slug && "bg-muted font-medium text-foreground")}
+                className={cn(
+                  "w-full justify-start font-normal text-muted-foreground",
+                  d.slug === topic.slug && "bg-muted font-medium text-foreground"
+                )}
               >
                 <Link href={`/docs/${d.slug}/`} aria-current={d.slug === topic.slug ? "page" : undefined}>
                   {d.title[locale]}
@@ -140,7 +143,7 @@ export function DocView({ slug }: { slug: string }) {
       <article className="grid max-w-2xl gap-4 text-sm leading-relaxed text-muted-foreground">
         <header className="grid gap-1">
           {/* The page heading (h1) is in the site header. */}
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">{topic.title[locale]}</h2>
+          <h2 className="font-heading text-3xl font-medium tracking-tight text-foreground">{topic.title[locale]}</h2>
           <p>{topic.summary[locale]}</p>
         </header>
         {topic.body[locale].map((block, i) => (

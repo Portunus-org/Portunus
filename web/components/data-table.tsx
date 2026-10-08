@@ -29,21 +29,9 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useI18n } from "@/lib/i18n"
@@ -102,7 +90,10 @@ export function DataTable<T extends RowData>({
   const { t, tp } = useI18n()
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>({})
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
-  const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 20 })
+  const [pagination, setPagination] = React.useState({
+    pageIndex: 0,
+    pageSize: 20,
+  })
 
   const table = useTable({
     features: tableFeatureSet,
@@ -163,7 +154,7 @@ export function DataTable<T extends RowData>({
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">
                   <Columns3Icon data-icon="inline-start" />
-                  <span className="hidden lg:inline">{t("common.columns")}</span>
+                  <span className="sr-only lg:not-sr-only">{t("common.columns")}</span>
                   <ChevronDownIcon data-icon="inline-end" />
                 </Button>
               </DropdownMenuTrigger>
@@ -237,9 +228,7 @@ export function DataTable<T extends RowData>({
 
         {table.getPageCount() > 1 && (
           <div className="flex items-center justify-between px-2">
-            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
-              {tp("common.rows", data.length)}
-            </div>
+            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">{tp("common.rows", data.length)}</div>
             <div className="flex w-full items-center gap-8 lg:w-fit">
               <div className="hidden items-center gap-2 lg:flex">
                 <Label htmlFor="rows-per-page" className="text-sm font-medium">
@@ -261,22 +250,49 @@ export function DataTable<T extends RowData>({
                 </Select>
               </div>
               <div className="flex w-fit items-center justify-center text-sm font-medium tabular-nums">
-                {t("common.page", { page: pagination.pageIndex + 1, pages: table.getPageCount() })}
+                {t("common.page", {
+                  page: pagination.pageIndex + 1,
+                  pages: table.getPageCount(),
+                })}
               </div>
               <div className="ml-auto flex items-center gap-2 lg:ml-0">
-                <Button variant="outline" size="icon" className="hidden size-8 lg:flex" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="hidden size-8 lg:flex"
+                  onClick={() => table.setPageIndex(0)}
+                  disabled={!table.getCanPreviousPage()}
+                >
                   <span className="sr-only">First page</span>
                   <ChevronsLeftIcon />
                 </Button>
-                <Button variant="outline" size="icon" className="size-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => table.previousPage()}
+                  disabled={!table.getCanPreviousPage()}
+                >
                   <span className="sr-only">Previous page</span>
                   <ChevronLeftIcon />
                 </Button>
-                <Button variant="outline" size="icon" className="size-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => table.nextPage()}
+                  disabled={!table.getCanNextPage()}
+                >
                   <span className="sr-only">Next page</span>
                   <ChevronRightIcon />
                 </Button>
-                <Button variant="outline" size="icon" className="hidden size-8 lg:flex" onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="hidden size-8 lg:flex"
+                  onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                  disabled={!table.getCanNextPage()}
+                >
                   <span className="sr-only">Last page</span>
                   <ChevronsRightIcon />
                 </Button>

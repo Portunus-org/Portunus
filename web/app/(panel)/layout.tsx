@@ -14,6 +14,9 @@ const titles: [string, MessageKey][] = [
   ["/clients/", "clients.title"],
   ["/inbounds/new/", "wizard.title"],
   ["/inbounds/", "inbounds.title"],
+  ["/nodes/new/", "nodeWizard.title"],
+  ["/nodes/", "nodes.title"],
+  ["/routing/", "routing.title"],
   ["/settings/", "settings.title"],
   ["/docs/", "docs.title"],
   ["/account/", "account.title"],
@@ -36,7 +39,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   const title = titles.find(([prefix]) => p.startsWith(prefix))?.[1] ?? "overview.title"
 
   return (
+    // The window itself never scrolls: the frame (sidebar, header) stays
+    // put and only the page content below the header moves.
     <SidebarProvider
+      className="h-svh overflow-hidden"
       style={
         {
           "--sidebar-width": "calc(var(--spacing) * 72)",
@@ -46,9 +52,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     >
       <CloseSidebarOnNavigate />
       <AppSidebar variant="inset" />
-      <SidebarInset>
+      <SidebarInset className="min-h-0 overflow-hidden">
         <SiteHeader title={t(title)} />
-        <div className="flex flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
           <div className="@container/main flex flex-1 flex-col gap-2">
             <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">{children}</div>
           </div>

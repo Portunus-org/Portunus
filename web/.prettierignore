@@ -1,0 +1,7 @@
+components/ui
+lib/handwriting-paths.ts
+out
+.next
+pnpm-lock.yaml
+lib/docs.ts
+lib/messages.ts

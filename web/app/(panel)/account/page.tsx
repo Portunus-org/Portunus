@@ -3,11 +3,11 @@
 import * as React from "react"
 import { toast } from "sonner"
 
+import { FormField, FormError } from "@/components/form-field"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { api, ApiError, errorText } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useSession } from "@/lib/session"
@@ -64,19 +64,16 @@ export default function AccountPage() {
             <CardDescription>{t("account.passwordHint")}</CardDescription>
           </CardHeader>
           <CardContent className="grid max-w-md gap-6">
-            <div className="grid gap-3">
-              <Label htmlFor="current">{t("account.current")}</Label>
+            <FormField id="current" label={t("account.current")}>
               <Input id="current" name="current" type="password" autoComplete="current-password" required />
-            </div>
-            <div className="grid gap-3">
-              <Label htmlFor="next">{t("account.new")}</Label>
+            </FormField>
+            <FormField id="next" label={t("account.new")}>
               <Input id="next" name="next" type="password" autoComplete="new-password" minLength={MIN_LENGTH} required />
-            </div>
-            <div className="grid gap-3">
-              <Label htmlFor="confirm">{t("account.repeat")}</Label>
+            </FormField>
+            <FormField id="confirm" label={t("account.repeat")}>
               <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
-            </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            </FormField>
+            <FormError>{error}</FormError>
           </CardContent>
           <CardFooter className="border-t">
             <Button type="submit" size="sm" disabled={pending}>

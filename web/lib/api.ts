@@ -123,6 +123,8 @@ export interface Client {
   download: number
   expiresAt: string | null
   note: string
+  /** The exit the client is bound to; null while there are no exits. */
+  exitId: number | null
   createdAt: string
 }
 
@@ -132,6 +134,8 @@ export interface ClientInput {
   trafficLimit: number
   expiresAt: string | null
   note: string
+  /** Left out: keep the exit. 0: have one chosen anew. */
+  exitId?: number
 }
 
 export interface ClientAccess {
@@ -143,6 +147,8 @@ export interface ClientAccess {
     label: string
     /** The inbound's own name, "" when unnamed. */
     name: string
+    /** The server the link leads to: the main one or a backup entry. */
+    host: string
     port: number
     protocol: Protocol
     url: string
@@ -229,6 +235,124 @@ export interface InboundSuggestion {
   domainCheck?: DomainCheck
   certificate?: CertificatePlan
   publicHost: string
+}
+
+/** Where a server is, for the map. */
+export interface GeoLocation {
+  lat: number
+  lon: number
+  city?: string
+  country?: string
+  countryCode?: string
+  /** Placed by hand rather than looked up. */
+  manual?: boolean
+}
+
+export type NodeKind = "agent" | "link"
+export type NodeState = "online" | "offline" | "pending" | "rejected"
+
+/** Another server of the installation, or a proxy imported from a link. */
+export interface Node {
+  id: number
+  name: string
+  kind: NodeKind
+  address: string
+  /** Traffic can leave through it. */
+  isExit: boolean
+  /** Clients can connect through it when the main server is down. */
+  isEntry: boolean
+  enabled: boolean
+  agentPort?: number
+  hopPort?: number
+  /** The server has answered the panel at least once. */
+  joined: boolean
+  /** Keeps a sealed copy of the panel. */
+  standby: boolean
+  protocol?: string
+  port?: number
+  location?: GeoLocation
+  createdAt: string
+  status: {
+    state: NodeState
+    error?: string
+    checkedAt?: string
+    version?: string
+    singBox?: string
+    /** Time of a small request through the exit, from the main server. */
+    latencyMs?: number
+    /** When the node last received a copy of the panel. */
+    copyAt?: string
+  }
+  /** Clients bound to this exit. */
+  clients: number
+}
+
+export interface NodeInput {
+  name: string
+  kind?: NodeKind
+  address?: string
+  isExit?: boolean
+  isEntry?: boolean
+  enabled?: boolean
+  hopPort?: number
+  agentPort?: number
+  link?: string
+  standby?: boolean
+}
+
+/** What to run on a new server. */
+export interface NodeJoin {
+  image: string
+  /** Set when the image is a local build that has to be copied over first. */
+  copyImage?: string
+  run: string
+  /** For a server that has no Docker yet. */
+  installDocker: string
+  agentPort: number
+  hopPort?: number
+}
+
+export type RouteAction = "direct" | "block" | "auto" | "node"
+
+export interface RouteTarget {
+  action: RouteAction
+  nodeId?: number
+}
+
+export interface RouteList {
+  id: number
+  name: string
+  kind: "manual" | "url"
+  url?: string
+  /** "ruleset" for a sing-box rule-set, "text" for a plain list. */
+  format: "text" | "ruleset"
+  /** Typed lists only. */
+  content?: string
+  domains: number
+  addresses: number
+  /** Lines that could not be read. */
+  skipped: number
+  fetchedAt?: string
+  fetchError?: string
+}
+
+export interface RouteListInput {
+  name: string
+  kind: "manual" | "url"
+  url?: string
+  content?: string
+}
+
+export interface RouteRule extends RouteTarget {
+  id: number
+  listId: number
+  enabled: boolean
+}
+
+export interface Routing {
+  default: RouteTarget
+  rules: RouteRule[]
+  lists: RouteList[]
 }
 
 export interface CAInfo {
@@ -337,6 +461,37 @@ export const api = {
   checkDomain: (domain: string) => request<DomainCheck>("POST", "/api/domain/check", { domain }),
   verifyProxy: (domain: string, port: number) =>
     request<{ ok: boolean; message?: string }>("POST", "/api/acme/verify-proxy", { domain, port }),
+
+  nodes: () => request<Node[]>("GET", "/api/nodes"),
+  /** Contacts every node now and returns the fresh list. */
+  checkNodes: () => request<Node[]>("POST", "/api/nodes/check"),
+  createNode: (input: NodeInput) => request<Node>("POST", "/api/nodes", input),
+  updateNode: (id: number, input: NodeInput) => request<Node>("PUT", `/api/nodes/${id}`, input),
+  deleteNode: (id: number) => request<void>("DELETE", `/api/nodes/${id}`),
+  /** The key that opens the copies of the panel kept on nodes. */
+  recovery: () => request<{ key: string; commands: string[] }>("GET", "/api/recovery"),
+  nodeJoin: (id: number) => request<NodeJoin>("GET", `/api/nodes/${id}/join`),
+
+  /** The main server, for the map of nodes. */
+  topology: () => request<{ main: { host: string; location: GeoLocation | null }; tiles: boolean }>("GET", "/api/topology"),
+  /** Places a server on the map by hand; null returns to automatic lookup. */
+  setNodeLocation: (id: number, location: { lat: number; lon: number } | null) =>
+    request<void>("PUT", `/api/nodes/${id}/location`, { location }),
+  setServerLocation: (location: { lat: number; lon: number } | null) =>
+    request<void>("PUT", "/api/topology/location", { location }),
+
+  routing: () => request<Routing>("GET", "/api/routing"),
+  setDefaultRoute: (target: RouteTarget) => request<void>("PUT", "/api/routing/default", target),
+  createRouteList: (input: RouteListInput) => request<RouteList>("POST", "/api/routing/lists", input),
+  updateRouteList: (id: number, input: RouteListInput) => request<RouteList>("PUT", `/api/routing/lists/${id}`, input),
+  deleteRouteList: (id: number) => request<void>("DELETE", `/api/routing/lists/${id}`),
+  refreshRouteList: (id: number) => request<RouteList>("POST", `/api/routing/lists/${id}/refresh`),
+  createRouteRule: (input: RouteTarget & { listId: number; enabled?: boolean }) =>
+    request<RouteRule>("POST", "/api/routing/rules", input),
+  updateRouteRule: (id: number, input: RouteTarget & { listId: number; enabled: boolean }) =>
+    request<void>("PUT", `/api/routing/rules/${id}`, input),
+  deleteRouteRule: (id: number) => request<void>("DELETE", `/api/routing/rules/${id}`),
+  orderRouteRules: (ids: number[]) => request<void>("PUT", "/api/routing/rules/order", { ids }),
 
   singbox: () => request<SingBoxInfo>("GET", "/api/singbox"),
   ca: () => request<CAInfo>("GET", "/api/ca"),

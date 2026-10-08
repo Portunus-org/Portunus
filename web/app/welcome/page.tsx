@@ -8,6 +8,7 @@ import { Handwriting } from "@/components/brand/handwriting"
 import { LogoMark } from "@/components/brand/logo"
 import { DomainStatus, useDomainCheck } from "@/components/domain-check"
 import { ChoiceCard, StepFrame } from "@/components/wizard"
+import { FormField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -30,7 +31,9 @@ function Hello({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex w-full max-w-2xl flex-col items-center gap-10 text-center">
       <Handwriting text={t("welcome.greeting")} className="max-h-40 text-foreground" onDone={() => setReady(true)} />
-      <div className={cn("flex flex-col items-center gap-8 transition-all duration-700", ready ? "opacity-100" : "translate-y-2 opacity-0")}>
+      <div
+        className={cn("flex flex-col items-center gap-8 transition-all duration-700", ready ? "opacity-100" : "translate-y-2 opacity-0")}
+      >
         <p className="max-w-md text-balance text-muted-foreground">{t("welcome.lead")}</p>
         <Button size="lg" onClick={onNext} disabled={!ready}>
           {t("welcome.start")}
@@ -61,11 +64,7 @@ function PasswordStep({ step, total, onNext }: { step: number; total: number; on
       await api.changePassword(current || String(f.get("current")), next)
       onNext()
     } catch (err) {
-      setError(
-        err instanceof ApiError && err.code === "current_password_invalid"
-          ? t("welcome.password.wrongCurrent")
-          : errorText(err, t)
-      )
+      setError(err instanceof ApiError && err.code === "current_password_invalid" ? t("welcome.password.wrongCurrent") : errorText(err, t))
       setPending(false)
     }
   }
@@ -88,22 +87,17 @@ function PasswordStep({ step, total, onNext }: { step: number; total: number; on
         }
       >
         {!current && (
-          <div className="grid gap-3">
-            <Label htmlFor="current">{t("welcome.password.current")}</Label>
+          <FormField id="current" label={t("welcome.password.current")} hint={t("welcome.password.currentHint")}>
             <Input id="current" name="current" type="password" autoComplete="current-password" required />
-            <p className="text-sm text-muted-foreground">{t("welcome.password.currentHint")}</p>
-          </div>
+          </FormField>
         )}
-        <div className="grid gap-3">
-          <Label htmlFor="next">{t("welcome.password.new")}</Label>
+        <FormField id="next" label={t("welcome.password.new")} hint={t("welcome.password.hint")}>
           <Input id="next" name="next" type="password" autoComplete="new-password" autoFocus required />
-          <p className="text-sm text-muted-foreground">{t("welcome.password.hint")}</p>
-        </div>
-        <div className="grid gap-3">
-          <Label htmlFor="repeat">{t("welcome.password.repeat")}</Label>
+        </FormField>
+        <FormField id="repeat" label={t("welcome.password.repeat")}>
           <Input id="repeat" name="repeat" type="password" autoComplete="new-password" required />
-        </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        </FormField>
+        <FormError>{error}</FormError>
       </StepFrame>
     </form>
   )
@@ -111,17 +105,7 @@ function PasswordStep({ step, total, onNext }: { step: number; total: number; on
 
 // -------------------------------------------------------------------- server
 
-function ServerStep({
-  step,
-  total,
-  onNext,
-  onSkip,
-}: {
-  step: number
-  total: number
-  onNext: () => void
-  onSkip: () => void
-}) {
+function ServerStep({ step, total, onNext, onSkip }: { step: number; total: number; onNext: () => void; onSkip: () => void }) {
   const { t } = useI18n()
   const [detected, setDetected] = React.useState<PublicAddress | null>(null)
   const [loaded, setLoaded] = React.useState(false)
@@ -177,10 +161,7 @@ function ServerStep({
       footer={
         <>
           <span />
-          <Button
-            onClick={save}
-            disabled={pending || !loaded || (hasDomain === "yes" ? !domain.trim() : !host.trim())}
-          >
+          <Button onClick={save} disabled={pending || !loaded || (hasDomain === "yes" ? !domain.trim() : !host.trim())}>
             {pending ? t("common.saving") : t("welcome.server.continue")}
             <ArrowRightIcon />
           </Button>
@@ -212,18 +193,8 @@ function ServerStep({
       <div className="grid gap-3">
         <Label>{t("welcome.server.domainQuestion")}</Label>
         <RadioGroup value={hasDomain} onValueChange={(v) => setHasDomain(v as "no" | "yes")} className="gap-3">
-          <ChoiceCard
-            value="no"
-            id="domain-no"
-            title={t("welcome.server.noDomain")}
-            description={t("welcome.server.noDomainHint")}
-          />
-          <ChoiceCard
-            value="yes"
-            id="domain-yes"
-            title={t("welcome.server.withDomain")}
-            description={t("welcome.server.withDomainHint")}
-          />
+          <ChoiceCard value="no" id="domain-no" title={t("welcome.server.noDomain")} description={t("welcome.server.noDomainHint")} />
+          <ChoiceCard value="yes" id="domain-yes" title={t("welcome.server.withDomain")} description={t("welcome.server.withDomainHint")} />
         </RadioGroup>
         {hasDomain === "yes" && (
           <div className="grid gap-3 duration-300 animate-in fade-in">
@@ -241,7 +212,7 @@ function ServerStep({
         )}
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError>{error}</FormError>
     </StepFrame>
   )
 }
@@ -254,7 +225,9 @@ function DoneStep({ onCreate, onLater, canCreate }: { onCreate: () => void; onLa
   return (
     <div className="flex w-full max-w-xl flex-col items-center gap-10 text-center">
       <Handwriting text={t("welcome.done.greeting")} className="max-h-28 text-foreground" onDone={() => setReady(true)} />
-      <div className={cn("flex flex-col items-center gap-8 transition-all duration-700", ready ? "opacity-100" : "translate-y-2 opacity-0")}>
+      <div
+        className={cn("flex flex-col items-center gap-8 transition-all duration-700", ready ? "opacity-100" : "translate-y-2 opacity-0")}
+      >
         <p className="max-w-md text-balance text-muted-foreground">{t("welcome.done.lead")}</p>
         <div className="flex flex-wrap justify-center gap-3">
           <Button size="lg" variant="ghost" onClick={onLater}>
@@ -307,7 +280,7 @@ function WelcomeFlow() {
 
   return (
     <main className="flex min-h-svh flex-col bg-muted">
-      <header className="flex items-center gap-2 p-6 text-sm font-medium md:px-10">
+      <header className="flex items-center gap-2 p-6 font-heading text-lg font-semibold md:px-10">
         <LogoMark />
         Portunus
       </header>

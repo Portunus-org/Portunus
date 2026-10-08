@@ -17,8 +17,11 @@ npx shadcn@latest add dashboard-01
 - Status is shown with outline badges and an icon, as in the block
   (green check for healthy, spinner for pending).
 - Fonts: Geist and Geist Mono (Latin and Cyrillic), self-hosted at build
-  time. Great Vibes only for the handwritten greeting on the welcome screen,
-  Newsreader only for the wordmark on the sign-in page.
+  time, for the interface. Titles (page headers, cards, drawers, dialogs,
+  the wordmark, documentation headings) are set in Source Serif 4 through
+  `--font-heading`: a serif for headings over a sans for the interface, in
+  both languages. Numbers stay in the sans. Great Vibes only for the
+  handwritten greeting on the welcome screen.
 - Before building or changing an element, read its page in the shadcn docs
   (<https://ui.shadcn.com/docs/components.md>) and follow the documented
   example. Confirmations use Alert Dialog: the "Destructive" example for
@@ -27,6 +30,13 @@ npx shadcn@latest add dashboard-01
   second muted line, a badge or plain punctuation. No placeholder dashes
   for missing values: a skeleton while loading, words otherwise.
 - The theme and language switches live in the user menu only.
+- Forms are built from shadcn's Field parts through `components/form-field.tsx`
+  (`FormField`, `SwitchField`, `FormError`); choices in wizards are its
+  "Choice Card". Action menus carry an icon per item, as in the docs.
+- The frame never scrolls: the sidebar and the header stay, the page
+  content scrolls under the header.
+- Formatting is Prettier with `web/.prettierrc.json`; `components/ui` is
+  excluded, registry components stay as installed.
 - Text lives in `web/lib/messages.ts` (English and Russian); no strings in
   components.
 

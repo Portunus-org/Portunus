@@ -88,7 +88,7 @@ func TestQUICClientsSurviveReload(t *testing.T) {
 	api := "127.0.0.1:" + strconv.Itoa(freePort(t))
 
 	apply := func(clients []proxy.Client) {
-		cfg, err := proxy.ServerConfig(inbounds, clients, api, proxy.ACMEOptions{})
+		cfg, err := proxy.ServerConfig(inbounds, clients, api, proxy.ACMEOptions{}, proxy.Routing{})
 		if err != nil {
 			t.Fatal(err)
 		}

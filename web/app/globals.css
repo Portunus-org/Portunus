@@ -9,8 +9,9 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
-  --font-heading: var(--font-sans);
+  --font-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+  /* Titles everywhere (cards, drawers, dialogs, page headers) are serif. */
+  --font-heading: var(--font-serif);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -125,7 +126,8 @@
   body {
     @apply bg-background text-foreground;
   }
-  button:not(:disabled), [role="button"]:not(:disabled) {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
     cursor: pointer;
   }
   html {
@@ -144,4 +146,58 @@
     animation: none !important;
     stroke-dashoffset: 0 !important;
   }
+}
+
+/*
+ * The map of servers (Leaflet), dressed in the panel's tokens: labels look
+ * like the panel's popovers, links and outlines take the theme's colours.
+ */
+.portunus-map {
+  font-family: inherit;
+  z-index: 0;
+}
+.portunus-map.leaflet-container {
+  background: var(--muted);
+  outline-offset: -2px;
+}
+/* Map tiles are shown in the panel's neutral palette, in both themes. */
+.portunus-map .leaflet-tile-pane {
+  filter: grayscale(1) contrast(0.86) brightness(1.12);
+}
+.dark .portunus-map .leaflet-tile-pane {
+  filter: grayscale(1) invert(1) contrast(0.82) brightness(0.92);
+}
+.portunus-map-pick,
+.portunus-map-pick .leaflet-interactive {
+  cursor: crosshair;
+}
+.leaflet-tooltip.portunus-map-label {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--popover);
+  color: var(--muted-foreground);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  white-space: nowrap;
+}
+.leaflet-tooltip.portunus-map-label::before {
+  display: none;
+}
+.portunus-map-link {
+  stroke: var(--foreground);
+  stroke-width: 1.5;
+  stroke-opacity: 0.45;
+  fill: none;
+}
+.portunus-map-link-idle {
+  stroke-dasharray: 4 5;
+  stroke-opacity: 0.3;
+}
+.portunus-map-land {
+  fill: color-mix(in oklab, var(--muted-foreground) 18%, var(--card));
+  fill-opacity: 1;
+  stroke: var(--card);
+  stroke-width: 0.6;
 }

@@ -156,8 +156,25 @@ func TestProxyFlow(t *testing.T) {
 	if clients[0]["status"] != "limited" {
 		t.Fatalf("status after exceeding limit: %v", clients[0])
 	}
+	// Over the limit the client is cut off, subscription included: the same
+	// 404 as for an unknown token. So is one whose time has run out.
+	if resp, _ := anon.Get(e.srv.URL + subPath); resp.StatusCode != 404 {
+		t.Fatalf("subscription over the limit: %d", resp.StatusCode)
+	}
+	_, gone := e.do(t, "POST", "/api/clients", map[string]any{"name": "Gone", "enabled": true, "expiresAt": "2020-01-01T00:00:00Z"}, h)
+	var goneAccess struct {
+		SubscriptionURL string `json:"subscriptionUrl"`
+	}
+	e.getJSON(t, "/api/clients/"+itoa(int(gone["id"].(float64)))+"/access", &goneAccess)
+	if resp, _ := anon.Get(e.srv.URL + goneAccess.SubscriptionURL[strings.Index(goneAccess.SubscriptionURL, "/sub/"):]); resp.StatusCode != 404 {
+		t.Fatalf("subscription of an expired client: %d", resp.StatusCode)
+	}
 	if resp, body := e.do(t, "POST", "/api/clients/"+itoa(clientID)+"/reset-traffic", nil, h); resp.StatusCode != 200 || body["status"] != "active" {
 		t.Fatalf("reset traffic: %d %v", resp.StatusCode, body)
+	}
+	// …and with the counter reset it is back.
+	if resp, _ := anon.Get(e.srv.URL + subPath); resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Subscription-Userinfo"), "download=0") {
+		t.Fatalf("subscription after the reset: %d %q", resp.StatusCode, resp.Header.Get("Subscription-Userinfo"))
 	}
 
 	// Rotation revokes the old subscription URL.

@@ -5,18 +5,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { isActivePath, type NavItem } from "@/components/nav-main"
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
+import { SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 
 export function NavSecondary({
   items,
   ...props
-}: { items: (NavItem & { external?: boolean })[] } & React.ComponentPropsWithoutRef<typeof SidebarGroup>) {
+}: {
+  items: (NavItem & { external?: boolean })[]
+} & React.ComponentPropsWithoutRef<typeof SidebarGroup>) {
   const pathname = usePathname()
   return (
     <SidebarGroup {...props}>

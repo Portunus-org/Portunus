@@ -53,6 +53,10 @@ type Manager struct {
 	// restart would otherwise lose.
 	BeforeReload func(ctx context.Context)
 
+	// OnRollback is told which configuration is running again after a new
+	// one failed to start.
+	OnRollback func(restored []byte)
+
 	mu      sync.Mutex
 	status  Status
 	current []byte // config currently written to disk
@@ -64,7 +68,21 @@ type Manager struct {
 	restarting bool
 	logs       *ring
 	kick       chan struct{}
+
+	// Recovery from a configuration that passes `sing-box check` but does
+	// not survive starting (a port taken by another program, typically).
+	// good is the last configuration that kept running; appliedAt is when
+	// the current one was installed; rejected is the one that was rolled
+	// back, with the reason, so it is not installed again.
+	good        []byte
+	appliedAt   time.Time
+	rejected    []byte
+	rejectedErr string
 }
+
+// settleTime is how long a configuration must keep sing-box running to be
+// trusted as the one to fall back to.
+var settleTime = 10 * time.Second
 
 func New(bin, dir string, log *slog.Logger) *Manager {
 	return &Manager{
@@ -135,7 +153,16 @@ func (m *Manager) Config() []byte {
 func (m *Manager) Apply(ctx context.Context, cfg []byte) error {
 	m.mu.Lock()
 	same := bytes.Equal(cfg, m.current) && (cfg == nil || m.wantRun)
+	refused := ""
+	if cfg != nil && bytes.Equal(cfg, m.rejected) {
+		refused = m.rejectedErr
+	}
 	m.mu.Unlock()
+	if refused != "" {
+		// Already tried: sing-box did not start with it. Report it again
+		// instead of taking the proxy down once more.
+		return errors.New(refused)
+	}
 	if same {
 		return nil
 	}
@@ -166,8 +193,14 @@ func (m *Manager) Apply(ctx context.Context, cfg []byte) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// What ran until now becomes the fallback, if it has proved itself.
+	if m.current != nil && m.cmd != nil && time.Since(m.appliedAt) > settleTime {
+		m.good = m.current
+	}
 	m.current = cfg
-	m.status.ConfigAppliedAt = time.Now()
+	m.appliedAt = time.Now()
+	m.rejected, m.rejectedErr = nil, ""
+	m.status.ConfigAppliedAt = m.appliedAt
 	m.wantRun = true
 	if m.cmd != nil {
 		// sing-box re-checks and re-creates its instance on SIGHUP. Existing
@@ -214,6 +247,7 @@ func (m *Manager) stop(ctx context.Context) {
 	m.mu.Lock()
 	m.wantRun = false
 	m.current = nil
+	m.good, m.rejected, m.rejectedErr = nil, nil, ""
 	cmd, exited := m.cmd, m.exited
 	m.mu.Unlock()
 	os.Remove(m.configPath())
@@ -232,6 +266,29 @@ func (m *Manager) stop(ctx context.Context) {
 		cmd.Process.Kill()
 		<-exited
 	}
+}
+
+// RejectedError says why the last configuration was rolled back ("" if none
+// was).
+func (m *Manager) RejectedError() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rejectedErr
+}
+
+// failureReason picks sing-box's own explanation of an exit from its last
+// output, falling back to the exit error.
+func (m *Manager) failureReason(err error) string {
+	lines := m.logs.lines()
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-12; i-- {
+		if j := strings.Index(lines[i], "FATAL"); j >= 0 {
+			return strings.TrimSpace(strings.TrimLeft(lines[i][j+len("FATAL"):], "[]0123456789 "))
+		}
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return "it exited"
 }
 
 func (m *Manager) signalLocked() {
@@ -260,6 +317,26 @@ func (m *Manager) Run(ctx context.Context) {
 				// Planned restart: start again right away.
 				m.restarting = false
 				m.mu.Unlock()
+				backoff = time.Second
+				continue
+			}
+			if m.wantRun && m.good != nil && time.Since(m.appliedAt) < settleTime && !bytes.Equal(m.good, m.current) {
+				// The configuration just installed did not survive: go
+				// back to the one that worked, at once, and remember why.
+				reason := m.failureReason(err)
+				m.rejected, m.rejectedErr = m.current, "sing-box could not start with the new configuration, the previous one is running again: "+reason
+				m.current, m.good = m.good, nil
+				m.appliedAt = time.Time{}
+				m.status.LastError = m.rejectedErr
+				m.status.ConfigAppliedAt = time.Now()
+				werr := os.WriteFile(m.configPath(), m.current, 0o600)
+				m.log.Error("new configuration rolled back", "reason", reason, "write_err", werr)
+				m.logs.add("[portunus] new configuration did not start (" + reason + "); the previous one is restored")
+				restored, notify := m.current, m.OnRollback
+				m.mu.Unlock()
+				if notify != nil {
+					notify(restored)
+				}
 				backoff = time.Second
 				continue
 			}
@@ -329,7 +406,7 @@ func (m *Manager) runOnce(ctx context.Context) error {
 			m.mu.Lock()
 			if m.cmd == cmd {
 				m.status.State = StateRunning
-				m.status.LastError = ""
+				m.status.LastError = m.rejectedErr
 			}
 			m.mu.Unlock()
 		}

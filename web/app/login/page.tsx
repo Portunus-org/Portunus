@@ -4,9 +4,9 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 
 import { LogoMark } from "@/components/brand/logo"
+import { FormField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { api, ApiError, setCsrfToken } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { setHandoffPassword } from "@/lib/session"
@@ -19,7 +19,10 @@ export default function LoginPage() {
 
   // Already signed in: skip the form.
   React.useEffect(() => {
-    api.me().then(() => router.replace("/"), () => {})
+    api.me().then(
+      () => router.replace("/"),
+      () => {}
+    )
   }, [router])
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -53,15 +56,13 @@ export default function LoginPage() {
           <h1 className="font-serif text-3xl font-medium tracking-tight">Portunus</h1>
         </div>
         <form onSubmit={onSubmit} className="grid gap-5" noValidate>
-          <div className="grid gap-2">
-            <Label htmlFor="username">{t("login.username")}</Label>
+          <FormField id="username" label={t("login.username")}>
             <Input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required autoFocus />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="password">{t("login.password")}</Label>
+          </FormField>
+          <FormField id="password" label={t("login.password")}>
             <Input id="password" name="password" type="password" autoComplete="current-password" required />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          </FormField>
+          <FormError>{error}</FormError>
           <Button type="submit" className="mt-2 w-full" disabled={pending}>
             {pending ? t("login.pending") : t("login.submit")}
           </Button>

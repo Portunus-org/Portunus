@@ -1,3 +1,11 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+# Security bumps of transitive dependencies ahead of their parents' releases
+# (trivy must report no HIGH or CRITICAL findings). Drop an entry once the
+# parent requires that version or newer.
+overrides:
+  '@modelcontextprotocol/sdk': 1.31.0
+  sharp: 0.35.5
+  source-map-js: 1.2.2

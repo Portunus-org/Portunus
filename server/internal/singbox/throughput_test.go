@@ -70,7 +70,7 @@ func TestThroughput(t *testing.T) {
 		inbounds = append(inbounds, proxy.Inbound{ID: int64(i + 1), Tag: proxy.Tag(p, port), Protocol: p, Port: port, Enabled: true, Settings: set, Secret: sec})
 	}
 	client := proxy.Client{ID: 1, UUID: proxy.NewUUID(), Password: proxy.NewPassword()}
-	cfg, err := proxy.ServerConfig(inbounds, []proxy.Client{client}, "127.0.0.1:"+strconv.Itoa(freePort(t)), proxy.ACMEOptions{})
+	cfg, err := proxy.ServerConfig(inbounds, []proxy.Client{client}, "127.0.0.1:"+strconv.Itoa(freePort(t)), proxy.ACMEOptions{}, proxy.Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}

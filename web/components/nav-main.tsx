@@ -4,14 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { CirclePlusIcon } from "lucide-react"
 
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from "@/components/ui/sidebar"
+import { SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar"
 import { NEW_CLIENT_EVENT } from "@/components/clients/client-drawer"
 import { useI18n } from "@/lib/i18n"
 import { useCanEdit } from "@/lib/session"

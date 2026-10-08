@@ -2,22 +2,15 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { EllipsisVerticalIcon, QrCodeIcon } from "lucide-react"
+import { EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { ClientStatus } from "@/components/clients/client-status"
 import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
+import { FormField, SwitchField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer"
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,13 +19,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { api, errorText, type Client, type ClientAccess } from "@/lib/api"
+import { api, errorText, type Client, type ClientAccess, type Node } from "@/lib/api"
 import { daysUntil, formatBytes, formatDate, fromDateInput, GiB, toDateInput } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { protocols } from "@/lib/protocols"
@@ -65,7 +57,9 @@ function Usage({ client }: { client: Client }) {
           <span className="text-muted-foreground">
             {" "}
             {client.trafficLimit > 0
-              ? t("clients.ofLimit", { limit: formatBytes(client.trafficLimit, locale) })
+              ? t("clients.ofLimit", {
+                  limit: formatBytes(client.trafficLimit, locale),
+                })
               : t("clients.drawer.unlimited")}
           </span>
         </span>
@@ -73,13 +67,18 @@ function Usage({ client }: { client: Client }) {
       {client.trafficLimit > 0 && <Progress value={pct} />}
       <div className="flex justify-between gap-2 text-muted-foreground tabular-nums">
         <span>
-          {t("overview.trafficSplit", { down: formatBytes(client.download, locale), up: formatBytes(client.upload, locale) })}
+          {t("overview.trafficSplit", {
+            down: formatBytes(client.download, locale),
+            up: formatBytes(client.upload, locale),
+          })}
         </span>
         <span>
           {client.expiresAt
             ? days! > 0
               ? tp("clients.drawer.daysLeft", days!)
-              : t("clients.drawer.expiredOn", { date: formatDate(client.expiresAt, locale) })
+              : t("clients.drawer.expiredOn", {
+                  date: formatDate(client.expiresAt, locale),
+                })
             : t("clients.drawer.noExpiry")}
         </span>
       </div>
@@ -101,7 +100,10 @@ function Access({ clientId, version }: { clientId: number; version: number }) {
         const first = a.subscriptionQr
           ? { svg: a.subscriptionQr, label: t("clients.drawer.subscription") }
           : a.links[0]
-            ? { svg: a.links[0].qr, label: a.links[0].name || protocols[a.links[0].protocol].label }
+            ? {
+                svg: a.links[0].qr,
+                label: a.links[0].name || protocols[a.links[0].protocol].label,
+              }
             : null
         setQr(first)
       },
@@ -144,10 +146,14 @@ function Access({ clientId, version }: { clientId: number; version: number }) {
           },
         ]
       : []),
-    ...access.links.map((l) => ({
-      key: `l${l.inboundId}`,
-      label: l.name || protocols[l.protocol].label,
-      sub: t("clients.drawer.linkSub", { transport: protocols[l.protocol].transport, port: l.port }),
+    ...access.links.map((l, i) => ({
+      key: `l${i}`,
+      // Links to a backup entry are named after it by the server.
+      label: l.host === access.publicHost ? l.name || protocols[l.protocol].label : l.label,
+      sub: t("clients.drawer.linkSub", {
+        transport: protocols[l.protocol].transport,
+        port: l.port,
+      }),
       url: l.url,
       qr: l.qr,
     })),
@@ -202,6 +208,17 @@ function ClientForm({
   const canEdit = useCanEdit()
   const [enabled, setEnabled] = React.useState(client?.enabled ?? true)
   const [error, setError] = React.useState<string | null>(null)
+  // "0" has the panel choose an exit.
+  const bound = String(client?.exitId ?? 0)
+  const [exit, setExit] = React.useState(bound)
+  const [exits, setExits] = React.useState<Node[]>([])
+
+  React.useEffect(() => {
+    api.nodes().then(
+      (nodes) => setExits(nodes.filter((n) => n.isExit && n.enabled)),
+      () => {}
+    )
+  }, [])
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -217,6 +234,7 @@ function ClientForm({
       trafficLimit: Math.round(gb * GiB),
       expiresAt: fromDateInput(String(f.get("expires") ?? "")),
       note: String(f.get("note") ?? ""),
+      ...(exit !== bound ? { exitId: Number(exit) } : {}),
     }
     setPending(true)
     setError(null)
@@ -234,13 +252,11 @@ function ClientForm({
   return (
     <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       <fieldset disabled={!canEdit} className="contents">
-        <div className="flex flex-col gap-3">
-          <Label htmlFor="name">{t("clients.form.name")}</Label>
+        <FormField id="name" label={t("clients.form.name")}>
           <Input id="name" name="name" defaultValue={client?.name} required maxLength={64} autoFocus={!client} />
-        </div>
+        </FormField>
         <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-3">
-            <Label htmlFor="limit">{t("clients.form.limit")}</Label>
+          <FormField id="limit" label={t("clients.form.limit")}>
             <Input
               id="limit"
               name="limit"
@@ -251,22 +267,36 @@ function ClientForm({
               className="tabular-nums"
               defaultValue={client && client.trafficLimit > 0 ? +(client.trafficLimit / GiB).toFixed(2) : ""}
             />
-          </div>
-          <div className="flex flex-col gap-3">
-            <Label htmlFor="expires">{t("clients.form.expires")}</Label>
+          </FormField>
+          <FormField id="expires" label={t("clients.form.expires")}>
             <Input id="expires" name="expires" type="date" defaultValue={toDateInput(client?.expiresAt ?? null)} />
-          </div>
+          </FormField>
         </div>
-        <div className="flex flex-col gap-3">
-          <Label htmlFor="note">{t("clients.form.note")}</Label>
+        {exits.length > 0 && (
+          <FormField id="exit" label={t("clients.form.exit")} hint={t("clients.form.exitHint")}>
+            <Select value={exit} onValueChange={setExit}>
+              <SelectTrigger id="exit" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="0">{t(client?.exitId ? "clients.form.exitAnew" : "clients.form.exitAuto")}</SelectItem>
+                  {exits.map((n) => (
+                    <SelectItem key={n.id} value={String(n.id)}>
+                      {n.status.latencyMs === undefined ? n.name : t("clients.form.exitSpeed", { name: n.name, ms: n.status.latencyMs })}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </FormField>
+        )}
+        <FormField id="note" label={t("clients.form.note")}>
           <Textarea id="note" name="note" rows={2} maxLength={500} defaultValue={client?.note} />
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <Label htmlFor="client-enabled">{t("clients.form.enabled")}</Label>
-          <Switch id="client-enabled" checked={enabled} onCheckedChange={setEnabled} />
-        </div>
+        </FormField>
+        <SwitchField id="client-enabled" label={t("clients.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
       </fieldset>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError>{error}</FormError>
     </form>
   )
 }
@@ -322,7 +352,11 @@ export function ClientDrawer({
             {client && <ClientStatus status={client.status} />}
           </div>
           <DrawerDescription>
-            {client ? t("clients.drawer.created", { date: formatDate(client.createdAt, locale) }) : t("clients.drawer.newHint")}
+            {client
+              ? t("clients.drawer.created", {
+                  date: formatDate(client.createdAt, locale),
+                })
+              : t("clients.drawer.newHint")}
           </DrawerDescription>
         </DrawerHeader>
 
@@ -340,7 +374,7 @@ export function ClientDrawer({
             </>
           )}
           <ClientForm
-            key={client?.id ?? "new"}
+            key={client ? `${client.id}:${client.exitId}` : "new"}
             client={client}
             formId="client-form"
             setPending={setPending}
@@ -374,6 +408,7 @@ export function ClientDrawer({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" side="top" className="w-48">
                   <DropdownMenuItem onSelect={() => act(() => api.resetClientTraffic(client.id), t("clients.toast.reset"))}>
+                    <RotateCcwIcon />
                     {t("clients.resetTraffic")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -386,6 +421,7 @@ export function ClientDrawer({
                       })
                     }
                   >
+                    <KeyRoundIcon />
                     {t("clients.rotate")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -393,7 +429,9 @@ export function ClientDrawer({
                     variant="destructive"
                     onSelect={() =>
                       confirm({
-                        title: t("clients.confirm.delete", { name: client.name }),
+                        title: t("clients.confirm.delete", {
+                          name: client.name,
+                        }),
                         description: t("clients.confirm.deleteText"),
                         action: t("common.delete"),
                         destructive: true,
@@ -401,6 +439,7 @@ export function ClientDrawer({
                       })
                     }
                   >
+                    <Trash2Icon />
                     {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>

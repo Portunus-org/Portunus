@@ -3,11 +3,11 @@
 A lightweight, self-hosted control panel for [sing-box](https://sing-box.sagernet.org).
 One container, tens of megabytes of RAM, loopback-only by default.
 
-> **Status: early development (stage 2 of 8).** A single node works end to
-> end: inbounds (VLESS+REALITY, Hysteria2, TUIC, Trojan, Shadowsocks-2022),
-> clients with limits and traffic accounting, subscriptions and QR codes,
-> Let's Encrypt certificates. Multihop, list-based routing, failover and SSO
-> follow. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **Status: early development.** Built: inbounds (VLESS+REALITY, Hysteria2,
+> TUIC, Trojan, Shadowsocks-2022), clients with limits and traffic
+> accounting, subscriptions and QR codes, Let's Encrypt certificates, exit
+> and backup nodes joined with one command, routing by lists. The hidden
+> panel and SSO follow. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Goals
 
@@ -26,8 +26,9 @@ One container, tens of megabytes of RAM, loopback-only by default.
 ## Quick start
 
 ```sh
+curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml
 docker compose up -d
-docker compose logs portunus | grep "initial admin"
+docker compose logs portunus                     # address, login and password
 ssh -N -L 2053:127.0.0.1:2053 user@your-server   # then open http://localhost:2053
 ```
 

@@ -144,31 +144,44 @@ func ClientOutbound(host string, in Inbound, c Client) obj {
 
 const urlTestURL = "https://www.gstatic.com/generate_204"
 
+// EntryPoint is a server clients connect to, with the inbounds as they are
+// served there (a backup entry has its own certificates and labels).
+type EntryPoint struct {
+	Host     string
+	Inbounds []Inbound
+}
+
 // ClientProfile renders a complete sing-box client configuration: a TUN
 // inbound, one outbound per server inbound, an `auto` urltest group that
 // picks the fastest live one (client-side failover), and a `proxy` selector
 // for manual choice.
-func ClientProfile(host string, inbounds []Inbound, c Client) ([]byte, error) {
+//
+// points are the servers the client can enter through: the main one first,
+// then backup entry points. All of them go into `auto`, so a client moves to
+// a backup by itself when the main server stops answering.
+func ClientProfile(points []EntryPoint, c Client) ([]byte, error) {
 	var (
 		tags      []string
 		outbounds []any
 		used      = map[string]bool{"proxy": true, "auto": true, "direct": true, "remote": true, "local": true}
 	)
-	for _, in := range inbounds {
-		if !in.Enabled {
-			continue
+	for _, pt := range points {
+		for _, in := range pt.Inbounds {
+			if !in.Enabled {
+				continue
+			}
+			ob := ClientOutbound(pt.Host, in, c)
+			// Tags must be unique in a sing-box config, but inbound names are
+			// free text: two may match, or collide with the group tags below.
+			tag := ob["tag"].(string)
+			for n := 2; used[tag]; n++ {
+				tag = fmt.Sprintf("%s %d", ob["tag"], n)
+			}
+			used[tag] = true
+			ob["tag"] = tag
+			tags = append(tags, tag)
+			outbounds = append(outbounds, ob)
 		}
-		ob := ClientOutbound(host, in, c)
-		// Tags must be unique in a sing-box config, but inbound names are
-		// free text: two may match, or collide with the group tags below.
-		tag := ob["tag"].(string)
-		for n := 2; used[tag]; n++ {
-			tag = fmt.Sprintf("%s %d", ob["tag"], n)
-		}
-		used[tag] = true
-		ob["tag"] = tag
-		tags = append(tags, tag)
-		outbounds = append(outbounds, ob)
 	}
 
 	groups := []any{
@@ -183,7 +196,18 @@ func ClientProfile(host string, inbounds []Inbound, c Client) ([]byte, error) {
 			"tag":       "auto",
 			"outbounds": tags,
 			"url":       urlTestURL,
-			"interval":  "3m",
+			// How soon a dead entry point is noticed: with backup entries
+			// this is how long a client is offline when the main server
+			// goes down. A check is one tiny request per entry.
+			"interval": "30s",
+			// Stay on the entry in use for as long as it answers, however
+			// fast the others are: what leaves an entry directly carries its
+			// address, and that should not change without need. The first
+			// entry, the main server, is where a client starts.
+			"tolerance": 5000,
+			// Connections stuck on the entry that died are dropped, so apps
+			// reconnect through the new one at once.
+			"interrupt_exist_connections": true,
 		},
 	}
 	outbounds = append(groups, outbounds...)

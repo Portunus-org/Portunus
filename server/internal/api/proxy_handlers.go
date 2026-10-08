@@ -262,7 +262,9 @@ type clientDTO struct {
 	Download     int64             `json:"download"`
 	ExpiresAt    *time.Time        `json:"expiresAt"`
 	Note         string            `json:"note"`
-	CreatedAt    time.Time         `json:"createdAt"`
+	// ExitID is the exit the client is bound to (null: no exits yet).
+	ExitID    *int64    `json:"exitId"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (s *Server) toClientDTO(c *store.ClientRow) clientDTO {
@@ -274,7 +276,7 @@ func (s *Server) toClientDTO(c *store.ClientRow) clientDTO {
 	return clientDTO{
 		ID: c.ID, Name: c.Name, Enabled: c.Enabled, Status: s.core.ClientStatus(c),
 		TrafficLimit: c.TrafficLimit, Upload: c.Upload, Download: c.Download,
-		ExpiresAt: exp, Note: c.Note, CreatedAt: c.CreatedAt.UTC(),
+		ExpiresAt: exp, Note: c.Note, ExitID: c.ExitID, CreatedAt: c.CreatedAt.UTC(),
 	}
 }
 
@@ -284,12 +286,14 @@ type clientRequest struct {
 	TrafficLimit int64      `json:"trafficLimit"`
 	ExpiresAt    *time.Time `json:"expiresAt"`
 	Note         string     `json:"note"`
+	// ExitID: absent keeps the exit, 0 has one chosen anew.
+	ExitID *int64 `json:"exitId"`
 }
 
 func (req clientRequest) input() core.ClientInput {
 	return core.ClientInput{
 		Name: req.Name, Enabled: req.Enabled == nil || *req.Enabled,
-		TrafficLimit: req.TrafficLimit, ExpiresAt: req.ExpiresAt, Note: req.Note,
+		TrafficLimit: req.TrafficLimit, ExpiresAt: req.ExpiresAt, Note: req.Note, Exit: req.ExitID,
 	}
 }
 
@@ -388,13 +392,15 @@ func (s *Server) handleDeleteClient(w http.ResponseWriter, r *http.Request) {
 }
 
 type accessLink struct {
-	InboundID int64          `json:"inboundId"`
-	Label     string         `json:"label"`
-	Name      string         `json:"name"`
-	Port      int            `json:"port"`
-	Protocol  proxy.Protocol `json:"protocol"`
-	URL       string         `json:"url"`
-	QR        string         `json:"qr"`
+	InboundID int64  `json:"inboundId"`
+	Label     string `json:"label"`
+	Name      string `json:"name"`
+	// Host is the server the link leads to: the main one or a backup entry.
+	Host     string         `json:"host"`
+	Port     int            `json:"port"`
+	Protocol proxy.Protocol `json:"protocol"`
+	URL      string         `json:"url"`
+	QR       string         `json:"qr"`
 }
 
 type accessDTO struct {
@@ -432,23 +438,25 @@ func (s *Server) handleClientAccess(w http.ResponseWriter, r *http.Request) {
 		out.SubscriptionURL = base + "/sub/" + c.SubToken
 		out.SubscriptionQR, _ = qrsvg.Encode(out.SubscriptionURL)
 	}
-	ins, err := s.core.Inbounds(ctx)
+	points, err := s.core.EntryPoints(ctx)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
 	pc := proxy.Client{ID: c.ID, Name: c.Name, UUID: c.UUID, Password: c.Password}
-	for _, in := range ins {
-		if !in.Enabled {
-			continue
+	for _, pt := range points {
+		for _, in := range pt.Inbounds {
+			if !in.Enabled {
+				continue
+			}
+			link := proxy.ShareLink(pt.Host, in, pc)
+			qr, err := qrsvg.Encode(link)
+			if err != nil {
+				s.internalError(w, r, err)
+				return
+			}
+			out.Links = append(out.Links, accessLink{InboundID: in.ID, Label: in.Label(), Name: in.Name, Host: pt.Host, Port: in.Port, Protocol: in.Protocol, URL: link, QR: qr})
 		}
-		link := proxy.ShareLink(host, in, pc)
-		qr, err := qrsvg.Encode(link)
-		if err != nil {
-			s.internalError(w, r, err)
-			return
-		}
-		out.Links = append(out.Links, accessLink{InboundID: in.ID, Label: in.Label(), Name: in.Name, Port: in.Port, Protocol: in.Protocol, URL: link, QR: qr})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -591,7 +599,7 @@ func (s *Server) handleSingBoxConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"config": redact(v)})
 }
 
-var redactedKeys = map[string]bool{"private_key": true, "key": true, "password": true, "uuid": true}
+var redactedKeys = map[string]bool{"private_key": true, "key": true, "password": true, "uuid": true, "secret": true}
 
 func redact(v any) any {
 	switch t := v.(type) {
@@ -618,8 +626,8 @@ func redact(v any) any {
 // ------------------------------------------------------------ subscription
 
 // handleSubscription serves a client's subscription. The token in the path is
-// the only credential, so unknown tokens and disabled clients get the same
-// plain 404.
+// the only credential, so unknown tokens and clients that may not connect
+// (disabled, expired, over their traffic limit) get the same plain 404.
 //
 // Format: sing-box JSON profile for sing-box apps (detected by User-Agent or
 // ?format=singbox), otherwise a base64 list of share links, which v2rayN,
@@ -629,7 +637,9 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	notFound := func() { http.Error(w, "404 page not found", http.StatusNotFound) }
 
 	c, err := s.core.ClientBySubToken(ctx, r.PathValue("token"))
-	if err != nil || !c.Enabled {
+	// Only a client that may connect gets anything: one that is switched
+	// off, out of time or over its traffic limit is cut off here as well.
+	if err != nil || s.core.ClientStatus(c) != core.ClientActive {
 		notFound()
 		return
 	}
@@ -638,7 +648,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		notFound()
 		return
 	}
-	ins, err := s.core.Inbounds(ctx)
+	points, err := s.core.EntryPoints(ctx)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
@@ -663,7 +673,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		format = "singbox"
 	}
 	if format == "singbox" {
-		cfg, err := proxy.ClientProfile(host, ins, pc)
+		cfg, err := proxy.ClientProfile(points, pc)
 		if err != nil {
 			s.internalError(w, r, err)
 			return
@@ -675,9 +685,11 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var links []string
-	for _, in := range ins {
-		if in.Enabled {
-			links = append(links, proxy.ShareLink(host, in, pc))
+	for _, pt := range points {
+		for _, in := range pt.Inbounds {
+			if in.Enabled {
+				links = append(links, proxy.ShareLink(pt.Host, in, pc))
+			}
 		}
 	}
 	h.Set("Content-Type", "text/plain; charset=utf-8")

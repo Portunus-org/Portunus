@@ -127,6 +127,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, sess.User.ID, sess.User.Username, "auth.password_changed", "")
+	if sess.User.Username == "admin" {
+		// The password from the first start is replaced: stop showing it.
+		os.Remove(s.cfg.InitialLoginPath())
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

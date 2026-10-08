@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -38,11 +39,13 @@ type Server struct {
 	mgr     *singbox.Manager
 	started time.Time
 	sub     subState
+	tiles   *tileCache
 }
 
 func New(cfg *config.Config, log *slog.Logger, st *store.Store, as *auth.Service, c *core.Core, mgr *singbox.Manager) *Server {
 	return &Server{cfg: cfg, log: log, store: st, auth: as, core: c, mgr: mgr, started: time.Now(),
-		sub: subState{kick: make(chan struct{}, 1)}}
+		sub:   subState{kick: make(chan struct{}, 1)},
+		tiles: newTileCache(filepath.Join(cfg.DataDir, "cache", "tiles"))}
 }
 
 // SubscriptionHandler serves only /sub/{token}; it is what the optional
@@ -78,6 +81,8 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 	mux.Handle("GET /api/system", s.requireSession(s.handleSystem))
 	s.routesProxy(mux)
 	s.routesSetup(mux)
+	s.routesRouting(mux)
+	s.routesMap(mux)
 	mux.HandleFunc("GET /sub/{token}", s.handleSubscription)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

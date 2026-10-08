@@ -129,20 +129,22 @@ type ClientRow struct {
 	Upload       int64
 	Download     int64
 	Note         string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// ExitID is the exit the client is bound to (nil: none yet).
+	ExitID    *int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, created_at, updated_at`
+const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, exit_node_id, created_at, updated_at`
 
 func scanClient(row interface{ Scan(...any) error }) (*ClientRow, error) {
 	var (
 		c                ClientRow
-		expires          sql.NullInt64
+		expires, exit    sql.NullInt64
 		created, updated int64
 	)
 	err := row.Scan(&c.ID, &c.Name, &c.Enabled, &c.UUID, &c.Password, &c.SubToken, &c.TrafficLimit,
-		&expires, &c.Upload, &c.Download, &c.Note, &created, &updated)
+		&expires, &c.Upload, &c.Download, &c.Note, &exit, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -152,6 +154,9 @@ func scanClient(row interface{ Scan(...any) error }) (*ClientRow, error) {
 	if expires.Valid {
 		t := time.Unix(expires.Int64, 0)
 		c.ExpiresAt = &t
+	}
+	if exit.Valid {
+		c.ExitID = &exit.Int64
 	}
 	c.CreatedAt = time.Unix(created, 0)
 	c.UpdatedAt = time.Unix(updated, 0)
@@ -221,6 +226,20 @@ func (s *Store) UpdateClient(ctx context.Context, c *ClientRow) error {
 		if isUniqueViolation(err) {
 			return ErrConflict
 		}
+		return err
+	}
+	return expectOne(res)
+}
+
+// SetClientExit binds a client to an exit (nil: to none). It does not count
+// as an edit of the client.
+func (s *Store) SetClientExit(ctx context.Context, id int64, exit *int64) error {
+	var v any
+	if exit != nil {
+		v = *exit
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE clients SET exit_node_id = ? WHERE id = ?`, v, id)
+	if err != nil {
 		return err
 	}
 	return expectOne(res)

@@ -73,6 +73,16 @@ func (c *Core) SetSubscriptionPort(ctx context.Context, port int) error {
 			return invalid("subscriptionPort", "reserved")
 		}
 	}
+	if port != 0 && port != c.SubscriptionPort(ctx) {
+		if c.tcpPortTaken(ctx, port) || port == c.acmeListenPort(ctx) {
+			return invalid("subscriptionPort", "in_use")
+		}
+		if c.hostPorts != nil {
+			if tcp, _ := c.hostPorts(); tcp[port] {
+				return invalid("subscriptionPort", "busy_on_host")
+			}
+		}
+	}
 	return c.store.SetSetting(ctx, settingSubPort, strconv.Itoa(port))
 }
 

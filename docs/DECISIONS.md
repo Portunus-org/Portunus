@@ -188,7 +188,7 @@ key, D-17) are derived from it with HKDF.
 Not encrypted: client UUIDs and passwords. sing-box needs them in its config
 file anyway, and they can be rotated per client.
 
-## D-14 Panel ↔ agent control channel — Proposed for stage 3
+## D-14 Panel ↔ agent control channel — Superseded by D-29
 
 The agent dials the panel (outbound only, no open ports on agents) over HTTPS
 with a long-lived WebSocket, authenticated by mTLS. The panel runs a private CA.
@@ -196,7 +196,7 @@ At join time the one-time token is exchanged for a client certificate bound to
 the node ID. Chosen over gRPC to avoid the protobuf/gRPC dependency weight
 (several MB of binary, more RSS) for what is a low-volume message channel.
 
-## D-15 Inter-node data transport — Proposed, needs owner decision
+## D-15 Inter-node data transport — Accepted (VLESS + REALITY hop)
 
 The spec default is WireGuard. The proposal is to **use sing-box itself
 (VLESS + REALITY over TCP, `detour` chaining) for entry → exit hops instead**:
@@ -404,7 +404,11 @@ redirect on directory URLs; the Secure cookie flag now also follows
 to an absolute path once). Reviewed false positives carry a `nosemgrep`
 comment with the reason. sing-box's own dependencies are bumped in the
 Dockerfile (`SINGBOX_DEP_BUMPS`, pinned) when its release lags behind a
-fix; each entry is dropped once sing-box requires that version.
+fix; each entry is dropped once sing-box requires that version. The same is
+done for the frontend's transitive packages (`overrides` in
+`web/pnpm-workspace.yaml`). A finding with no fixed release that affects
+build-time tooling only goes into `.trivyignore` with the reason and the
+condition for removing it; the image scan takes no exceptions.
 
 ## D-28 Documentation inside the panel — Accepted
 
@@ -416,9 +420,281 @@ links straight to the pages it describes. Content is typed data in
 component; topics are prerendered by the static export. The files in
 `docs/` stay for deployment and design notes.
 
+## D-29 Nodes: one agent, pushed configuration — Accepted
+
+A node is another server of the installation running the same image as
+`portunus agent`, or a third-party proxy imported from a share link. A node
+of ours has one or both roles: **exit** (traffic leaves through it) and
+**backup entry** (it accepts the same clients on the same ports).
+
+- **Join without a callback.** The panel listens on loopback, so a new
+  server cannot fetch anything from it. The join command therefore carries
+  everything (`PORTUNUS_JOIN`: the CA certificate and the node's own
+  certificate and key, issued by the panel for the node's address) and the
+  panel dials the node, not the other way round.
+- **Channel.** HTTPS with TLS 1.3 and certificates from the installation's
+  CA on both sides. The panel's certificate is for client authentication
+  only and the agent checks its subject, so a node, which holds server keys
+  from the same CA, cannot command another node. This replaces the
+  WebSocket hub proposed in D-14: the panel pushes when something changed
+  and polls every 30 s, which needs no long-lived connection.
+- **Configuration.** The panel renders the node's whole sing-box config and
+  sends it when its hash differs from what the node reports. The agent
+  validates it, runs it and saves it, so a restarted node resumes by itself
+  and a node keeps serving while the panel is unreachable.
+- **Exit.** A VLESS + REALITY inbound with a single user on the node (D-15)
+  and a matching outbound on every server that routes through it.
+- **Backup entry.** The node gets the main server's inbounds (same ports and
+  keys; TLS inbounds with a private certificate for the node's address), the
+  active clients and the routing rules. Links and subscriptions list it
+  after the main server; sing-box profiles put all entries into one
+  `urltest`, so clients move over by themselves. The agent accumulates
+  per-client traffic across reloads and the panel collects it into the
+  client's counter. Nodes are offered to clients only after they have
+  answered once.
+- **Scope.** The panel itself is not replicated. A backup entry keeps
+  clients connected while the main server is down; changes wait for it to
+  return. Restoring the panel is a matter of the data volume backup.
+- **Image.** `PORTUNUS_NODE_IMAGE`; with the default local build the panel
+  also shows the `docker save | ssh docker load` step.
+
+## D-30 Routing by lists — Accepted
+
+Ordered rules map a list of sites and addresses to a target: direct, a
+particular exit, the client's own exit (D-34; until then the fastest working
+exit, a sing-box `urltest` over all exits), or block. Traffic no rule matches follows the default target.
+
+- **Lists** are plain text (domain and subdomains, `full:`, `keyword:`,
+  addresses and networks) or sing-box rule-sets (`.srs`, `.json`), typed in
+  the panel or downloaded once a day by the panel itself and inlined into
+  the config. Rule-sets are converted and validated by the sing-box binary
+  (`rule-set decompile` / `compile`) at download time, so a broken file is
+  refused then and can never fail a later config check. Downloading in the
+  panel rather than by sing-box means a failed fetch never stops the proxy
+  (the previous copy stays) and backup entries get the same content.
+- **One thing to the operator.** In the panel a rule is "what" and "where":
+  its list is created, edited and deleted with it. "What" is picked from a
+  catalog (addresses by country from sing-geoip, services from sing-geosite,
+  the itdoginfo collections), typed, or given as a link. A list's name is
+  never "taken": a leftover list gives way and a second rule over the same
+  set gets a number.
+- **Fail closed.** A rule or default that points at an exit which no longer
+  exists or is disabled refuses the traffic instead of sending it directly.
+  A node that rules still use cannot be deleted, disabled or stripped of the
+  exit role.
+- **Two passes around resolve.** sing-box replaces the destination with the
+  resolved address, so traffic resolved here reaches an exit as an address.
+  Rules that send traffic away are therefore evaluated before resolving
+  (matching by name; earlier "direct" rules are excluded with a logical
+  rule), then everything that may leave directly is resolved and checked
+  against private addresses (D-21), then all rules run again so address
+  lists apply. When everything else goes to an exit and no list contains
+  addresses, nothing but the "direct" lists is resolved on this server.
+- **Exit health** is read from sing-box's control API on loopback
+  (`PORTUNUS_SINGBOX_CTL`), enabled only while exits exist.
+
+## D-31 A map of servers — Accepted (revised)
+
+The Nodes page draws the main server, the nodes and their links on a map,
+because where the exits are is what the operator reasons about. It is a
+real map (Leaflet): it can be dragged and zoomed down to cities and regions.
+
+- **Tiles through the panel.** The browser may talk to nobody but the panel
+  (CSP), so the panel fetches tiles (`PORTUNUS_MAP_TILES`, OpenStreetMap by
+  default: it needs no key), keeps them in `cache/tiles` in the data volume
+  and serves them at `/api/map/tiles/…` to signed-in users. The provider
+  sees the server, not the operator. Requests are capped at zoom 12 and
+  identify the application, as the tile usage policy asks. With `off`, the
+  map shows country outlines bundled with the panel.
+- **Look.** Tiles are rendered grey, and inverted in the dark theme, so the
+  map sits in the panel's neutral palette. A server is one plain dot whose
+  fill is the state; the legend, the label on hover and the table below say
+  the same in words. Names are placed on the free side of their dots.
+- **Places** come from a geolocation service queried by the panel
+  (`PORTUNUS_GEO_LOOKUP`, ipwho.is by default; `off` disables it), once per
+  server, never for private addresses. A place set by clicking the map is
+  never overwritten.
+
+A first version drew a fixed SVG from bundled outlines; it could not be
+moved and showed no cities, which is what a map is for.
+
+## D-32 A change must not take the proxy down — Accepted
+
+`sing-box check` validates syntax, not whether the process can start: a
+port held by another program passes the check and then kills sing-box, and
+with it every connection. Two layers guard against that.
+
+- **Before saving.** A port is refused when another inbound on the same
+  transport has it (TCP and UDP are separate spaces, so VLESS on TCP 443
+  next to Hysteria2 on UDP 443 is fine), when the panel itself listens
+  there (panel, statistics and control APIs, subscriptions, the port for
+  certificate checks, in both directions), when a backup entry needs it for
+  its own services, or when anything else on the host listens on it (read
+  from `/proc/net`, the inbound's own current port excepted).
+- **After applying.** The supervisor keeps the last configuration that ran
+  for ten seconds. If sing-box exits within ten seconds of a new one, the
+  previous configuration is restored at once, the new one is remembered as
+  rejected with sing-box's own reason, and applying it again reports that
+  reason instead of repeating the outage. Nodes do the same and report the
+  hash of what they really run, so the panel shows the node as having
+  rejected the configuration.
+
+Related rules of the same kind: the last exit cannot be deleted or
+disabled while something is routed "through the client's exit" (that traffic
+would be refused).
+
+Known limit: traffic limits are enforced by polling every 30 s, so a client
+can exceed its limit by what passes in that time.
+
+## D-33 Failover timing and what "fastest exit" means — Accepted
+
+Measured on a stand with a main server, two exits, an exit that is also a
+backup entry, and a separate backup entry (every rule checked from every
+entry over VLESS and Hysteria2):
+
+- **Entries.** Client profiles test their entries every 30 s (was 3 min,
+  which left a client offline for three minutes when its entry died; now
+  about 30 s), keep an entry unless another is 100 ms faster, and drop
+  connections stuck on a dead entry.
+- **Exits.** "The fastest exit" is one exit at a time for all traffic routed
+  that way, not load balancing: sing-box has no balancer, and spreading
+  connections of one session over several addresses breaks sites. It is
+  tested every 20 s with the same 100 ms tolerance; a dead exit is left in
+  about 20 s. A rule bound to one exit fails closed.
+- **Same rules everywhere.** Every entry routes a listed destination to the
+  same exit; only direct traffic differs, leaving from the entry itself.
+- **Subscriptions** of disabled and expired clients answer 404.
+
+The exit part and the 100 ms tolerance are superseded by D-34.
+
+## D-34 A client keeps one exit — Accepted
+
+"The fastest exit" could change the address sites see for a client whenever
+latencies shifted or a single check was lost, and it differed between entry
+points (each ran its own `urltest`; an entry that was an exit itself sent
+that traffic out directly). Services treat a client whose address keeps
+changing as suspicious. So the choice moved from sing-box to the panel:
+
+- **Binding.** Every client has an exit (`clients.exit_node_id`). By
+  default it is the fastest exit that answers when the client is bound
+  (latency of a small request through the exit, measured from the main
+  server); exits within 50 ms of the fastest count as equal and the one
+  with the fewest clients is taken, so similar exits share the load. The
+  operator can choose any exit instead. The
+  route target `auto` now means "through the client's exit": it is rendered
+  as rules matching `auth_user` per exit, identical on the main server and
+  on every backup entry. On the entry that is that exit, the traffic leaves
+  directly (after the private-address guard). A client without an exit is
+  refused there.
+- **When it changes.** Only when the exit has failed every check for
+  2 minutes (at least 3 checks, 30 s apart) and another exit is not given
+  up on; when the exit is removed or switched off; when the client's keys
+  are reset; or when the operator picks another exit. If every exit is
+  down, nobody is moved. Clients do not move back when the old exit
+  returns.
+- **Cost.** For 2 to 3 minutes (measured: 163 s) the traffic of a dead exit's clients is
+  refused (fail closed) instead of moving at once. Moving is done by the
+  panel, so exits are not changed while the main server is down, and it is
+  judged from the main server's view of the exits. Applying the move
+  reloads sing-box, which reconnects everybody once.
+- **Entries.** Client profiles keep the entry in use for as long as it
+  answers (tolerance raised from 100 ms to 5 s, i.e. never for speed) and
+  start with the main server, because direct traffic carries the entry's
+  address.
+- **Limits.** A client over its traffic limit is cut off everywhere,
+  subscription included (404), the same as a disabled or expired one.
+
+## D-35 Nodes run a minimal image from a registry — Accepted
+
+A node used to run the panel's image with `agent` as its command, copied
+over by hand (`docker save | ssh docker load`). Now:
+
+- **Its own image** (`--target node`): the `portunus-node` binary (agent
+  only, 8 MB, no web interface, database or accounts) and sing-box on
+  `scratch`, with the CA roots. No shell or package manager; about 50 MB
+  against 67 MB of content for the panel. sing-box is the same binary as in
+  the panel's image: a second build without ACME and the control API would
+  save a few megabytes at the price of two variants to keep in step.
+- **From a registry.** A release publishes `ghcr.io/paulichp/portunus` and
+  `ghcr.io/paulichp/portunus-node` with the version as tag; the panel's
+  join command names the node image of its own version, so panel and node
+  never drift apart. `PORTUNUS_NODE_IMAGE` overrides it.
+- **One command.** `sudo docker rm -f portunus-node; sudo docker run -d
+  --pull always …`: works for an ordinary user with sudo, can be run again
+  (which updates the node), and needs nothing on the server but Docker.
+  Installing Docker is offered as a separate command, not folded in:
+  piping a script from the network into a root shell should be something
+  the operator sees and decides.
+- `portunus agent` stays in the panel binary for existing nodes.
+
+## D-36 Losing the main server: backup and move, no hot standby — Accepted
+
+Tested by stopping the main server on a stand: clients carry on through
+backup entries (an app on the sing-box core was back in 8 s), nodes survive
+a reboot with their saved configuration, but the panel, subscriptions,
+limits and the moving of clients between exits stop until a panel is back.
+
+The panel is not replicated. Instead:
+
+- `portunus backup` writes the whole panel (SQLite snapshot by `VACUUM
+  INTO`, master key, sing-box's certificates) to stdout while it runs.
+- Restored on any server, it is the same panel: it is the panel that calls
+  the nodes (mTLS with the installation's CA), so nodes are not tied to its
+  address. On the stand all four nodes were online for the restored panel
+  within seconds, and it could configure them at once.
+
+A hot standby (a second panel taking over by itself) is not built: two
+panels over copies of one database would both push configurations, so it
+needs replication and a way to decide who is active. For a panel meant for
+one small server, a nightly backup and a two-command restore give most of
+the benefit at none of that risk. What is lost is whatever changed since
+the last backup.
+
+The first sign-in follows the same idea of not depending on one moment:
+the made-up admin password is kept in the data volume and printed on every
+start until it is changed, instead of exactly once.
+
+## D-37 Standby nodes: a sealed copy and manual promotion — Accepted
+
+Supersedes the "no standby" part of D-36: a burnt data centre must not
+mean a lost installation, and a backup the operator has to remember to
+make is not a plan.
+
+- **Copies.** A node marked standby (a role of its own; it may be nothing
+  else) gets a backup of the panel over the agent channel: at the next
+  round after the rendered configuration changes (something was edited),
+  and at least every 5 minutes.
+  It is sealed with a recovery key (160 random bits, AES-256-GCM) that the
+  panel shows to the admin and the admin keeps elsewhere. The node cannot
+  read its copy: a standby does not become as sensitive as the main server.
+  Without the key the copy is useless; that is the price.
+- **Promotion is a command, not an election.** `portunus restore` on the
+  node's server opens the copy and rewrites the database so that this
+  server is the main one (`core.PromoteNode`): inbounds take over the
+  certificates and keys the server had as a backup entry (existing client
+  links and profiles for it keep working byte for byte), the public address
+  becomes its address, routes through it become direct, the node row is
+  removed. The other nodes need nothing: they trust whoever holds the
+  installation's keys.
+- **No automatic takeover.** A node cannot tell "the main server is gone"
+  from "I cannot reach it", and two panels pushing configurations is worse
+  than a panel that is down while clients stay online through backup
+  entries. A human decides, once.
+- Verified on a stand by deleting the main server with its volume and
+  promoting a backup entry: the web interface was up and all nodes online
+  in 6 s, and the client configurations made before the loss kept working
+  untouched. "Through the promoted server" becomes plain "direct", which
+  from another entry means leaving from that entry: there is no node left
+  to name. The stand also exposed a race that stored the panel's client
+  certificate with another certificate's key when several nodes were
+  first contacted at once (fixed: serialised and verified on load).
+
+The compose file shrank to the image, host networking and the volume;
+hardening options moved to the documentation, settings to `environment:`.
+
 ## Open questions for the owner
 
-1. **D-15:** replace WireGuard with a sing-box VLESS+REALITY hop between nodes?
+1. ~~D-15~~: decided, nodes are linked by a VLESS + REALITY hop.
 2. **Subscription formats:** the plan is native sing-box JSON plus a base64
    list of share links (`vless://`, `hysteria2://`, …) for v2rayN, Hiddify and
    NekoBox. Is a Clash/mihomo YAML format needed too?

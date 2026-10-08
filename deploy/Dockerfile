@@ -70,10 +70,43 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
       -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus ./cmd/portunus
 
-# --- runtime --------------------------------------------------------------
-# Alpine rather than distroless: setcap on the sing-box binary needs a
-# package manager at build time (see docs/DECISIONS.md, D-07).
-FROM ${RUNTIME_IMAGE}
+# --- node: the agent alone --------------------------------------------------
+# A node runs sing-box with what the panel sends it and nothing else: no web
+# interface, no database, no accounts. Its binary is built without the
+# frontend, so `docker build --target node` never touches Node.js.
+FROM ${GO_IMAGE} AS build-node
+ARG VERSION=dev
+ARG COMMIT=unknown
+WORKDIR /src/server
+COPY server/go.mod server/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY server/ ./
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
+      -o /out/portunus-node ./cmd/portunus-node \
+ && install -d -m 0700 /out/data
+
+# The image is the two binaries and the CA roots: no shell, no package
+# manager, nothing to log in to. (sing-box got its file capability in the
+# stage that built it; COPY keeps it.)
+FROM scratch AS node
+COPY --from=build-node /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
+COPY --from=build-node /out/portunus-node /usr/local/bin/portunus-node
+COPY --from=build-node --chown=10001:10001 /out/data /var/lib/portunus
+USER 10001:10001
+ENV PATH=/usr/local/bin \
+    PORTUNUS_DATA_DIR=/var/lib/portunus \
+    PORTUNUS_LOG_FORMAT=json \
+    GOMEMLIMIT=32MiB
+VOLUME ["/var/lib/portunus"]
+ENTRYPOINT ["portunus-node"]
+
+# --- panel ----------------------------------------------------------------
+# The default target. Alpine rather than distroless: setcap on the sing-box
+# binary needs a package manager at build time (see docs/DECISIONS.md, D-07).
+FROM ${RUNTIME_IMAGE} AS panel
 COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
 RUN addgroup -S -g 10001 portunus \
  && adduser -S -D -H -u 10001 -G portunus -s /sbin/nologin portunus \

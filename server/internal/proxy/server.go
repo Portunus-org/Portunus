@@ -33,7 +33,11 @@ const ACMETag = "acme"
 // ones allowed to connect. It returns nil when there is nothing to run.
 //
 // statsAPI is the loopback address for sing-box's v2ray_api stats service.
-func ServerConfig(inbounds []Inbound, clients []Client, statsAPI string, acme ACMEOptions) ([]byte, error) {
+func ServerConfig(inbounds []Inbound, clients []Client, statsAPI string, acme ACMEOptions, routing Routing) ([]byte, error) {
+	return serverConfig(inbounds, clients, statsAPI, acme, routing, nil)
+}
+
+func serverConfig(inbounds []Inbound, clients []Client, statsAPI string, acme ACMEOptions, routing Routing, hop *Hop) ([]byte, error) {
 	var (
 		ins     []any
 		domains []string
@@ -48,6 +52,16 @@ func ServerConfig(inbounds []Inbound, clients []Client, statsAPI string, acme AC
 		v, err := serverInbound(in, clients)
 		if err != nil {
 			return nil, fmt.Errorf("inbound %s: %w", in.Tag, err)
+		}
+		ins = append(ins, v)
+	}
+	if hop != nil {
+		routing.hop = true
+		// Traffic arriving over the hop is already accounted for where it
+		// entered; its single user is not a client.
+		v, err := serverInbound(hop.inbound(), []Client{hop.client()})
+		if err != nil {
+			return nil, fmt.Errorf("hop inbound: %w", err)
 		}
 		ins = append(ins, v)
 	}
@@ -66,22 +80,6 @@ func ServerConfig(inbounds []Inbound, clients []Client, statsAPI string, acme AC
 			"servers": []any{obj{"type": "local", "tag": "local"}},
 		},
 		"inbounds": ins,
-		"outbounds": []any{
-			obj{"type": "direct", "tag": "direct"},
-		},
-		"route": obj{
-			"rules": []any{
-				obj{"action": "sniff"},
-				// Resolve domains first so the private-address rule below also
-				// catches names like "localhost".
-				obj{"action": "resolve"},
-				// Never let clients reach this host's loopback or private
-				// networks: the panel and the stats API listen there.
-				obj{"ip_is_private": true, "action": "reject"},
-			},
-			"final":                   "direct",
-			"default_domain_resolver": "local",
-		},
 		"experimental": obj{
 			"v2ray_api": obj{
 				"listen": statsAPI,
@@ -92,6 +90,10 @@ func ServerConfig(inbounds []Inbound, clients []Client, statsAPI string, acme AC
 			},
 		},
 	}
+	if statsAPI == "" {
+		delete(cfg, "experimental")
+	}
+	routing.apply(cfg)
 	if len(domains) > 0 {
 		p := obj{
 			"type":           "acme",

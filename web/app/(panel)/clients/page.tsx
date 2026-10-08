@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { EllipsisVerticalIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { EllipsisVerticalIcon, PencilIcon, PlusIcon, PowerIcon, RotateCcwIcon, SearchIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { ClientDrawer, NEW_CLIENT_EVENT } from "@/components/clients/client-drawer"
@@ -103,7 +103,12 @@ export default function ClientsPage() {
             <div className="text-right tabular-nums">
               {formatBytes(used(row.original), locale)}
               {row.original.trafficLimit > 0 && (
-                <span className="text-muted-foreground"> {t("clients.ofLimit", { limit: formatBytes(row.original.trafficLimit, locale) })}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  {t("clients.ofLimit", {
+                    limit: formatBytes(row.original.trafficLimit, locale),
+                  })}
+                </span>
               )}
             </div>
           ),
@@ -142,7 +147,12 @@ export default function ClientsPage() {
           cell: ({ row }) => {
             const c = row.original
             if (!canEdit) return null
-            const input = { name: c.name, trafficLimit: c.trafficLimit, expiresAt: c.expiresAt, note: c.note }
+            const input = {
+              name: c.name,
+              trafficLimit: c.trafficLimit,
+              expiresAt: c.expiresAt,
+              note: c.note,
+            }
             return (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -152,18 +162,27 @@ export default function ClientsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onSelect={() => open(c)}>{t("common.open")}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => open(c)}>
+                    <PencilIcon />
+                    {t("common.open")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
                       act(
-                        () => api.updateClient(c.id, { ...input, enabled: !c.enabled }),
+                        () =>
+                          api.updateClient(c.id, {
+                            ...input,
+                            enabled: !c.enabled,
+                          }),
                         t(c.enabled ? "clients.toast.disabled" : "clients.toast.enabled")
                       )
                     }
                   >
+                    <PowerIcon />
                     {t(c.enabled ? "common.disable" : "common.enable")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => act(() => api.resetClientTraffic(c.id), t("clients.toast.reset"))}>
+                    <RotateCcwIcon />
                     {t("clients.resetTraffic")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -179,6 +198,7 @@ export default function ClientsPage() {
                       })
                     }
                   >
+                    <Trash2Icon />
                     {t("common.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -210,9 +230,21 @@ export default function ClientsPage() {
         getRowId={(r) => String(r.id)}
         views={[
           { value: "all", label: t("clients.view.all") },
-          { value: "active", label: t("clients.view.active"), count: count(byView.active) },
-          { value: "attention", label: t("clients.view.attention"), count: count(needsAttention) },
-          { value: "disabled", label: t("clients.view.disabled"), count: count(byView.disabled) },
+          {
+            value: "active",
+            label: t("clients.view.active"),
+            count: count(byView.active),
+          },
+          {
+            value: "attention",
+            label: t("clients.view.attention"),
+            count: count(needsAttention),
+          },
+          {
+            value: "disabled",
+            label: t("clients.view.disabled"),
+            count: count(byView.disabled),
+          },
         ]}
         view={view}
         onViewChange={setView}
@@ -238,7 +270,7 @@ export default function ClientsPage() {
             {canEdit && (
               <Button variant="outline" size="sm" onClick={() => open(null)}>
                 <PlusIcon />
-                <span className="hidden lg:inline">{t("clients.add")}</span>
+                <span className="sr-only lg:not-sr-only">{t("clients.add")}</span>
               </Button>
             )}
           </>

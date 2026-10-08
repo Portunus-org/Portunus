@@ -1,0 +1,80 @@
+# Publishes the two images of a release to the GitHub container registry:
+#
+#   ghcr.io/paulichp/portunus        the panel
+#   ghcr.io/paulichp/portunus-node   a node (agent and sing-box only)
+#
+# It runs when a version tag (v1.2.3) is pushed. The panel of a release
+# starts its nodes from the node image with the same tag, so both are always
+# published together.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Trivy 0.74.0, run from its image and pinned by digest rather than through
+  # a third-party action.
+  TRIVY_IMAGE: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: panel
+            image: portunus
+          - target: node
+            image: portunus-node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The image is built once for this machine and scanned as it would be
+      # published. A HIGH or CRITICAL vulnerability stops the release: nothing
+      # is pushed. Accepted findings are listed in .trivyignore, with reasons.
+      - name: Build for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: ${{ matrix.target }}
+          load: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+          tags: scan/${{ matrix.image }}:candidate
+          cache-from: type=gha,scope=${{ matrix.target }}
+      - name: Scan the image
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/.trivyignore:/.trivyignore:ro" \
+            "$TRIVY_IMAGE" image --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile /.trivyignore scan/${{ matrix.image }}:candidate
+      - name: Build for every platform and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+          tags: |
+            ghcr.io/paulichp/${{ matrix.image }}:${{ github.ref_name }}
+            ghcr.io/paulichp/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}

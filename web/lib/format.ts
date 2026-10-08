@@ -30,6 +30,13 @@ export function formatDate(iso: string | null | undefined, locale: Locale = "en"
 }
 
 /** Days until iso (negative when in the past). */
+/** A date with the time of day, for "when was this last checked". */
+export function formatDateTime(iso: string | null | undefined, locale: Locale = "en"): string {
+  return iso
+    ? new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso))
+    : ""
+}
+
 export function daysUntil(iso: string): number {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)
 }

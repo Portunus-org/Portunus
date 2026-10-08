@@ -13,8 +13,10 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/PaulichP/Portunus/server/internal/backup"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/mail"
 	"net/url"
 	"os"
@@ -25,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PaulichP/Portunus/server/internal/agent"
 	"github.com/PaulichP/Portunus/server/internal/proxy"
 	"github.com/PaulichP/Portunus/server/internal/secrets"
 	"github.com/PaulichP/Portunus/server/internal/singbox"
@@ -63,6 +66,12 @@ type Core struct {
 	log       *slog.Logger
 	now       func() time.Time
 
+	nodeRuntime
+	offline   bool
+	hostPorts func() (tcp, udp map[int]bool)
+	// listHTTP replaces the list downloader in tests.
+	listHTTP *http.Client
+
 	// applyMu serialises config generation and stats flushing.
 	applyMu sync.Mutex
 	// lastApplyErr is the most recent config apply failure, shown in the UI.
@@ -82,7 +91,28 @@ type ACMEPaths struct {
 
 // Options configure a Core.
 type Options struct {
-	StatsAPI  string
+	StatsAPI string
+	// ControlAPI is the loopback address of sing-box's control API, used
+	// to measure exits; empty disables that.
+	ControlAPI string
+	// ListHTTP replaces the downloader of route lists (tests).
+	ListHTTP *http.Client
+	// HostPorts reports the TCP and UDP ports something already listens on
+	// on this host, so an inbound is not put on a port another program
+	// holds. Nil skips the check (tests).
+	HostPorts func() (tcp, udp map[int]bool)
+	// Offline: only edit the database, never touch sing-box or the nodes.
+	// For commands that run next to a live panel, which applies the change
+	// at its next round.
+	Offline bool
+	// GeoURL is the geolocation service queried as GeoURL + IP, answering
+	// in the ipwho.is format; empty turns lookups off.
+	GeoURL string
+	// NodeImage is the container image new nodes are started from.
+	NodeImage string
+	// Backup says where the panel's own data is, for the copies standby
+	// nodes keep (Snapshot is filled in). Zero: no copies are made.
+	Backup    backup.Source
 	Reserved  []ReservedPort
 	ACME      ACMEPaths
 	SubListen string
@@ -100,6 +130,21 @@ func New(st *store.Store, box *secrets.Box, mgr *singbox.Manager, o Options, log
 		subListen: o.SubListen,
 		log:       log,
 		now:       time.Now,
+		listHTTP:  o.ListHTTP,
+		offline:   o.Offline,
+		hostPorts: o.HostPorts,
+		nodeRuntime: nodeRuntime{
+			nodeStatus:  map[int64]NodeStatus{},
+			exitHealth:  map[int64]exitHealth{},
+			backupSrc:   o.Backup,
+			standbySent: map[int64]time.Time{},
+			nodeClients: map[int64]*agent.Client{},
+			nodeKick:    make(chan struct{}, 1),
+			nodeImage:   o.NodeImage,
+			controlAPI:  o.ControlAPI,
+			geoURL:      o.GeoURL,
+			geoTried:    map[int64]time.Time{},
+		},
 	}
 	// sing-box counters reset on reload; collect them first.
 	mgr.BeforeReload = func(ctx context.Context) { c.flushStatsLocked(ctx) }
@@ -301,6 +346,52 @@ func (c *Core) validateInbound(ctx context.Context, id int64, in *InboundInput) 
 		p := proxy.Protocol(e.Protocol)
 		if (p.UsesTCP() && in.Protocol.UsesTCP()) || (p.UsesUDP() && in.Protocol.UsesUDP()) {
 			return invalid("port", "in_use")
+		}
+	}
+	// The panel's own listeners that are set in the panel rather than fixed
+	// at start: subscriptions, and the port certificates are verified on.
+	if in.Protocol.UsesTCP() {
+		if c.subListen == "" && in.Port == c.SubscriptionPort(ctx) {
+			return invalid("port", "reserved")
+		}
+		if in.Port == c.acmeListenPort(ctx) {
+			return invalid("port", "reserved")
+		}
+	}
+	// A port another program on this server already listens on: sing-box
+	// would fail to start and take every connection down with it. The
+	// inbound's own current port is, of course, ours.
+	if c.hostPorts != nil {
+		own := false
+		for _, e := range existing {
+			if e.ID == id && e.Port == in.Port {
+				own = true
+			}
+		}
+		if !own {
+			tcp, udp := c.hostPorts()
+			if (in.Protocol.UsesTCP() && tcp[in.Port]) || (in.Protocol.UsesUDP() && udp[in.Port]) {
+				return invalid("port", "busy_on_host")
+			}
+		}
+	}
+	// A backup entry point serves the same ports next to its own services.
+	if in.Protocol.UsesTCP() {
+		nodes, err := c.store.ListNodes(ctx)
+		if err != nil {
+			return err
+		}
+		for _, row := range nodes {
+			if row.Kind != NodeAgent || !row.IsEntry {
+				continue
+			}
+			n, err := c.decodeNode(row)
+			if err != nil {
+				return err
+			}
+			if in.Port == n.Settings.AgentPort || (n.IsExit && in.Port == n.Settings.HopPort) {
+				return invalid("port", "node_port_conflict")
+			}
 		}
 	}
 	return nil
@@ -514,6 +605,9 @@ type ClientInput struct {
 	TrafficLimit int64
 	ExpiresAt    *time.Time
 	Note         string
+	// Exit changes the exit the client is bound to: nil leaves it, 0 has
+	// one chosen anew.
+	Exit *int64
 }
 
 func validateClient(in *ClientInput) error {
@@ -564,8 +658,13 @@ func (c *Core) CreateClient(ctx context.Context, in ClientInput) (*store.ClientR
 		}
 		return nil, err
 	}
+	if in.Exit != nil && *in.Exit != 0 {
+		if err := c.setClientExit(ctx, cl, *in.Exit); err != nil {
+			return nil, err
+		}
+	}
 	c.Reconcile(ctx)
-	return cl, nil
+	return c.store.ClientByID(ctx, cl.ID)
 }
 
 func (c *Core) UpdateClient(ctx context.Context, id int64, in ClientInput) (*store.ClientRow, error) {
@@ -577,6 +676,11 @@ func (c *Core) UpdateClient(ctx context.Context, id int64, in ClientInput) (*sto
 		return nil, err
 	}
 	cl.Name, cl.Enabled, cl.TrafficLimit, cl.ExpiresAt, cl.Note = in.Name, in.Enabled, in.TrafficLimit, in.ExpiresAt, in.Note
+	if in.Exit != nil && (cl.ExitID == nil || *cl.ExitID != *in.Exit) {
+		if err := c.setClientExit(ctx, cl, *in.Exit); err != nil {
+			return nil, err
+		}
+	}
 	if err := c.store.UpdateClient(ctx, cl); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return nil, invalid("name", "taken")
@@ -596,6 +700,10 @@ func (c *Core) RotateClient(ctx context.Context, id int64) (*store.ClientRow, er
 	}
 	cl.UUID, cl.Password, cl.SubToken = proxy.NewUUID(), proxy.NewPassword(), subToken()
 	if err := c.store.UpdateClient(ctx, cl); err != nil {
+		return nil, err
+	}
+	// New keys are a new start: the exit is chosen anew as well.
+	if err := c.store.SetClientExit(ctx, id, nil); err != nil {
 		return nil, err
 	}
 	c.Reconcile(ctx)
@@ -748,6 +856,9 @@ func (c *Core) SetACME(ctx context.Context, s ACMESettings) error {
 				return invalid("acmeHttpPort", "reserved")
 			}
 		}
+		if c.tcpPortTaken(ctx, s.HTTPPort) || (c.subListen == "" && s.HTTPPort == c.SubscriptionPort(ctx)) {
+			return invalid("acmeHttpPort", "in_use")
+		}
 	case ChallengeCloudflare:
 		if s.CloudflareToken == nil {
 			if cur, _ := c.cloudflareToken(ctx); cur == "" {
@@ -783,6 +894,35 @@ func (c *Core) SetACME(ctx context.Context, s ACMESettings) error {
 }
 
 // acmeChallengePort is the TCP port the HTTP-01 solver occupies (0: none).
+// tcpPortTaken reports whether an inbound listens on the TCP port.
+func (c *Core) tcpPortTaken(ctx context.Context, port int) bool {
+	rows, err := c.store.ListInbounds(ctx)
+	if err != nil {
+		return false
+	}
+	for _, r := range rows {
+		if r.Port == port && proxy.Protocol(r.Protocol).UsesTCP() {
+			return true
+		}
+	}
+	return false
+}
+
+// acmeListenPort is the TCP port sing-box answers certificate checks on,
+// or 0 while no inbound gets its certificate from Let's Encrypt.
+func (c *Core) acmeListenPort(ctx context.Context) int {
+	ins, err := c.Inbounds(ctx)
+	if err != nil {
+		return 0
+	}
+	for _, in := range ins {
+		if in.ACME() {
+			return c.acmeChallengePort(ctx)
+		}
+	}
+	return 0
+}
+
 func (c *Core) acmeChallengePort(ctx context.Context) int {
 	s, err := c.ACME(ctx)
 	if err != nil {
@@ -877,7 +1017,11 @@ func (c *Core) Certificate(domain string) *CertificateInfo {
 func (c *Core) ApplyError() string {
 	c.applyMu.Lock()
 	defer c.applyMu.Unlock()
-	return c.lastApplyErr
+	if c.lastApplyErr != "" {
+		return c.lastApplyErr
+	}
+	// A configuration that was accepted and then rolled back.
+	return c.mgr.RejectedError()
 }
 
 // Reconcile renders the config from the database and hands it to the
@@ -885,8 +1029,14 @@ func (c *Core) ApplyError() string {
 // kept for the UI rather than failing the request that triggered it: the
 // database change stands, and the running config stays valid.
 func (c *Core) Reconcile(ctx context.Context) {
+	if c.offline {
+		return
+	}
 	c.applyMu.Lock()
 	defer c.applyMu.Unlock()
+	// The nodes follow the same database; they are brought in line in the
+	// background so that an unreachable one never delays a request.
+	defer c.KickNodes()
 	if err := c.reconcileLocked(ctx); err != nil {
 		c.lastApplyErr = err.Error()
 		c.log.Error("apply sing-box config", "err", err)
@@ -896,13 +1046,38 @@ func (c *Core) Reconcile(ctx context.Context) {
 }
 
 func (c *Core) reconcileLocked(ctx context.Context) error {
+	if err := c.bindClients(ctx); err != nil {
+		return err
+	}
 	inbounds, err := c.Inbounds(ctx)
 	if err != nil {
 		return err
 	}
-	rows, err := c.store.ListClients(ctx)
+	active, err := c.activeClients(ctx)
 	if err != nil {
 		return err
+	}
+	acme, err := c.acmeOptions(ctx)
+	if err != nil {
+		return err
+	}
+	routing, err := c.routing(ctx, 0)
+	if err != nil {
+		return err
+	}
+	cfg, err := proxy.ServerConfig(inbounds, active, c.statsAPI, acme, routing)
+	if err != nil {
+		return err
+	}
+	c.noteConfig(cfg)
+	return c.mgr.Apply(ctx, cfg)
+}
+
+// activeClients are the clients allowed to connect right now.
+func (c *Core) activeClients(ctx context.Context) ([]proxy.Client, error) {
+	rows, err := c.store.ListClients(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var active []proxy.Client
 	for _, r := range rows {
@@ -910,15 +1085,7 @@ func (c *Core) reconcileLocked(ctx context.Context) error {
 			active = append(active, toProxyClient(r))
 		}
 	}
-	acme, err := c.acmeOptions(ctx)
-	if err != nil {
-		return err
-	}
-	cfg, err := proxy.ServerConfig(inbounds, active, c.statsAPI, acme)
-	if err != nil {
-		return err
-	}
-	return c.mgr.Apply(ctx, cfg)
+	return active, nil
 }
 
 // flushStatsLocked moves sing-box's per-user counters into the database.
@@ -953,6 +1120,7 @@ func (c *Core) RestartSingBox(ctx context.Context) error {
 // disconnects clients that just expired or exhausted their limit.
 func (c *Core) Run(ctx context.Context, interval time.Duration) {
 	c.renewPrivateCertificates(ctx)
+	c.dropUnusedLists(ctx)
 	lastRenew := time.Now()
 	c.Reconcile(ctx)
 	t := time.NewTicker(interval)
@@ -966,6 +1134,7 @@ func (c *Core) Run(ctx context.Context, interval time.Duration) {
 				lastRenew = time.Now()
 				c.renewPrivateCertificates(ctx)
 			}
+			c.refreshRouteLists(ctx)
 			c.applyMu.Lock()
 			if c.mgr.Status().PID != 0 {
 				c.flushStatsLocked(ctx)

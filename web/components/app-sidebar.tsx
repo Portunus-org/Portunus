@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { BookOpenIcon, LayoutDashboardIcon, RadioTowerIcon, Settings2Icon, UsersIcon } from "lucide-react"
+import { BookOpenIcon, LayoutDashboardIcon, RadioTowerIcon, ServerIcon, Settings2Icon, SplitIcon, UsersIcon } from "lucide-react"
 
 import { LogoMark } from "@/components/brand/logo"
 import { NavMain } from "@/components/nav-main"
@@ -26,6 +26,8 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     { title: t("nav.overview"), url: "/", icon: <LayoutDashboardIcon /> },
     { title: t("nav.clients"), url: "/clients/", icon: <UsersIcon /> },
     { title: t("nav.inbounds"), url: "/inbounds/", icon: <RadioTowerIcon /> },
+    { title: t("nav.nodes"), url: "/nodes/", icon: <ServerIcon /> },
+    { title: t("nav.routing"), url: "/routing/", icon: <SplitIcon /> },
   ]
   const navSecondary = [
     { title: t("nav.settings"), url: "/settings/", icon: <Settings2Icon /> },
@@ -40,7 +42,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton asChild className="data-[slot=sidebar-menu-button]:p-1.5!">
               <Link href="/">
                 <LogoMark className="size-5!" />
-                <span className="text-base font-semibold">Portunus</span>
+                <span className="font-heading text-lg font-semibold">Portunus</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

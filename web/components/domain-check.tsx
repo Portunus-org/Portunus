@@ -11,7 +11,10 @@ export type DomainState = { state: "idle" } | { state: "checking" } | { state: "
 /** Checks where a domain points while the user types (debounced). */
 export function useDomainCheck(domain: string, initial?: DomainCheck): DomainState {
   const d = domain.trim().toLowerCase()
-  const [result, setResult] = React.useState<{ domain: string; value: DomainState }>(() =>
+  const [result, setResult] = React.useState<{
+    domain: string
+    value: DomainState
+  }>(() =>
     initial && initial.domain === d ? { domain: d, value: { state: "done", check: initial } } : { domain: "", value: { state: "idle" } }
   )
 
@@ -45,7 +48,15 @@ export function DomainStatus({ domain, status, ip }: { domain: string; status: D
       const c = status.check
       if (c.pointsHere) return <Note tone="ok">{t("dns.ok", { domain: d })}</Note>
       if (c.addresses.length > 0)
-        return <Note tone="warn">{t("dns.elsewhere", { domain: d, addresses: c.addresses.join(", "), ip })}</Note>
+        return (
+          <Note tone="warn">
+            {t("dns.elsewhere", {
+              domain: d,
+              addresses: c.addresses.join(", "),
+              ip,
+            })}
+          </Note>
+        )
       return <Note tone="warn">{t("dns.none", { domain: d, ip })}</Note>
     }
   }

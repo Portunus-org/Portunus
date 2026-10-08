@@ -9,13 +9,12 @@ import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
 import { DomainStatus, useDomainCheck } from "@/components/domain-check"
 import { ChoiceCard, Note, StepFrame, Task, type TaskState } from "@/components/wizard"
+import { FormField, SwitchField, FormError } from "@/components/form-field"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { RadioGroup } from "@/components/ui/radio-group"
-import { Switch } from "@/components/ui/switch"
 import {
   api,
   errorText,
@@ -144,15 +143,7 @@ function ProtocolStep({ value, onChange }: { value: Protocol; onChange: (p: Prot
   )
 }
 
-function CamouflageStep({
-  draft,
-  set,
-  sug,
-}: {
-  draft: Draft
-  set: (p: Partial<Draft>) => void
-  sug: InboundSuggestion | null
-}) {
+function CamouflageStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>) => void; sug: InboundSuggestion | null }) {
   const { t } = useI18n()
   if (!sug) return <Note tone="pending">{t("wizard.reality.measuring")}</Note>
   return (
@@ -201,7 +192,10 @@ function ChallengeForm({
 }) {
   const { t } = useI18n()
   const plan = sug.certificate!
-  const [verify, setVerify] = React.useState<{ state: "idle" | "pending" | "ok" | "fail"; message?: string }>({ state: "idle" })
+  const [verify, setVerify] = React.useState<{
+    state: "idle" | "pending" | "ok" | "fail"
+    message?: string
+  }>({ state: "idle" })
   const domain = draft.domain.trim() || "vpn.example.com"
   const port = plan.proxyPort || 8088
   // Back from Cloudflare: straight HTTP when port 80 is free, else through
@@ -220,7 +214,12 @@ function ChallengeForm({
       {draft.challenge === "http" && <p className="text-muted-foreground">{t("wizard.cert.via.http")}</p>}
       {draft.challenge === "proxy" && (
         <>
-          <p className="text-muted-foreground">{t("wizard.cert.via.proxy", { server: plan.httpServer80 || "nginx", domain })}</p>
+          <p className="text-muted-foreground">
+            {t("wizard.cert.via.proxy", {
+              server: plan.httpServer80 || "nginx",
+              domain,
+            })}
+          </p>
           <div className="relative">
             <pre className="overflow-x-auto rounded-lg bg-muted p-4 pr-12 font-mono text-xs leading-relaxed">{nginxSnippet(port)}</pre>
             <CopyButton value={nginxSnippet(port)} className="absolute top-2 right-2 text-muted-foreground" />
@@ -239,8 +238,11 @@ function ChallengeForm({
         <>
           <p className="text-muted-foreground">{t("wizard.cert.via.cloudflare")}</p>
           {isAdmin && (
-            <div className="grid gap-2">
-              <Label htmlFor="cfToken">{t("wizard.cert.cloudflareToken")}</Label>
+            <FormField
+              id="cfToken"
+              label={t("wizard.cert.cloudflareToken")}
+              hint={plan.cloudflareTokenSet ? t("wizard.cert.cloudflareTokenSet") : t("wizard.cert.cloudflareTokenHint")}
+            >
               <Input
                 id="cfToken"
                 type="password"
@@ -249,10 +251,7 @@ function ChallengeForm({
                 onChange={(e) => set({ cloudflareToken: e.target.value })}
                 placeholder={plan.cloudflareTokenSet ? "••••••••" : undefined}
               />
-              <p className="text-muted-foreground">
-                {plan.cloudflareTokenSet ? t("wizard.cert.cloudflareTokenSet") : t("wizard.cert.cloudflareTokenHint")}
-              </p>
-            </div>
+            </FormField>
           )}
         </>
       )}
@@ -261,7 +260,11 @@ function ChallengeForm({
           variant="link"
           size="sm"
           className="h-auto w-fit px-0 text-muted-foreground"
-          onClick={() => set({ challenge: draft.challenge === "cloudflare" ? httpChallenge : "cloudflare" })}
+          onClick={() =>
+            set({
+              challenge: draft.challenge === "cloudflare" ? httpChallenge : "cloudflare",
+            })
+          }
         >
           {t(draft.challenge === "cloudflare" ? "wizard.cert.via.useHttp" : "wizard.cert.via.useCloudflare")}
         </Button>
@@ -304,8 +307,7 @@ function CertificateStep({
       />
       {draft.tlsMode === "acme" && (
         <div className="grid gap-4 duration-300 animate-in fade-in">
-          <div className="grid gap-2">
-            <Label htmlFor="domain">{t("wizard.cert.domain")}</Label>
+          <FormField id="domain" label={t("wizard.cert.domain")}>
             <Input
               id="domain"
               value={draft.domain}
@@ -315,7 +317,7 @@ function CertificateStep({
               spellCheck={false}
             />
             <DomainStatus domain={draft.domain} status={dns} ip={sug.publicHost} />
-          </div>
+          </FormField>
           <ChallengeForm draft={draft} set={set} sug={sug} isAdmin={isAdmin} />
         </div>
       )}
@@ -329,8 +331,7 @@ function CertificateStep({
       />
       {draft.tlsMode === "self-signed" && (
         <div className="grid gap-4 duration-300 animate-in fade-in">
-          <div className="grid gap-2">
-            <Label htmlFor="serverName">{t("wizard.cert.serverName")}</Label>
+          <FormField id="serverName" label={t("wizard.cert.serverName")} hint={t("wizard.cert.serverNameHint")}>
             <Input
               id="serverName"
               value={draft.serverName}
@@ -338,23 +339,21 @@ function CertificateStep({
               autoCapitalize="none"
               spellCheck={false}
             />
-            <p className="text-sm text-muted-foreground">{t("wizard.cert.serverNameHint")}</p>
-          </div>
-          <div className="flex items-start justify-between gap-4">
-            <div className="grid gap-1.5">
-              <Label htmlFor="strict">{t("wizard.cert.strict")}</Label>
-              <p className="text-sm text-muted-foreground">{t("wizard.cert.strictHint")}</p>
-            </div>
-            <Switch id="strict" checked={draft.strictTls} onCheckedChange={(v) => set({ strictTls: v })} />
-          </div>
+          </FormField>
+          <SwitchField
+            id="strict"
+            label={t("wizard.cert.strict")}
+            hint={t("wizard.cert.strictHint")}
+            checked={draft.strictTls}
+            onCheckedChange={(v) => set({ strictTls: v })}
+          />
         </div>
       )}
 
       <ChoiceCard value="file" id="c-file" title={t("wizard.cert.file")} description={t("wizard.cert.fileDesc")} />
       {draft.tlsMode === "file" && (
         <div className="grid gap-4 duration-300 animate-in fade-in">
-          <div className="grid gap-2">
-            <Label htmlFor="fileDomain">{t("wizard.cert.domain")}</Label>
+          <FormField id="fileDomain" label={t("wizard.cert.domain")}>
             <Input
               id="fileDomain"
               value={draft.domain}
@@ -363,9 +362,8 @@ function CertificateStep({
               autoCapitalize="none"
               spellCheck={false}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="certPath">{t("wizard.cert.certPath")}</Label>
+          </FormField>
+          <FormField id="certPath" label={t("wizard.cert.certPath")}>
             <Input
               id="certPath"
               value={draft.certificatePath}
@@ -373,9 +371,8 @@ function CertificateStep({
               placeholder={`/certs/live/${draft.domain.trim() || "vpn.example.com"}/fullchain.pem`}
               spellCheck={false}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="keyPath">{t("wizard.cert.keyPath")}</Label>
+          </FormField>
+          <FormField id="keyPath" label={t("wizard.cert.keyPath")} hint={t("wizard.cert.pathsHint")}>
             <Input
               id="keyPath"
               value={draft.keyPath}
@@ -383,8 +380,7 @@ function CertificateStep({
               placeholder={`/certs/live/${draft.domain.trim() || "vpn.example.com"}/privkey.pem`}
               spellCheck={false}
             />
-            <p className="text-sm text-muted-foreground">{t("wizard.cert.pathsHint")}</p>
-          </div>
+          </FormField>
         </div>
       )}
     </RadioGroup>
@@ -395,8 +391,7 @@ function ProtectStep({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) =>
   const { t } = useI18n()
   return (
     <>
-      <div className="grid gap-2">
-        <Label htmlFor="masquerade">{t("wizard.masquerade")}</Label>
+      <FormField id="masquerade" label={t("wizard.masquerade")} hint={t("wizard.masqueradeHint")}>
         <Input
           id="masquerade"
           value={draft.masquerade}
@@ -405,15 +400,14 @@ function ProtectStep({ draft, set }: { draft: Draft; set: (p: Partial<Draft>) =>
           autoCapitalize="none"
           spellCheck={false}
         />
-        <p className="text-sm text-muted-foreground">{t("wizard.masqueradeHint")}</p>
-      </div>
-      <div className="flex items-start justify-between gap-4">
-        <div className="grid gap-1.5">
-          <Label htmlFor="obfs">{t("wizard.obfs")}</Label>
-          <p className="text-sm text-muted-foreground">{t("wizard.obfsHint")}</p>
-        </div>
-        <Switch id="obfs" checked={draft.obfs} onCheckedChange={(v) => set({ obfs: v })} />
-      </div>
+      </FormField>
+      <SwitchField
+        id="obfs"
+        label={t("wizard.obfs")}
+        hint={t("wizard.obfsHint")}
+        checked={draft.obfs}
+        onCheckedChange={(v) => set({ obfs: v })}
+      />
     </>
   )
 }
@@ -444,8 +438,7 @@ function ReviewStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>
   return (
     <>
       <div className="grid grid-cols-[1fr_7rem] gap-4">
-        <div className="grid gap-2">
-          <Label htmlFor="name">{t("wizard.review.name")}</Label>
+        <FormField id="name" label={t("wizard.review.name")}>
           <Input
             id="name"
             value={draft.name}
@@ -453,9 +446,8 @@ function ReviewStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>
             placeholder={protocols[p].label}
             maxLength={64}
           />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="port">{t("wizard.review.port")}</Label>
+        </FormField>
+        <FormField id="port" label={t("wizard.review.port")}>
           <Input
             id="port"
             type="number"
@@ -465,7 +457,7 @@ function ReviewStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>
             value={draft.port || ""}
             onChange={(e) => set({ port: Number(e.target.value) })}
           />
-        </div>
+        </FormField>
       </div>
       {sug?.preferredPortBusy && draft.port === sug.port && (
         <p className="-mt-3 text-sm text-muted-foreground">{t("wizard.portBusy", { port: sug.port })}</p>
@@ -630,7 +622,12 @@ export default function NewInboundPage() {
 
   function chooseProtocol(p: Protocol) {
     const s = suggestions[p]
-    setDraft({ ...emptyDraft, protocol: p, port: protocols[p].defaultPort, ...(s ? applySuggestion({ ...emptyDraft, protocol: p }, s) : {}) })
+    setDraft({
+      ...emptyDraft,
+      protocol: p,
+      port: protocols[p].defaultPort,
+      ...(s ? applySuggestion({ ...emptyDraft, protocol: p }, s) : {}),
+    })
   }
 
   // Whether the current step has what it needs to go on.
@@ -773,7 +770,7 @@ export default function NewInboundPage() {
           {step === "certificate" && <CertificateStep draft={draft} set={set} sug={sug} isAdmin={isAdmin} />}
           {step === "protect" && <ProtectStep draft={draft} set={set} />}
           {step === "review" && <ReviewStep draft={draft} set={set} sug={sug} />}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          <FormError>{error}</FormError>
         </StepFrame>
       )}
     </div>

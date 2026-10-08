@@ -62,7 +62,7 @@ func TestManagerLifecycle(t *testing.T) {
 	api := "127.0.0.1:" + strconv.Itoa(freePort(t))
 	clients := []proxy.Client{{ID: 1, UUID: proxy.NewUUID(), Password: proxy.NewPassword()}}
 
-	cfg, err := proxy.ServerConfig([]proxy.Inbound{in}, clients, api, proxy.ACMEOptions{})
+	cfg, err := proxy.ServerConfig([]proxy.Inbound{in}, clients, api, proxy.ACMEOptions{}, proxy.Routing{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestManagerLifecycle(t *testing.T) {
 
 	// Changed config: reload in place (same process, counters flushed first).
 	clients = append(clients, proxy.Client{ID: 2, UUID: proxy.NewUUID(), Password: proxy.NewPassword()})
-	cfg2, _ := proxy.ServerConfig([]proxy.Inbound{in}, clients, api, proxy.ACMEOptions{})
+	cfg2, _ := proxy.ServerConfig([]proxy.Inbound{in}, clients, api, proxy.ACMEOptions{}, proxy.Routing{})
 	if err := m.Apply(ctx, cfg2); err != nil {
 		t.Fatal(err)
 	}

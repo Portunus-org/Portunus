@@ -132,6 +132,84 @@ func (ca *CA) Issue(name string) (certPEM, keyPEM, sum string, notAfter time.Tim
 		hex.EncodeToString(h[:]), notAfter, nil
 }
 
+// IssueNode creates the certificate a node's agent serves its control
+// channel with. It lives as long as the CA: nothing but the panel ever
+// sees it, and replacing it would mean joining the node again.
+func (ca *CA) IssueNode(address string) (certPEM, keyPEM string, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", err
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return "", "", err
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: address},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(caValidity),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	if ip := net.ParseIP(address); ip != nil {
+		tmpl.IPAddresses = []net.IP{ip}
+	} else {
+		tmpl.DNSNames = []string{address}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.Key)
+	if err != nil {
+		return "", "", fmt.Errorf("issue node certificate: %w", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", "", err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
+}
+
+// PanelCommonName is the subject of the certificate the panel presents to
+// its nodes.
+const PanelCommonName = "portunus-panel"
+
+// IssueClient creates the certificate the panel authenticates with when it
+// talks to its nodes. Unlike server certificates it is good for client
+// authentication only, so a node (which holds server keys issued by the
+// same CA) cannot pose as the panel to another node.
+func (ca *CA) IssueClient() (certPEM, keyPEM string, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", err
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return "", "", err
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: PanelCommonName},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(caValidity),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.Key)
+	if err != nil {
+		return "", "", fmt.Errorf("issue client certificate: %w", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", "", err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
+}
+
 // CertExpiry returns the NotAfter of a PEM certificate.
 func CertExpiry(certPEM string) (time.Time, error) {
 	b, _ := pem.Decode([]byte(certPEM))

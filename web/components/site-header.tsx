@@ -7,7 +7,7 @@ export function SiteHeader({ title, actions }: { title: string; actions?: React.
       <div className="flex w-full items-center gap-1 px-4 lg:gap-2 lg:px-6">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mx-2 h-4 data-vertical:self-center" />
-        <h1 className="text-base font-medium">{title}</h1>
+        <h1 className="font-heading text-lg font-medium">{title}</h1>
         {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
       </div>
     </header>

@@ -29,6 +29,9 @@ type testEnv struct {
 	password string
 	store    *store.Store
 	auth     *auth.Service
+	core     *core.Core
+	// busyTCP are ports the fake host reports as taken by other programs.
+	busyTCP map[int]bool
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -76,15 +79,25 @@ func newTestEnv(t *testing.T) *testEnv {
 	done := make(chan struct{})
 	go func() { mgr.Run(ctxRun); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
+	geo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":true,"latitude":52.37,"longitude":4.9,"city":"Testville","country":"Testland","country_code":"TL"}`))
+	}))
+	t.Cleanup(geo.Close)
+	busyTCP := map[int]bool{}
 	c := core.New(st, box, mgr, core.Options{
-		StatsAPI: "127.0.0.1:1",
+		HostPorts: func() (map[int]bool, map[int]bool) { return busyTCP, map[int]bool{} },
+		GeoURL:    geo.URL + "/",
+		StatsAPI:  "127.0.0.1:1",
+		NodeImage: "portunus:local",
+		// Lists are downloaded from a local test server.
+		ListHTTP: http.DefaultClient,
 		ACME:     core.ACMEPaths{DataDirectory: "acme", StorageDir: filepath.Join(cfg.DataDir, "sing-box", "acme")},
 	}, log)
 
 	srv := httptest.NewServer(New(cfg, log, st, as, c, mgr).Handler(http.NotFoundHandler()))
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
-	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, password: pw, store: st, auth: as}
+	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, password: pw, store: st, auth: as, core: c, busyTCP: busyTCP}
 }
 
 func (e *testEnv) do(t *testing.T, method, path string, body any, hdr map[string]string) (*http.Response, map[string]any) {

@@ -7,12 +7,12 @@ import { toast } from "sonner"
 import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
 import { StatusBadge } from "@/components/status"
+import { FormField, FormError } from "@/components/form-field"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, errorText, type ACMEChallenge, type Settings } from "@/lib/api"
@@ -21,16 +21,6 @@ import { useI18n } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/messages"
 import { useCanEdit, useSession } from "@/lib/session"
 import { useResource } from "@/lib/use-resource"
-
-function Field({ id, label, hint, children }: { id: string; label: string; hint?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-3">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-      {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
-    </div>
-  )
-}
 
 /** A settings card whose form saves one part of the settings. */
 function SettingsCard({
@@ -77,7 +67,7 @@ function SettingsCard({
           <fieldset disabled={!isAdmin} className="grid max-w-xl gap-6">
             {children}
           </fieldset>
-          {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+          <FormError>{error}</FormError>
         </CardContent>
         {isAdmin && (
           <CardFooter className="border-t">
@@ -106,12 +96,12 @@ function ServerCard({ settings, onSaved }: { settings: Settings; onSaved: () => 
         onSaved()
       }}
     >
-      <Field id="publicHost" label={t("settings.server.publicHost")} hint={t("settings.server.publicHostHint")}>
+      <FormField id="publicHost" label={t("settings.server.publicHost")} hint={t("settings.server.publicHostHint")}>
         <Input id="publicHost" name="publicHost" defaultValue={settings.publicHost} placeholder="203.0.113.10" spellCheck={false} />
-      </Field>
-      <Field id="domain" label={t("settings.server.domain")} hint={t("settings.server.domainHint")}>
+      </FormField>
+      <FormField id="domain" label={t("settings.server.domain")} hint={t("settings.server.domainHint")}>
         <Input id="domain" name="domain" defaultValue={settings.domain} placeholder="vpn.example.com" spellCheck={false} />
-      </Field>
+      </FormField>
     </SettingsCard>
   )
 }
@@ -134,7 +124,7 @@ function SubscriptionsCard({ settings, onSaved }: { settings: Settings; onSaved:
       {settings.subscriptionListen ? (
         <p className="text-sm text-muted-foreground">{t("settings.subs.env", { addr: settings.subscriptionListen })}</p>
       ) : (
-        <Field id="subscriptionPort" label={t("settings.subs.port")} hint={t("settings.subs.portHint")}>
+        <FormField id="subscriptionPort" label={t("settings.subs.port")} hint={t("settings.subs.portHint")}>
           <Input
             id="subscriptionPort"
             name="subscriptionPort"
@@ -144,9 +134,9 @@ function SubscriptionsCard({ settings, onSaved }: { settings: Settings; onSaved:
             className="max-w-32 tabular-nums"
             defaultValue={settings.subscriptionPort}
           />
-        </Field>
+        </FormField>
       )}
-      <Field id="subscriptionBaseUrl" label={t("settings.subs.url")} hint={t("settings.subs.urlHint")}>
+      <FormField id="subscriptionBaseUrl" label={t("settings.subs.url")} hint={t("settings.subs.urlHint")}>
         <Input
           id="subscriptionBaseUrl"
           name="subscriptionBaseUrl"
@@ -154,7 +144,7 @@ function SubscriptionsCard({ settings, onSaved }: { settings: Settings; onSaved:
           placeholder="https://sub.example.com"
           spellCheck={false}
         />
-      </Field>
+      </FormField>
       {settings.subscriptionUrl && (
         <p className="text-sm text-muted-foreground">
           {t("settings.subs.effective", { url: "" })}
@@ -170,10 +160,26 @@ function SubscriptionsCard({ settings, onSaved }: { settings: Settings; onSaved:
   )
 }
 
-const challenges: { value: ACMEChallenge; label: MessageKey; hint: MessageKey }[] = [
-  { value: "http", label: "settings.certs.http", hint: "settings.certs.httpHint" },
-  { value: "proxy", label: "settings.certs.proxy", hint: "settings.certs.proxyHint" },
-  { value: "cloudflare", label: "settings.certs.cloudflare", hint: "settings.certs.cloudflareHint" },
+const challenges: {
+  value: ACMEChallenge
+  label: MessageKey
+  hint: MessageKey
+}[] = [
+  {
+    value: "http",
+    label: "settings.certs.http",
+    hint: "settings.certs.httpHint",
+  },
+  {
+    value: "proxy",
+    label: "settings.certs.proxy",
+    hint: "settings.certs.proxyHint",
+  },
+  {
+    value: "cloudflare",
+    label: "settings.certs.cloudflare",
+    hint: "settings.certs.cloudflareHint",
+  },
 ]
 
 function nginxSnippet(port: number) {
@@ -206,7 +212,7 @@ function CertificatesCard({ settings, onSaved }: { settings: Settings; onSaved: 
         onSaved()
       }}
     >
-      <Field id="acmeChallenge" label={t("settings.certs.challenge")} hint={t(current.hint)}>
+      <FormField id="acmeChallenge" label={t("settings.certs.challenge")} hint={t(current.hint)}>
         <Select value={challenge} onValueChange={(v) => setChallenge(v as ACMEChallenge)}>
           <SelectTrigger id="acmeChallenge" className="w-full">
             <SelectValue />
@@ -221,11 +227,11 @@ function CertificatesCard({ settings, onSaved }: { settings: Settings; onSaved: 
             </SelectGroup>
           </SelectContent>
         </Select>
-      </Field>
+      </FormField>
 
       {challenge === "proxy" && (
         <>
-          <Field id="acmeHttpPort" label={t("settings.certs.localPort")}>
+          <FormField id="acmeHttpPort" label={t("settings.certs.localPort")}>
             <Input
               id="acmeHttpPort"
               type="number"
@@ -235,7 +241,7 @@ function CertificatesCard({ settings, onSaved }: { settings: Settings; onSaved: 
               value={port}
               onChange={(e) => setPort(Number(e.target.value))}
             />
-          </Field>
+          </FormField>
           <div className="grid gap-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">{t("settings.certs.nginx")}</span>
@@ -248,7 +254,7 @@ function CertificatesCard({ settings, onSaved }: { settings: Settings; onSaved: 
       )}
 
       {challenge === "cloudflare" && (
-        <Field id="cloudflareToken" label={t("settings.certs.token")} hint={t("settings.certs.tokenHint")}>
+        <FormField id="cloudflareToken" label={t("settings.certs.token")} hint={t("settings.certs.tokenHint")}>
           <Input
             id="cloudflareToken"
             name="cloudflareToken"
@@ -256,12 +262,12 @@ function CertificatesCard({ settings, onSaved }: { settings: Settings; onSaved: 
             autoComplete="off"
             placeholder={settings.cloudflareTokenSet ? t("settings.certs.tokenStored") : ""}
           />
-        </Field>
+        </FormField>
       )}
 
-      <Field id="acmeEmail" label={t("settings.certs.email")} hint={t("settings.certs.emailHint")}>
+      <FormField id="acmeEmail" label={t("settings.certs.email")} hint={t("settings.certs.emailHint")}>
         <Input id="acmeEmail" name="acmeEmail" type="email" defaultValue={settings.acmeEmail} placeholder={t("settings.certs.optional")} />
-      </Field>
+      </FormField>
     </SettingsCard>
   )
 }
@@ -310,10 +316,31 @@ function SingBoxCard() {
         <Skeleton className="h-5 w-20" />
       ),
     ],
-    [t("settings.singbox.version"), <span key="v" className="font-mono">{s?.version || t("settings.singbox.notFound")}</span>],
-    ...(s?.pid ? ([[t("settings.singbox.pid"), <span key="p" className="font-mono">{s.pid}</span>]] as [string, React.ReactNode][]) : []),
-    ...(s?.state === "running" && data ? ([[t("settings.singbox.uptime"), formatDuration(data.uptimeSeconds, locale)]] as [string, React.ReactNode][]) : []),
-    [t("settings.singbox.restarts"), <span key="r" className="tabular-nums">{s?.restarts ?? 0}</span>],
+    [
+      t("settings.singbox.version"),
+      <span key="v" className="font-mono">
+        {s?.version || t("settings.singbox.notFound")}
+      </span>,
+    ],
+    ...(s?.pid
+      ? ([
+          [
+            t("settings.singbox.pid"),
+            <span key="p" className="font-mono">
+              {s.pid}
+            </span>,
+          ],
+        ] as [string, React.ReactNode][])
+      : []),
+    ...(s?.state === "running" && data
+      ? ([[t("settings.singbox.uptime"), formatDuration(data.uptimeSeconds, locale)]] as [string, React.ReactNode][])
+      : []),
+    [
+      t("settings.singbox.restarts"),
+      <span key="r" className="tabular-nums">
+        {s?.restarts ?? 0}
+      </span>,
+    ],
   ]
 
   return (
@@ -392,7 +419,11 @@ export default function SettingsPage() {
       {settings && (
         <>
           <ServerCard key={`server-${settings.publicHost}-${settings.domain}`} settings={settings} onSaved={reload} />
-          <SubscriptionsCard key={`subs-${settings.subscriptionPort}-${settings.subscriptionBaseUrl}`} settings={settings} onSaved={reload} />
+          <SubscriptionsCard
+            key={`subs-${settings.subscriptionPort}-${settings.subscriptionBaseUrl}`}
+            settings={settings}
+            onSaved={reload}
+          />
           <CertificatesCard key={`certs-${settings.acmeChallenge}`} settings={settings} onSaved={reload} />
         </>
       )}

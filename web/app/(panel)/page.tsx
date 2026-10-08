@@ -9,14 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api, type Client } from "@/lib/api"
 import { formatBytes, formatDuration } from "@/lib/format"
@@ -43,7 +36,7 @@ function StatCard({
     <Card className="@container/card">
       <CardHeader>
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+        <CardTitle className="font-sans text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
           {value === undefined || value === null || value === false ? <Skeleton className="h-8 w-20" /> : value}
         </CardTitle>
         {badge && <CardAction>{badge}</CardAction>}
@@ -63,7 +56,12 @@ function TrafficChart({ clients }: { clients: Client[] }) {
     upload: { label: t("overview.upload"), color: "var(--muted-foreground)" },
   } satisfies ChartConfig
   const top = [...clients]
-    .map((c) => ({ name: c.name, download: c.download, upload: c.upload, total: c.download + c.upload }))
+    .map((c) => ({
+      name: c.name,
+      download: c.download,
+      upload: c.upload,
+      total: c.download + c.upload,
+    }))
     .filter((c) => c.total > 0)
     .sort((a, b) => b.total - a.total)
     .slice(0, 10)
@@ -85,13 +83,7 @@ function TrafficChart({ clients }: { clients: Client[] }) {
             <BarChart data={top} layout="vertical" margin={{ left: 0, right: 12 }}>
               <CartesianGrid horizontal={false} />
               <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} width={110} tickMargin={8} />
-              <XAxis
-                type="number"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                tickFormatter={(v: number) => formatBytes(v, locale)}
-              />
+              <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: number) => formatBytes(v, locale)} />
               <ChartTooltip
                 cursor={false}
                 content={
@@ -172,8 +164,14 @@ export default function OverviewPage() {
           footer={
             clients &&
             t("overview.trafficSplit", {
-              down: formatBytes(cs.reduce((n, c) => n + c.download, 0), locale),
-              up: formatBytes(cs.reduce((n, c) => n + c.upload, 0), locale),
+              down: formatBytes(
+                cs.reduce((n, c) => n + c.download, 0),
+                locale
+              ),
+              up: formatBytes(
+                cs.reduce((n, c) => n + c.upload, 0),
+                locale
+              ),
             })
           }
           sub={t("overview.chart.description")}
@@ -195,7 +193,9 @@ export default function OverviewPage() {
             problem
               ? t("overview.configNotApplied")
               : state === "running" && sb
-                ? t("overview.up", { d: formatDuration(sb.uptimeSeconds, locale) })
+                ? t("overview.up", {
+                    d: formatDuration(sb.uptimeSeconds, locale),
+                  })
                 : t("overview.startsWithInbound")
           }
           sub={sb && sb.status.restarts > 0 ? tp("overview.restarts", sb.status.restarts) : settings?.publicHost}
