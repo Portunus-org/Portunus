@@ -14,9 +14,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
+import { useDeferredMount } from "@/lib/use-resource"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { api, errorText, type GeoLocation, type Node } from "@/lib/api"
+import { api, errorText, type GeoLocation, type MapStyle, type Node } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { useSession } from "@/lib/session"
@@ -38,6 +41,7 @@ export function NodeDrawer({
   showJoin,
   main,
   tiles,
+  mapStyle,
   nodes,
   onSaved,
 }: {
@@ -49,12 +53,15 @@ export function NodeDrawer({
   /** The other servers, as context on the small map. */
   main?: { host: string; location: GeoLocation | null }
   tiles: boolean
+  mapStyle?: MapStyle
   nodes: Node[]
   onSaved: () => void
 }) {
   const { t, locale } = useI18n()
   const isMobile = useIsMobile()
   const isAdmin = useSession().user.role === "admin"
+  // The map is built once the drawer is on its way in.
+  const mapReady = useDeferredMount()
   const [isExit, setIsExit] = React.useState(node.isExit)
   const [isEntry, setIsEntry] = React.useState(node.isEntry)
   const [standby, setStandby] = React.useState(node.standby)
@@ -103,7 +110,7 @@ export function NodeDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"}>
       <DrawerContent>
-        <DrawerHeader className="gap-1">
+        <DrawerHeader className="gap-1 text-left!">
           <div className="flex items-center justify-between gap-2">
             <DrawerTitle className="truncate">{node.name}</DrawerTitle>
             <NodeStatus node={node} />
@@ -118,123 +125,130 @@ export function NodeDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm">
-          <div className="grid gap-2">
-            {node.status.latencyMs !== undefined && (
-              <Value label={t("nodes.col.latency")}>{t("nodes.latency", { ms: node.status.latencyMs })}</Value>
-            )}
-            {node.status.version && <Value label={t("nodes.drawer.version")}>{node.status.version}</Value>}
-            {node.status.checkedAt && <Value label={t("nodes.drawer.checked")}>{formatDateTime(node.status.checkedAt, locale)}</Value>}
-            {node.enabled && node.status.error && (
-              <Value label={t("nodes.drawer.error")}>
-                <span className="text-destructive">{node.status.error}</span>
-              </Value>
+        <ScrollArea className={drawerScroll}>
+          <div className="flex flex-col gap-4 px-4 text-sm">
+            <div className="grid gap-2">
+              {node.status.latencyMs !== undefined && (
+                <Value label={t("nodes.col.latency")}>{t("nodes.latency", { ms: node.status.latencyMs })}</Value>
+              )}
+              {node.status.version && <Value label={t("nodes.drawer.version")}>{node.status.version}</Value>}
+              {node.status.checkedAt && <Value label={t("nodes.drawer.checked")}>{formatDateTime(node.status.checkedAt, locale)}</Value>}
+              {node.enabled && node.status.error && (
+                <Value label={t("nodes.drawer.error")}>
+                  <span className="text-destructive">{node.status.error}</span>
+                </Value>
+              )}
+            </div>
+            <Separator />
+
+            <form id="node-form" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+              <fieldset disabled={!isAdmin} className="contents">
+                <FormField id="name" label={t("nodes.form.name")}>
+                  <Input id="name" name="name" defaultValue={node.name} maxLength={64} required />
+                </FormField>
+                {agent && (
+                  <>
+                    <FieldGroup className="gap-3">
+                      <Field orientation="horizontal">
+                        <Checkbox id="isExit" checked={isExit} onCheckedChange={(v) => setIsExit(!!v)} />
+                        <FieldContent>
+                          <FieldLabel htmlFor="isExit">{t("nodes.form.exit")}</FieldLabel>
+                          <FieldDescription>{t("nodes.form.exitHint")}</FieldDescription>
+                        </FieldContent>
+                      </Field>
+                      <Field orientation="horizontal">
+                        <Checkbox id="isEntry" checked={isEntry} onCheckedChange={(v) => setIsEntry(!!v)} />
+                        <FieldContent>
+                          <FieldLabel htmlFor="isEntry">{t("nodes.form.entry")}</FieldLabel>
+                          <FieldDescription>{t("nodes.form.entryHint")}</FieldDescription>
+                        </FieldContent>
+                      </Field>
+                      <Field orientation="horizontal">
+                        <Checkbox id="standby" checked={standby} onCheckedChange={(v) => setStandby(!!v)} />
+                        <FieldContent>
+                          <FieldLabel htmlFor="standby">{t("nodes.form.standby")}</FieldLabel>
+                          <FieldDescription>{t("nodes.form.standbyHint")}</FieldDescription>
+                        </FieldContent>
+                      </Field>
+                    </FieldGroup>
+                    <div className="grid grid-cols-2 items-end gap-4">
+                      <FormField id="hopPort" label={t("nodes.form.hopPort")}>
+                        <Input
+                          id="hopPort"
+                          name="hopPort"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          className="tabular-nums"
+                          defaultValue={node.hopPort}
+                        />
+                      </FormField>
+                      <FormField id="agentPort" label={t("nodes.form.agentPort")}>
+                        <Input
+                          id="agentPort"
+                          name="agentPort"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          className="tabular-nums"
+                          defaultValue={node.agentPort}
+                        />
+                      </FormField>
+                    </div>
+                  </>
+                )}
+                <SwitchField id="node-enabled" label={t("nodes.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
+              </fieldset>
+              <FormError>{error}</FormError>
+            </form>
+
+            <Separator />
+            <div className="grid gap-3">
+              <span className="font-medium">{t("nodes.location.title")}</span>
+              {mapReady ? (
+                <NodeMap
+                  points={mapPoints(
+                    main,
+                    nodes.map((n) => (n.id === node.id ? { ...n, location } : n)),
+                    t
+                  )}
+                  tiles={tiles}
+                  mapStyle={mapStyle}
+                  onPick={isAdmin ? place : undefined}
+                  className="[&_.portunus-map]:h-56 md:[&_.portunus-map]:h-56"
+                />
+              ) : (
+                <div className="h-56 rounded-lg border bg-muted/50" />
+              )}
+              <p className="text-muted-foreground">
+                {location
+                  ? location.manual
+                    ? t("nodes.location.manual")
+                    : t("nodes.location.auto", {
+                        place: [location.city, location.country].filter(Boolean).join(", "),
+                      })
+                  : t("nodes.location.none")}
+                {isAdmin && location && " " + t("nodes.location.pick")}
+              </p>
+              {isAdmin && location?.manual && (
+                <Button variant="outline" size="sm" className="w-fit" onClick={() => place(null)}>
+                  {t("nodes.location.reset")}
+                </Button>
+              )}
+            </div>
+
+            {agent && isAdmin && (showJoin || !node.joined) && (
+              <>
+                <Separator />
+                <div className="grid gap-3">
+                  <span className="font-medium">{t("nodes.join")}</span>
+                  <JoinCommand node={node} />
+                  {node.standby && <RecoveryKey node={node} />}
+                </div>
+              </>
             )}
           </div>
-          <Separator />
-
-          <form id="node-form" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-            <fieldset disabled={!isAdmin} className="contents">
-              <FormField id="name" label={t("nodes.form.name")}>
-                <Input id="name" name="name" defaultValue={node.name} maxLength={64} required />
-              </FormField>
-              {agent && (
-                <>
-                  <FieldGroup className="gap-3">
-                    <Field orientation="horizontal">
-                      <Checkbox id="isExit" checked={isExit} onCheckedChange={(v) => setIsExit(!!v)} />
-                      <FieldContent>
-                        <FieldLabel htmlFor="isExit">{t("nodes.form.exit")}</FieldLabel>
-                        <FieldDescription>{t("nodes.form.exitHint")}</FieldDescription>
-                      </FieldContent>
-                    </Field>
-                    <Field orientation="horizontal">
-                      <Checkbox id="isEntry" checked={isEntry} onCheckedChange={(v) => setIsEntry(!!v)} />
-                      <FieldContent>
-                        <FieldLabel htmlFor="isEntry">{t("nodes.form.entry")}</FieldLabel>
-                        <FieldDescription>{t("nodes.form.entryHint")}</FieldDescription>
-                      </FieldContent>
-                    </Field>
-                    <Field orientation="horizontal">
-                      <Checkbox id="standby" checked={standby} onCheckedChange={(v) => setStandby(!!v)} />
-                      <FieldContent>
-                        <FieldLabel htmlFor="standby">{t("nodes.form.standby")}</FieldLabel>
-                        <FieldDescription>{t("nodes.form.standbyHint")}</FieldDescription>
-                      </FieldContent>
-                    </Field>
-                  </FieldGroup>
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField id="hopPort" label={t("nodes.form.hopPort")}>
-                      <Input
-                        id="hopPort"
-                        name="hopPort"
-                        type="number"
-                        min={1}
-                        max={65535}
-                        className="tabular-nums"
-                        defaultValue={node.hopPort}
-                      />
-                    </FormField>
-                    <FormField id="agentPort" label={t("nodes.form.agentPort")}>
-                      <Input
-                        id="agentPort"
-                        name="agentPort"
-                        type="number"
-                        min={1}
-                        max={65535}
-                        className="tabular-nums"
-                        defaultValue={node.agentPort}
-                      />
-                    </FormField>
-                  </div>
-                </>
-              )}
-              <SwitchField id="node-enabled" label={t("nodes.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
-            </fieldset>
-            <FormError>{error}</FormError>
-          </form>
-
-          <Separator />
-          <div className="grid gap-3">
-            <span className="font-medium">{t("nodes.location.title")}</span>
-            <NodeMap
-              points={mapPoints(
-                main,
-                nodes.map((n) => (n.id === node.id ? { ...n, location } : n)),
-                t
-              )}
-              tiles={tiles}
-              onPick={isAdmin ? place : undefined}
-              className="[&_.portunus-map]:h-56 md:[&_.portunus-map]:h-56"
-            />
-            <p className="text-muted-foreground">
-              {location
-                ? location.manual
-                  ? t("nodes.location.manual")
-                  : t("nodes.location.auto", {
-                      place: [location.city, location.country].filter(Boolean).join(", "),
-                    })
-                : t("nodes.location.none")}
-              {isAdmin && location && " " + t("nodes.location.pick")}
-            </p>
-            {isAdmin && location?.manual && (
-              <Button variant="outline" size="sm" className="w-fit" onClick={() => place(null)}>
-                {t("nodes.location.reset")}
-              </Button>
-            )}
-          </div>
-
-          {agent && isAdmin && (showJoin || !node.joined) && (
-            <>
-              <Separator />
-              <div className="grid gap-3">
-                <span className="font-medium">{t("nodes.join")}</span>
-                <JoinCommand node={node} />
-                {node.standby && <RecoveryKey node={node} />}
-              </div>
-            </>
-          )}
-        </div>
+        </ScrollArea>
 
         <DrawerFooter>
           {isAdmin && (

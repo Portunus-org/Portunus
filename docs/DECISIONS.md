@@ -692,6 +692,54 @@ make is not a plan.
 The compose file shrank to the image, host networking and the volume;
 hardening options moved to the documentation, settings to `environment:`.
 
+## D-38 The map is drawn by the panel — Accepted
+
+The map of nodes showed OpenStreetMap's standard tiles turned gray by a CSS
+filter: far more detail than a map of a handful of servers needs. A quieter
+tile set (Esri's gray canvas) fixed the detail but not two things that come
+with any map made of pictures: the sea has the provider's colour, not the
+panel's, and on a dense screen the pictures are stretched and blurred.
+
+So the default map is drawn in the browser from Natural Earth country
+shapes at 1:50m (the `world-atlas` package, loaded only on that page): land
+and borders in colours taken from the theme, the sea simply the card
+behind, country and city names set in the panel's type and written as they
+are where the place is (a built-in list of about 290 cities, shown as one
+zooms in). Links between servers have a pane of their own above the land,
+and land lying across the 180th meridian is unwrapped before drawing,
+or it would be painted as a band across the whole map. It is sharp at any pixel density,
+needs no third party and sends nothing anywhere. It stops at the scale of
+countries (zoom 6): the shapes are too coarse beyond that.
+
+Closer than that (to where towns a few kilometres apart stand clear, zoom
+13) the same map is drawn from vector tiles in the OpenMapTiles layout:
+water, borders of countries and regions, and names of cities, towns and
+villages as written locally, painted on a canvas by `protomaps-leaflet` in
+the theme's colours at the screen's pixel density. The panel fetches them
+(`PORTUNUS_MAP_DETAIL`, by default OpenFreeMap, which needs no key and sets
+no limits) and caches them; `off` keeps the map at the scale of countries.
+Roads, buildings and land use are deliberately not drawn.
+
+Names are written in dozens of scripts, and a computer without a font for
+one (Burmese and Khmer are common gaps) drew rows of boxes. The interface
+therefore carries Noto Sans for thirteen scripts (Arabic, Hebrew, Armenian,
+Georgian, Devanagari, Bengali, Thai, Lao, Khmer, Myanmar, Ethiopic, Sinhala,
+Tamil), about 1 MB in the binary, split by range of letters so that a
+browser fetches only what a name on screen needs. Chinese, Japanese and
+Korean are left to the system (tens of megabytes). For the few scripts
+beyond those, the map measures whether the system can draw them and falls
+back to the Latin name.
+
+An open tab keeps the scripts it was loaded with, which made a fixed bug
+look unfixed after an upgrade. The interface now names its build
+(`/build-id`, a hash of its pages) and a tab reloads itself when the name
+changes (on return to the tab, and every five minutes).
+
+Raster tiles remain an option: `PORTUNUS_MAP_TILES` (a template, or
+`esri`), with `PORTUNUS_MAP_LABELS` and `PORTUNUS_MAP_CREDIT`. They still
+pass through the panel and its cache, kept apart per provider. CARTO's
+comparable basemaps answer "API key required".
+
 ## Open questions for the owner
 
 1. ~~D-15~~: decided, nodes are linked by a VLESS + REALITY hop.

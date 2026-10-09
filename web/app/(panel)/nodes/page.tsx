@@ -42,9 +42,13 @@ export default function NodesPage() {
   const [confirm, confirmDialog] = useConfirm()
 
   const open = React.useCallback((node: Node, join = false) => {
-    setSelected({ node, join })
-    setDrawerKey((k) => k + 1)
-    setDrawerOpen(true)
+    // Rendered in the background and shown when ready: building the drawer
+    // must not hold up the frame of the click.
+    React.startTransition(() => {
+      setSelected({ node, join })
+      setDrawerKey((k) => k + 1)
+      setDrawerOpen(true)
+    })
   }, [])
 
   const act = React.useCallback(
@@ -248,6 +252,7 @@ export default function NodesPage() {
               <NodesMapCard
                 main={topology?.main}
                 tiles={topology?.tiles ?? false}
+                mapStyle={topology?.map}
                 nodes={nodes}
                 canEdit={isAdmin}
                 onChanged={() => {
@@ -290,6 +295,7 @@ export default function NodesPage() {
           showJoin={selected.join}
           main={topology?.main}
           tiles={topology?.tiles ?? false}
+          mapStyle={topology?.map}
           nodes={nodes}
           onSaved={reload}
         />

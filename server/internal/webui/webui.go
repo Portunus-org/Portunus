@@ -8,26 +8,65 @@ package webui
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Handler struct {
 	files fs.FS
 	pages map[string]*page // clean path of .html file -> page
+	// gz holds the compressed form of text files, made on first use: the
+	// files never change while the process runs, so each is compressed
+	// once, as well as it can be.
+	gz sync.Map // name -> []byte
+	// build identifies this build of the interface: a hash of its pages.
+	// A tab left open across an upgrade compares it and reloads itself
+	// (web: FreshBuild), instead of going on with the old scripts.
+	build string
 }
+
+// BuildPath is where the build's identifier is served.
+const BuildPath = "build-id"
 
 type page struct {
 	body []byte
+	gz   []byte
 	csp  string
+}
+
+// compress gzips text at the best ratio; it runs once per file.
+func compress(b []byte) []byte {
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	zw.Write(b)
+	zw.Close()
+	return buf.Bytes()
+}
+
+// compressible lists what is worth compressing: text. Fonts (woff2) and
+// images are compressed already.
+var compressible = map[string]bool{".js": true, ".css": true, ".html": true, ".txt": true, ".json": true, ".svg": true, ".map": true, ".xml": true}
+
+func acceptsGzip(r *http.Request) bool {
+	for _, enc := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		if name, _, _ := strings.Cut(strings.TrimSpace(enc), ";"); name == "gzip" {
+			return true
+		}
+	}
+	return false
 }
 
 var scriptRE = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script>`)
@@ -47,9 +86,19 @@ func New(files fs.FS) (*Handler, error) {
 		if err != nil {
 			return err
 		}
-		h.pages[p] = &page{body: body, csp: pageCSP(body)}
+		h.pages[p] = &page{body: body, gz: compress(body), csp: pageCSP(body)}
 		return nil
 	})
+	names := make([]string, 0, len(h.pages))
+	for name := range h.pages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	sum := sha256.New()
+	for _, name := range names {
+		sum.Write(h.pages[name].body)
+	}
+	h.build = hex.EncodeToString(sum.Sum(nil)[:8])
 	return h, err
 }
 
@@ -100,6 +149,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		name = "."
 	}
 
+	if name == BuildPath {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		io.WriteString(w, h.build)
+		return
+	}
+
 	// Routes are exported with trailingSlash, i.e. /login/ -> login/index.html.
 	if st, err := fs.Stat(h.files, name); err == nil && st.IsDir() {
 		if !strings.HasSuffix(r.URL.Path, "/") {
@@ -141,6 +197,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
+	w.Header().Add("Vary", "Accept-Encoding")
+	if ext := path.Ext(name); compressible[ext] && acceptsGzip(r) && r.Header.Get("Range") == "" {
+		gz, ok := h.gz.Load(name)
+		if !ok {
+			raw, err := io.ReadAll(f)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			gz, _ = h.gz.LoadOrStore(name, compress(raw))
+		}
+		body := gz.([]byte)
+		hdr := w.Header()
+		if ct := mime.TypeByExtension(ext); ct != "" {
+			hdr.Set("Content-Type", ct)
+		}
+		hdr.Set("Content-Encoding", "gzip")
+		hdr.Set("Content-Length", strconv.Itoa(len(body)))
+		if r.Method != http.MethodHead {
+			w.Write(body) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- an embedded build file, compressed; no request data
+		}
+		return
+	}
 	rs, ok := f.(io.ReadSeeker)
 	if !ok {
 		http.NotFound(w, r)
@@ -154,8 +233,15 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request, p *page, sta
 	hdr.Set("Content-Type", "text/html; charset=utf-8")
 	hdr.Set("Content-Security-Policy", p.csp)
 	hdr.Set("Cache-Control", "no-cache")
+	hdr.Add("Vary", "Accept-Encoding")
+	body := p.body
+	if acceptsGzip(r) {
+		body = p.gz
+		hdr.Set("Content-Encoding", "gzip")
+	}
+	hdr.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	if r.Method != http.MethodHead {
-		w.Write(p.body) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- the embedded, prebuilt page; no request data
+		w.Write(body) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- the embedded, prebuilt page; no request data
 	}
 }

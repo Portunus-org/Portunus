@@ -68,13 +68,25 @@ type Config struct {
 	// and for each node's. "off" disables it; servers can still be placed
 	// on the map by hand.
 	GeoLookup string
-	// MapTiles is where the panel fetches map tiles for the map of nodes:
+	// MapTiles, when set, replaces the panel's own drawn map of nodes with
+	// map images from a tile server. It is where the panel fetches them:
 	// a URL template with {z}, {x}, {y} and optionally {style} ("light" or
-	// "dark") for a provider that has both. The default is OpenStreetMap's
-	// own tile server, which needs no key; the panel caches what it fetches
-	// and the browser gets tiles from the panel only. "off" leaves a plain
-	// outline map.
+	// "dark") for a provider that has both, or "esri" for Esri's gray canvas. The
+	// panel caches what it fetches and the browser gets tiles from the panel
+	// only. "off" (the default) keeps the drawn map.
 	MapTiles string
+	// MapDetail is where the drawn map gets what it shows when zoomed in
+	// past the scale of countries (coasts, borders of regions, names of
+	// towns): the TileJSON address of a vector tile set in the OpenMapTiles
+	// layout. The panel fetches and caches the tiles itself; "off" keeps
+	// the map at the scale of countries.
+	MapDetail string
+	// MapLabels is an optional second layer drawn over the tiles: place
+	// names, for a provider that keeps them apart from the base map. Same
+	// template format; "off" or empty for none.
+	MapLabels string
+	// MapCredit is the attribution shown on the map.
+	MapCredit string
 	// SingBoxAPI is the loopback address of sing-box's stats API (v2ray_api),
 	// used for per-client traffic accounting.
 	SingBoxAPI string
@@ -90,6 +102,12 @@ type Config struct {
 
 const (
 	DefaultListen = "127.0.0.1:2053"
+	// By default the map of nodes is drawn by the panel itself from country
+	// outlines it carries, and nothing is fetched. PORTUNUS_MAP_TILES=esri
+	// switches to Esri's gray canvas instead: map images with more detail,
+	// in a light and a dark version, with place names as a separate layer.
+	EsriMapTiles  = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{style}_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+	EsriMapLabels = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{style}_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
 	// NodeImageRepository is where releases publish the node image.
 	NodeImageRepository = "ghcr.io/paulichp/portunus-node"
 )
@@ -118,7 +136,10 @@ func Load() (*Config, error) {
 		SingBoxMemory: env("PORTUNUS_SINGBOX_MEMLIMIT", "256MiB"),
 		NodeImage:     env("PORTUNUS_NODE_IMAGE", DefaultNodeImage()),
 		GeoLookup:     env("PORTUNUS_GEO_LOOKUP", "https://ipwho.is/"),
-		MapTiles:      env("PORTUNUS_MAP_TILES", "https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
+		MapTiles:      env("PORTUNUS_MAP_TILES", "off"),
+		MapDetail:     env("PORTUNUS_MAP_DETAIL", "https://tiles.openfreemap.org/planet"),
+		MapLabels:     os.Getenv("PORTUNUS_MAP_LABELS"),
+		MapCredit:     os.Getenv("PORTUNUS_MAP_CREDIT"),
 		SubListen:     env("PORTUNUS_SUB_LISTEN", ""),
 		ACMEDirectory: env("PORTUNUS_ACME_DIRECTORY", ""),
 	}
@@ -135,6 +156,32 @@ func Load() (*Config, error) {
 	case CookieSecureAuto, CookieSecureAlways, CookieSecureNever:
 	default:
 		return nil, fmt.Errorf("PORTUNUS_COOKIE_SECURE: must be auto, always or never, got %q", c.CookieSecure)
+	}
+	if strings.EqualFold(c.MapDetail, "off") {
+		c.MapDetail = ""
+	} else if u, err := url.Parse(c.MapDetail); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return nil, fmt.Errorf("PORTUNUS_MAP_DETAIL: must be the address of a TileJSON document or \"off\", got %q", c.MapDetail)
+	}
+	// "esri" is short for Esri's gray canvas, which comes with its own
+	// layer of names and its own credit; another provider brings neither
+	// unless told.
+	if strings.EqualFold(c.MapTiles, "esri") {
+		c.MapTiles = EsriMapTiles
+	}
+	if c.MapTiles == EsriMapTiles {
+		if c.MapLabels == "" {
+			c.MapLabels = EsriMapLabels
+		}
+		if c.MapCredit == "" {
+			c.MapCredit = "Esri, HERE, Garmin, © OpenStreetMap"
+		}
+	}
+	if strings.EqualFold(c.MapLabels, "off") || strings.EqualFold(c.MapTiles, "off") {
+		c.MapLabels = ""
+	} else if c.MapLabels != "" {
+		if u, err := url.Parse(c.MapLabels); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || !strings.Contains(c.MapLabels, "{z}") {
+			return nil, fmt.Errorf("PORTUNUS_MAP_LABELS: must be a tile URL template or \"off\", got %q", c.MapLabels)
+		}
 	}
 	if strings.EqualFold(c.MapTiles, "off") {
 		c.MapTiles = ""

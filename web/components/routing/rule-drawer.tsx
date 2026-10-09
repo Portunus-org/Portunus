@@ -9,6 +9,8 @@ import { FormField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { api, errorText, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
@@ -88,23 +90,25 @@ export function RuleDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"}>
       <DrawerContent>
-        <DrawerHeader className="gap-1">
+        <DrawerHeader className="gap-1 text-left!">
           <DrawerTitle>{rule ? source.name || t("routing.rule.edit") : t("routing.rule.new")}</DrawerTitle>
           <DrawerDescription>{t("routing.rule.hint")}</DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm">
-          <div className="flex flex-col gap-3">
-            <Label>{t("routing.rule.what")}</Label>
-            <SourceFields value={source} onChange={setSource} fixed={!!rule} />
+        <ScrollArea className={drawerScroll}>
+          <div className="flex flex-col gap-4 px-4 text-sm">
+            <div className="flex flex-col gap-3">
+              <Label>{t("routing.rule.what")}</Label>
+              <SourceFields value={source} onChange={setSource} fixed={!!rule} />
+            </div>
+            <Separator />
+            <FormField id="rule-target" label={t("routing.rule.target")}>
+              <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} allowBlock />
+              {(target.action === "node" || target.action === "auto") && <p className="text-muted-foreground">{t("routing.failClosed")}</p>}
+            </FormField>
+            <FormError>{error}</FormError>
           </div>
-          <Separator />
-          <FormField id="rule-target" label={t("routing.rule.target")}>
-            <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} allowBlock />
-            {(target.action === "node" || target.action === "auto") && <p className="text-muted-foreground">{t("routing.failClosed")}</p>}
-          </FormField>
-          <FormError>{error}</FormError>
-        </div>
+        </ScrollArea>
 
         <DrawerFooter>
           <Button onClick={save} disabled={pending || !sourceReady(source)}>

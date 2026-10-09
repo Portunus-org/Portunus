@@ -69,7 +69,10 @@ unprivileged user.
 | `PORTUNUS_SINGBOX_CTL` | `127.0.0.1:2055` | Loopback address of sing-box's control API; the panel measures exits through it. |
 | `PORTUNUS_NODE_IMAGE` | `ghcr.io/paulichp/portunus-node:<version>` | Image the join command for new nodes uses: by default the published node image of the panel's version (`latest` for a build that is not a release). Without a registry in the name it is a local build, and the panel also shows how to copy it to the server. |
 | `PORTUNUS_GEO_LOOKUP` | `https://ipwho.is/` | Service asked where servers are, for the map of nodes (`<URL><IP>`); `off` disables it. |
-| `PORTUNUS_MAP_TILES` | OpenStreetMap | Tile server the panel fetches map images from (`{z}`, `{x}`, `{y}`, optional `{style}`); cached in the data volume and served to the browser by the panel. `off`: plain outlines. |
+| `PORTUNUS_MAP_DETAIL` | `https://tiles.openfreemap.org/planet` | Where the drawn map of nodes gets what it shows when zoomed in past the scale of countries (coasts, borders of regions, names of towns): the TileJSON address of a vector tile set in the OpenMapTiles layout. The panel fetches the tiles itself and caches them in the data volume; the browser talks to the panel only. `off`: the map stops at the scale of countries and nothing is fetched. |
+| `PORTUNUS_MAP_TILES` | `off` | By default the panel draws the map of nodes itself (country shapes it carries; nothing is fetched). Set a tile server to use map images instead: a template with `{z}`, `{x}`, `{y}`, optional `{style}` = `light`/`dark`, or `esri` for Esri's gray canvas. Images are cached in the data volume and served to the browser by the panel. |
+| `PORTUNUS_MAP_LABELS` | none | Optional second layer drawn over the tiles (place names), same format. `esri` brings its own. |
+| `PORTUNUS_MAP_CREDIT` | none | Attribution shown on the map when tiles are used. `esri` brings its own. |
 | `PORTUNUS_SINGBOX_BIN` | `sing-box` | sing-box executable (the image ships a patched build, see DECISIONS D-17/D-18). |
 | `PORTUNUS_SINGBOX_API` | `127.0.0.1:2054` | Loopback address of sing-box's stats API (per-client traffic). |
 | `PORTUNUS_ACME_DIRECTORY` | Let's Encrypt | Other ACME directory URL (another CA, or Pebble for testing). |

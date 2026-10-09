@@ -157,18 +157,33 @@
   z-index: 0;
 }
 .portunus-map.leaflet-container {
-  background: var(--muted);
+  /* The sea is the card the map lies on. */
+  background: transparent;
+  outline: none;
+}
+/* Shown for the keyboard only, in the panel's own ring colour. */
+.portunus-map.leaflet-container:focus-visible {
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
-/* Map tiles are shown in the panel's neutral palette, in both themes. */
-.portunus-map .leaflet-tile-pane {
+.portunus-map .leaflet-interactive:focus {
+  outline: none;
+}
+/* Map tiles in the panel's palette. A provider with one look for every
+   theme (plain) is turned to gray, and inverted in the dark theme. One
+   with a light and a dark version of its own (themed) is only brought
+   closer to the panel's own background. */
+.portunus-map[data-tiles="plain"] .leaflet-tile-pane {
   filter: grayscale(1) contrast(0.86) brightness(1.12);
 }
-.dark .portunus-map .leaflet-tile-pane {
+.dark .portunus-map[data-tiles="plain"] .leaflet-tile-pane {
   filter: grayscale(1) invert(1) contrast(0.82) brightness(0.92);
 }
-.portunus-map-pick,
-.portunus-map-pick .leaflet-interactive {
+.dark .portunus-map[data-tiles="themed"] .leaflet-tile-pane {
+  filter: brightness(0.82) contrast(1.2);
+}
+.portunus-map[data-pick],
+.portunus-map[data-pick] .leaflet-interactive {
   cursor: crosshair;
 }
 .leaflet-tooltip.portunus-map-label {
@@ -196,8 +211,80 @@
   stroke-opacity: 0.3;
 }
 .portunus-map-land {
-  fill: color-mix(in oklab, var(--muted-foreground) 18%, var(--card));
+  fill: color-mix(in oklab, var(--foreground) 9%, var(--card));
   fill-opacity: 1;
-  stroke: var(--card);
+  stroke: color-mix(in oklab, var(--foreground) 20%, var(--card));
   stroke-width: 0.6;
+}
+/* Names on the built-in map: text at a point, centred on it. */
+.portunus-map-country,
+.portunus-map-city {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  /* The panel's typeface, then the fonts brought for other scripts. */
+  font-family: var(--font-sans), var(--map-font, sans-serif);
+  pointer-events: none;
+}
+.portunus-map-country {
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  font-size: 0.6875rem;
+}
+.portunus-map-country-spaced {
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.portunus-map-city {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+/* A spinner turns on the compositor instead of repainting what is around it
+   on every frame. */
+.animate-spin {
+  will-change: transform;
+}
+
+/* The blur behind drawers and dialogs.
+   With a graphics card it is cheap as long as what lies beneath stands
+   still, so animations under an open overlay are paused (they are blurred
+   out of sight anyway). Without one (see RenderingHint), or when the system
+   asks for less transparency, the background is only dimmed. */
+body:has([data-slot$="-overlay"]) [data-slot="sidebar-wrapper"] * {
+  animation-play-state: paused !important;
+}
+html[data-rendering="software"] [data-slot$="-overlay"] {
+  backdrop-filter: none;
+  background-color: rgb(0 0 0 / 0.5);
+}
+@media (prefers-reduced-transparency: reduce) {
+  [data-slot$="-overlay"] {
+    backdrop-filter: none;
+    background-color: rgb(0 0 0 / 0.5);
+  }
+}
+
+/* Scrollbars the browser still draws itself (code blocks that scroll
+   sideways, text areas, menus) in the colours of the interface, thin, like
+   the Scroll Area ones. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+
+/* Scroll Area scrollbars are hidden until they have something to say: while
+   their own area is being scrolled (data-scrolling, see scroll-area.tsx),
+   and under the pointer. The selectors name the area's own scrollbars only,
+   so a block inside a page does not light up when the page scrolls. */
+[data-slot="scroll-area-scrollbar"] {
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+[data-slot="scroll-area"][data-scrolling] > [data-slot="scroll-area-scrollbar"],
+[data-slot="scroll-area"][data-scrolling] > [data-slot="scroll-area-viewport"] > div > [data-slot="scroll-area-scrollbar"],
+[data-slot="scroll-area-scrollbar"]:hover,
+[data-slot="scroll-area-scrollbar"]:active {
+  opacity: 1;
+  transition-duration: 0.1s;
 }

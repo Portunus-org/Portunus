@@ -4,6 +4,11 @@ import * as React from "react"
 import { useTheme } from "next-themes"
 import { LocateFixedIcon, MinusIcon, PlusIcon } from "lucide-react"
 import type * as Leaflet from "leaflet"
+
+import type { MapStyle } from "@/lib/api"
+import { mapCities, mapCityLatin, mapCountries } from "@/lib/map-places"
+import { mapFontFamily } from "@/lib/map-fonts"
+import { canDraw } from "@/lib/map-scripts"
 import "leaflet/dist/leaflet.css"
 
 import { Button } from "@/components/ui/button"
@@ -46,6 +51,43 @@ function Dot({ state, className }: { state: MapState; className?: string }) {
 }
 
 const MAX_ZOOM = 12
+// The built-in country shapes hold up to this zoom; with detail from vector
+// tiles the map goes on to where towns a few kilometres apart stand clear.
+const DRAWN_MAX_ZOOM = 6
+const DETAIL_MAX_ZOOM = 13
+
+/** Places with a lower rank are the more important ones. */
+const byRank = (a: Record<string, unknown>, b: Record<string, unknown>) => Number(a.rank ?? 99) - Number(b.rank ?? 99)
+
+/**
+ * The map's colours as the canvas needs them: the theme's CSS colours worked
+ * out to plain rgb() by the browser itself.
+ */
+function mapPalette(at: HTMLElement) {
+  const probe = document.createElement("span")
+  probe.style.display = "none"
+  at.append(probe)
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = 1
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!
+  const rgb = (css: string) => {
+    probe.style.color = css
+    ctx.clearRect(0, 0, 1, 1)
+    ctx.fillStyle = getComputedStyle(probe).color
+    ctx.fillRect(0, 0, 1, 1)
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+    return `rgb(${r}, ${g}, ${b})`
+  }
+  const palette = {
+    sea: rgb("var(--card)"),
+    land: rgb("color-mix(in oklab, var(--foreground) 9%, var(--card))"),
+    border: rgb("color-mix(in oklab, var(--foreground) 22%, var(--card))"),
+    text: rgb("var(--muted-foreground)"),
+    faint: rgb("color-mix(in oklab, var(--muted-foreground) 70%, var(--card))"),
+  }
+  probe.remove()
+  return palette
+}
 
 /**
  * Servers on a map that can be dragged and zoomed. Detailed tiles (cities,
@@ -55,23 +97,34 @@ const MAX_ZOOM = 12
  * With onPick the map is a picker: a click reports the place under it.
  */
 export function NodeMap({
-  points,
+  points: given,
   tiles,
+  mapStyle,
   onPick,
   className,
 }: {
   points: MapPoint[]
   tiles: boolean
+  /** How the tiles look and what goes with them; unknown until loaded. */
+  mapStyle?: MapStyle
   onPick?: (location: { lat: number; lon: number }) => void
   className?: string
 }) {
   const { t } = useI18n()
   const { resolvedTheme } = useTheme()
+  // Callers build the list anew on every render (and pages re-render on
+  // every poll): the map is redrawn only when the points really differ.
+  const pointsKey = JSON.stringify(given)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const points = React.useMemo(() => given, [pointsKey])
   const el = React.useRef<HTMLDivElement>(null)
   const [L, setL] = React.useState<typeof Leaflet | null>(null)
   const map = React.useRef<Leaflet.Map | null>(null)
   const layer = React.useRef<Leaflet.LayerGroup | null>(null)
   const fitted = React.useRef("")
+  const labels = tiles && !!mapStyle?.labels
+  // The drawn map can be zoomed in past the scale of countries.
+  const detail = !tiles && !!mapStyle?.detail
   const pick = React.useRef(onPick)
   React.useEffect(() => {
     pick.current = onPick
@@ -104,8 +157,17 @@ export function NodeMap({
       })
     )
     map.current = m
+    m.createPane("links").style.zIndex = "420"
+    m.getPane("links")!.style.pointerEvents = "none"
     layer.current = L.layerGroup().addTo(m)
+    // Leaflet learns its size once. When the box changes (the sidebar is
+    // folded, the window resized, a drawer finishes sliding in) it has to
+    // be told, or the new part stays without tiles.
+    const box = el.current
+    const resized = new ResizeObserver(() => m.invalidateSize({ pan: false }))
+    resized.observe(box)
     return () => {
+      resized.disconnect()
       m.remove()
       map.current = null
       layer.current = null
@@ -119,26 +181,225 @@ export function NodeMap({
     if (!L || !m) return
     let base: Leaflet.Layer
     let alive = true
+    let stopNames = () => {}
+    let stopFonts = () => {}
+    // The built-in shapes are drawn for a view of countries, not of streets.
+    m.setMaxZoom(tiles ? MAX_ZOOM : detail ? DETAIL_MAX_ZOOM : DRAWN_MAX_ZOOM)
     if (tiles) {
-      base = L.tileLayer(`/api/map/tiles/${resolvedTheme === "dark" ? "dark" : "light"}/{z}/{x}/{y}.png`, { maxZoom: MAX_ZOOM }).addTo(m)
-    } else {
+      const theme = resolvedTheme === "dark" ? "dark" : "light"
       const group = L.layerGroup().addTo(m)
       base = group
-      Promise.all([import("topojson-client"), import("world-atlas/countries-110m.json")]).then(([topo, world]) => {
+      L.tileLayer(`/api/map/tiles/${theme}/{z}/{x}/{y}.png`, { maxZoom: MAX_ZOOM }).addTo(group)
+      // Names of places, over the base, from a few steps of zoom on: the
+      // whole world at once needs no cities.
+      if (labels) L.tileLayer(`/api/map/labels/${theme}/{z}/{x}/{y}.png`, { maxZoom: MAX_ZOOM, minZoom: 4 }).addTo(group)
+    } else {
+      // The panel's own map: countries drawn as shapes in the colours of
+      // the theme, the sea left as the page behind them, names set in the
+      // panel's type. Sharp on any screen, and nothing is fetched from
+      // anywhere else.
+      const group = L.layerGroup().addTo(m)
+      base = group
+      const places = L.layerGroup().addTo(group)
+      if (!m.getPane("places")) {
+        const pane = m.createPane("places")
+        pane.style.zIndex = "450" // over the shapes, under the servers
+        pane.style.pointerEvents = "none"
+      }
+      // A name as a marker without a box: just text at a point.
+      const name = (text: string, at: [number, number], className: string) => {
+        const span = document.createElement("span")
+        span.className = className
+        span.textContent = text
+        return L.marker(at, {
+          pane: "places",
+          interactive: false,
+          keyboard: false,
+          icon: L.divIcon({ className: "", html: span, iconSize: [0, 0] }),
+        })
+      }
+      type Named = { marker: Leaflet.Marker; shown: (zoom: number) => boolean }
+      const named: Named[] = mapCities.map(([city, lat, lon, rank]) => ({
+        // In its own writing where this computer can draw it.
+        marker: name(canDraw(city) ? city : (mapCityLatin[city] ?? city), [lat, lon], "portunus-map-city"),
+        shown: (zoom) => zoom >= [4, 5, 5.5, 6][rank - 1],
+      }))
+      // Past the scale of countries the built-in shapes are too coarse and
+      // the built-in names too few: the view is then drawn from vector
+      // tiles the panel fetches (coasts, borders of countries and regions,
+      // names of cities, towns and villages as they are written there), in
+      // the same colours, and as sharp. The library is loaded on first use.
+      let land: Leaflet.Layer | null = null
+      let close: Leaflet.Layer | null = null
+      let loadingClose = false
+      const showClose = () => {
+        if (close) return void close.addTo(group)
+        if (loadingClose) return
+        loadingClose = true
+        import("protomaps-leaflet").then((pm) => {
+          if (!alive) return
+          // The library looks for Leaflet where a script tag would put it.
+          ;(window as unknown as { L: typeof Leaflet }).L = L
+          const c = mapPalette(el.current!)
+          const family = `${getComputedStyle(document.body).fontFamily}, ${mapFontFamily}`
+          const kind = (f: { props: Record<string, unknown> }) => String(f.props.class ?? "")
+          // The local name where this computer has a font for it, else the
+          // name in Latin letters that the tiles carry beside it.
+          const localName = (_z: number, f?: { props: Record<string, unknown> }) =>
+            typeof f?.props.name === "string" && !canDraw(f.props.name) ? ["name:latin", "name_en", "name"] : ["name"]
+          const text = (weight: number, size: number, fill: string, extra: object = {}) =>
+            new pm.CenteredTextSymbolizer({
+              labelProps: localName,
+              font: `${weight} ${size}px ${family}`,
+              fill,
+              stroke: c.land,
+              width: 3,
+              ...extra,
+            })
+          close = pm.leafletLayer({
+            url: "/api/map/detail/{z}/{x}/{y}.pbf",
+            maxDataZoom: 14,
+            backgroundColor: c.land,
+            paintRules: [
+              { dataLayer: "water", symbolizer: new pm.PolygonSymbolizer({ fill: c.sea }) },
+              {
+                dataLayer: "boundary",
+                filter: (_z, f) => f.props.admin_level === 4 && f.props.maritime !== 1,
+                symbolizer: new pm.LineSymbolizer({ color: c.border, width: 0.8, dash: [3, 3] }),
+              },
+              {
+                dataLayer: "boundary",
+                filter: (_z, f) => f.props.admin_level === 2 && f.props.maritime !== 1,
+                symbolizer: new pm.LineSymbolizer({ color: c.border, width: 1.4 }),
+              },
+            ],
+            labelRules: [
+              { dataLayer: "place", filter: (_z, f) => kind(f) === "city", symbolizer: text(600, 13, c.text), sort: byRank },
+              { dataLayer: "place", minzoom: 8, filter: (_z, f) => kind(f) === "town", symbolizer: text(500, 12, c.text), sort: byRank },
+              {
+                dataLayer: "place",
+                maxzoom: 8,
+                filter: (_z, f) => kind(f) === "country",
+                symbolizer: text(500, 11, c.faint, { textTransform: "uppercase", letterSpacing: 1.5 }),
+              },
+              {
+                dataLayer: "place",
+                minzoom: 11,
+                filter: (_z, f) => kind(f) === "village",
+                symbolizer: text(400, 11, c.faint),
+                sort: byRank,
+              },
+              {
+                dataLayer: "place",
+                minzoom: 12,
+                filter: (_z, f) => kind(f) === "suburb",
+                symbolizer: text(400, 11, c.faint),
+                sort: byRank,
+              },
+            ],
+          }) as unknown as Leaflet.Layer
+          if (m.getZoom() > DRAWN_MAX_ZOOM) close.addTo(group)
+          // A canvas is not redrawn by itself when a font it asked for
+          // arrives: names drawn as boxes meanwhile are drawn again.
+          const redraw = () => {
+            const layer = close as unknown as { clearLayout?: () => void; rerenderTiles?: () => void }
+            layer.clearLayout?.()
+            layer.rerenderTiles?.()
+          }
+          document.fonts.addEventListener("loadingdone", redraw)
+          stopFonts = () => document.fonts.removeEventListener("loadingdone", redraw)
+        })
+      }
+      // Names appear when there is room for them at the current zoom.
+      const refresh = () => {
+        const zoom = m.getZoom()
+        const near = detail && zoom > DRAWN_MAX_ZOOM
+        if (near) {
+          land?.remove()
+          showClose()
+        } else {
+          close?.remove()
+          land?.addTo(group)
+        }
+        for (const n of named) {
+          if (!near && n.shown(zoom)) n.marker.addTo(places)
+          else n.marker.remove()
+        }
+      }
+      m.on("zoomend", refresh)
+      Promise.all([import("topojson-client"), import("world-atlas/countries-50m.json")]).then(([topo, world]) => {
         if (!alive) return
         type Topology = Parameters<typeof topo.feature>[0]
         const data = (world.default ?? world) as unknown as Topology
-        L.geoJSON(topo.feature(data, data.objects.countries) as Parameters<typeof L.geoJSON>[0], {
+        const countries = topo.feature(data, data.objects.countries) as unknown as {
+          features: { properties: { name?: string }; geometry: { type: string; coordinates: number[][][] | number[][][][] } }[]
+        }
+        // A piece of land that lies across the 180th meridian comes with
+        // points on both edges of the map, and would be drawn as a band
+        // right across the world. Its western points are moved past the
+        // eastern edge instead, where they belong.
+        for (const f of countries.features) {
+          if (!f.geometry) continue
+          const polygons = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
+          for (const polygon of polygons) {
+            for (const ring of polygon) {
+              let west = 180, east = -180 // prettier-ignore
+              for (const [lon] of ring) {
+                west = Math.min(west, lon)
+                east = Math.max(east, lon)
+              }
+              if (east - west > 300) for (const point of ring) if (point[0] < 0) point[0] += 360
+            }
+          }
+        }
+        land = L.geoJSON(countries as unknown as Parameters<typeof L.geoJSON>[0], {
           interactive: false,
           style: () => ({ className: "portunus-map-land" }),
-        }).addTo(group)
+        })
+        for (const f of countries.features) {
+          if (!f.properties.name || !f.geometry) continue
+          // A country is named in the middle of its largest piece, once
+          // that piece is wide enough on screen to hold the name.
+          const rings = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
+          let best = { w: 0, h: 0, lat: 0, lon: 0 }
+          for (const polygon of rings) {
+            let west = 180, east = -180, south = 90, north = -90 // prettier-ignore
+            for (const [lon, lat] of polygon[0]) {
+              west = Math.min(west, lon)
+              east = Math.max(east, lon)
+              south = Math.min(south, lat)
+              north = Math.max(north, lat)
+            }
+            if ((east - west) * (north - south) > best.w * best.h)
+              best = { w: east - west, h: north - south, lat: (south + north) / 2, lon: (west + east) / 2 }
+          }
+          if (best.w === 0) continue
+          const local = mapCountries[f.properties.name]
+          const label = local && canDraw(local) ? local : f.properties.name
+          // Letters are spaced out only in scripts that are written apart:
+          // spacing would pull the joined letters of Arabic to pieces.
+          const spaced = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Georgian}\s\p{P}]+$/u.test(
+            label
+          )
+          named.push({
+            marker: name(label, [best.lat, best.lon], spaced ? "portunus-map-country portunus-map-country-spaced" : "portunus-map-country"),
+            shown: (zoom) => {
+              const px = (256 * 2 ** zoom) / 360
+              return best.w * px > label.length * 9 + 24 && best.h * px > 28
+            },
+          })
+        }
+        refresh()
       })
+      stopNames = () => m.off("zoomend", refresh)
     }
     return () => {
       alive = false
+      stopNames()
+      stopFonts()
       base.remove()
     }
-  }, [L, tiles, resolvedTheme])
+  }, [L, tiles, labels, detail, resolvedTheme])
 
   // Servers and links.
   React.useEffect(() => {
@@ -157,6 +418,8 @@ export function NodeMap({
           {
             className: cn("portunus-map-link", p.state !== "online" && "portunus-map-link-idle"),
             interactive: false,
+            // Over the land, which is drawn later and would cover them.
+            pane: "links",
           }
         ).addTo(g)
       }
@@ -261,30 +524,35 @@ export function NodeMap({
     if (key !== fitted.current && points.length > 0) {
       fitted.current = key
       const bounds = L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon]))
-      m.fitBounds(bounds.pad(0.4), { maxZoom: 5, animate: false })
+      m.fitBounds(bounds.pad(0.4), { maxZoom: detail ? 10 : 5, animate: false })
     }
     place()
     m.on("zoomend", place)
     return () => {
       m.off("zoomend", place)
     }
-  }, [L, points, t])
+  }, [L, points, t, detail])
 
   const fit = () => {
     if (!L || !map.current || points.length === 0) return
-    map.current.fitBounds(L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon])).pad(0.4), { maxZoom: 5 })
+    map.current.fitBounds(L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon])).pad(0.4), { maxZoom: detail ? 10 : 5 })
   }
 
   return (
     <div className={cn("relative isolate overflow-hidden rounded-lg border", className)}>
       <div
         ref={el}
-        className={cn("portunus-map h-80 w-full bg-muted/40 md:h-[26rem]", onPick && "portunus-map-pick")}
+        // Leaflet keeps its own classes on this element, so the class list
+        // given here never changes; what varies is said with data attributes.
+        className="portunus-map h-80 w-full md:h-[26rem]"
+        style={{ "--map-font": mapFontFamily } as React.CSSProperties}
+        data-pick={onPick ? "" : undefined}
+        data-tiles={tiles ? (mapStyle?.themed ? "themed" : "plain") : undefined}
         role="application"
         aria-label={t("nodes.map.title")}
         data-vaul-no-drag
       />
-      <ButtonGroup orientation="vertical" className="absolute top-2 right-2 z-[500] shadow-xs">
+      <ButtonGroup orientation="vertical" className="absolute top-2 right-2 z-[500] rounded-lg shadow-xs">
         <Button variant="outline" size="icon-sm" className="bg-background" onClick={() => map.current?.zoomIn()}>
           <PlusIcon />
           <span className="sr-only">{t("nodes.map.zoomIn")}</span>
@@ -300,7 +568,7 @@ export function NodeMap({
       </ButtonGroup>
       {tiles && (
         <span className="absolute right-1 bottom-1 z-[500] rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          © OpenStreetMap
+          {mapStyle?.credit || "© OpenStreetMap"}
         </span>
       )}
     </div>

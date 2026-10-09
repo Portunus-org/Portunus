@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { NodeMap, NodeMapLegend, nodeMapState, type MapPoint, type MapState } from "@/components/nodes/node-map"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { api, errorText, type GeoLocation, type Node } from "@/lib/api"
+import { api, errorText, type GeoLocation, type Node, type MapStyle } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 
 function place(l: GeoLocation): string {
@@ -48,12 +48,14 @@ export function mapPoints(
 export function NodesMapCard({
   main,
   tiles,
+  mapStyle,
   nodes,
   canEdit,
   onChanged,
 }: {
   /** Detailed map tiles are available through the panel. */
   tiles: boolean
+  mapStyle?: MapStyle
   main: { host: string; location: GeoLocation | null } | undefined
   nodes: Node[]
   canEdit: boolean
@@ -91,7 +93,7 @@ export function NodesMapCard({
         )}
       </CardHeader>
       <CardContent className="grid gap-3">
-        <NodeMap points={points} tiles={tiles} onPick={moving ? moveMain : undefined} />
+        <NodeMap points={points} tiles={tiles} mapStyle={mapStyle} onPick={moving ? moveMain : undefined} />
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
           <NodeMapLegend states={states} />
           <span className="text-xs text-muted-foreground">{t("nodes.map.autoHint")}</span>

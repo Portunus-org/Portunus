@@ -2,6 +2,9 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 
+import { FreshBuild } from "@/components/fresh-build"
+import { RenderingHint } from "@/components/rendering-hint"
+
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { I18nProvider } from "@/lib/i18n"
@@ -43,6 +46,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <RenderingHint />
+          <FreshBuild />
           <I18nProvider>
             <TooltipProvider>
               {children}

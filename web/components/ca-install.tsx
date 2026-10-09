@@ -12,10 +12,10 @@ import { formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 
 const platforms = [
-  ["ios", "ca.ios", "ca.iosSteps"],
-  ["android", "ca.android", "ca.androidSteps"],
-  ["windows", "ca.windows", "ca.windowsSteps"],
-  ["macos", "ca.macos", "ca.macosSteps"],
+  ["ios", "ca.ios", "ca.iosSteps", null],
+  ["android", "ca.android", "ca.androidSteps", "ca.androidNote"],
+  ["windows", "ca.windows", "ca.windowsSteps", null],
+  ["macos", "ca.macos", "ca.macosSteps", null],
 ] as const
 
 /**
@@ -77,9 +77,19 @@ export function CAInstall({ compact = false }: { compact?: boolean }) {
             </TabsTrigger>
           ))}
         </TabsList>
-        {platforms.map(([id, , steps]) => (
-          <TabsContent key={id} value={id} className="pt-1 text-muted-foreground">
-            {t(steps)}
+        {platforms.map(([id, , steps, note]) => (
+          <TabsContent key={id} value={id} className="grid gap-3 pt-1">
+            {/* One step per line of the message. */}
+            <ol className="grid list-decimal gap-1.5 pl-5 marker:text-muted-foreground">
+              {t(steps)
+                .split("\n")
+                .map((step, i) => (
+                  <li key={i} className="pl-1">
+                    {step}
+                  </li>
+                ))}
+            </ol>
+            {note && <p className="text-muted-foreground">{t(note)}</p>}
           </TabsContent>
         ))}
       </Tabs>

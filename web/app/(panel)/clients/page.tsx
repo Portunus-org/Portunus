@@ -42,9 +42,13 @@ export default function ClientsPage() {
   const [drawerKey, setDrawerKey] = React.useState(0)
 
   const open = React.useCallback((c: Client | null) => {
-    setSelected(c)
-    setDrawerKey((k) => k + 1)
-    setDrawerOpen(true)
+    // Rendered in the background and shown when ready: building the drawer
+    // must not hold up the frame of the click.
+    React.startTransition(() => {
+      setSelected(c)
+      setDrawerKey((k) => k + 1)
+      setDrawerOpen(true)
+    })
   }, [])
 
   // The sidebar's "New client" button links here with #new.
@@ -210,20 +214,22 @@ export default function ClientsPage() {
     [act, canEdit, confirm, open, t, tp, locale]
   )
 
-  const clients = data ?? []
-  const needsAttention = (c: Client) => c.status === "expired" || c.status === "limited"
-  const byView: Record<string, (c: Client) => boolean> = {
-    all: () => true,
-    active: (c) => c.status === "active",
-    attention: needsAttention,
-    disabled: (c) => c.status === "disabled",
-  }
-  const count = (f: (c: Client) => boolean) => clients.filter(f).length
-  const q = query.trim().toLowerCase()
-  const rows = clients.filter((c) => byView[view](c) && (!q || c.name.toLowerCase().includes(q) || c.note.toLowerCase().includes(q)))
-
-  return (
-    <>
+  // The table is built only when what it shows changes: opening a drawer
+  // re-renders this page, and twenty rows of cells should not be redone for
+  // that in the very frame the drawer starts to move.
+  const table = React.useMemo(() => {
+    const clients = data ?? []
+    const needsAttention = (c: Client) => c.status === "expired" || c.status === "limited"
+    const byView: Record<string, (c: Client) => boolean> = {
+      all: () => true,
+      active: (c) => c.status === "active",
+      attention: needsAttention,
+      disabled: (c) => c.status === "disabled",
+    }
+    const count = (f: (c: Client) => boolean) => clients.filter(f).length
+    const q = query.trim().toLowerCase()
+    const rows = clients.filter((c) => byView[view](c) && (!q || c.name.toLowerCase().includes(q) || c.note.toLowerCase().includes(q)))
+    return (
       <DataTable
         data={rows}
         columns={columns}
@@ -277,6 +283,12 @@ export default function ClientsPage() {
         }
         empty={!data ? t("common.loading") : clients.length === 0 ? t("clients.empty") : t("common.nothingMatches")}
       />
+    )
+  }, [data, view, query, columns, t, canEdit, open])
+
+  return (
+    <>
+      {table}
 
       <ClientDrawer key={drawerKey} open={drawerOpen} onOpenChange={setDrawerOpen} client={selected} onChanged={reload} />
       {confirmDialog}

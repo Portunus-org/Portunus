@@ -7,7 +7,6 @@
 import type { Translate } from "@/lib/i18n"
 import { messages, type MessageKey } from "@/lib/messages"
 
-
 export type Role = "admin" | "operator" | "viewer"
 
 export interface User {
@@ -287,6 +286,17 @@ export interface Node {
   clients: number
 }
 
+/** What the map component has to know about the tiles the panel serves. */
+export interface MapStyle {
+  /** The provider has a light and a dark version of its own. */
+  themed: boolean
+  /** Place names come as a separate layer. */
+  labels: boolean
+  /** The drawn map can be zoomed in to towns, from vector tiles. */
+  detail: boolean
+  credit: string
+}
+
 export interface NodeInput {
   name: string
   kind?: NodeKind
@@ -384,11 +394,7 @@ export function setCsrfToken(token: string) {
   csrfToken = token
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown
-): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   if (body !== undefined) headers["Content-Type"] = "application/json"
   if (method !== "GET" && csrfToken) headers["X-Portunus-CSRF"] = csrfToken
@@ -422,8 +428,7 @@ async function request<T>(
 
 export const api = {
   me: () => request<SessionInfo>("GET", "/api/auth/me"),
-  login: (username: string, password: string) =>
-    request<SessionInfo>("POST", "/api/auth/login", { username, password }),
+  login: (username: string, password: string) => request<SessionInfo>("POST", "/api/auth/login", { username, password }),
   logout: () => request<void>("POST", "/api/auth/logout"),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>("POST", "/api/auth/password", {
@@ -447,17 +452,14 @@ export const api = {
   clientAccess: (id: number) => request<ClientAccess>("GET", `/api/clients/${id}/access`),
 
   settings: () => request<Settings>("GET", "/api/settings"),
-  updateSettings: (input: SettingsInput) =>
-    request<Settings>("PUT", "/api/settings", input),
+  updateSettings: (input: SettingsInput) => request<Settings>("PUT", "/api/settings", input),
 
   setupState: () => request<{ completed: boolean }>("GET", "/api/setup"),
-  setupAddress: () =>
-    request<{ detected: PublicAddress; publicHost: string; domain: string; error?: string }>("GET", "/api/setup/address"),
+  setupAddress: () => request<{ detected: PublicAddress; publicHost: string; domain: string; error?: string }>("GET", "/api/setup/address"),
   setupBasics: (publicHost: string, domain: string) => request<void>("POST", "/api/setup/basics", { publicHost, domain }),
   setupSkip: () => request<void>("POST", "/api/setup/skip"),
 
-  suggestInbound: (protocol: Protocol, domain = "") =>
-    request<InboundSuggestion>("POST", "/api/inbounds/suggest", { protocol, domain }),
+  suggestInbound: (protocol: Protocol, domain = "") => request<InboundSuggestion>("POST", "/api/inbounds/suggest", { protocol, domain }),
   checkDomain: (domain: string) => request<DomainCheck>("POST", "/api/domain/check", { domain }),
   verifyProxy: (domain: string, port: number) =>
     request<{ ok: boolean; message?: string }>("POST", "/api/acme/verify-proxy", { domain, port }),
@@ -473,12 +475,11 @@ export const api = {
   nodeJoin: (id: number) => request<NodeJoin>("GET", `/api/nodes/${id}/join`),
 
   /** The main server, for the map of nodes. */
-  topology: () => request<{ main: { host: string; location: GeoLocation | null }; tiles: boolean }>("GET", "/api/topology"),
+  topology: () => request<{ main: { host: string; location: GeoLocation | null }; tiles: boolean; map: MapStyle }>("GET", "/api/topology"),
   /** Places a server on the map by hand; null returns to automatic lookup. */
   setNodeLocation: (id: number, location: { lat: number; lon: number } | null) =>
     request<void>("PUT", `/api/nodes/${id}/location`, { location }),
-  setServerLocation: (location: { lat: number; lon: number } | null) =>
-    request<void>("PUT", "/api/topology/location", { location }),
+  setServerLocation: (location: { lat: number; lon: number } | null) => request<void>("PUT", "/api/topology/location", { location }),
 
   routing: () => request<Routing>("GET", "/api/routing"),
   setDefaultRoute: (target: RouteTarget) => request<void>("PUT", "/api/routing/default", target),
@@ -486,8 +487,7 @@ export const api = {
   updateRouteList: (id: number, input: RouteListInput) => request<RouteList>("PUT", `/api/routing/lists/${id}`, input),
   deleteRouteList: (id: number) => request<void>("DELETE", `/api/routing/lists/${id}`),
   refreshRouteList: (id: number) => request<RouteList>("POST", `/api/routing/lists/${id}/refresh`),
-  createRouteRule: (input: RouteTarget & { listId: number; enabled?: boolean }) =>
-    request<RouteRule>("POST", "/api/routing/rules", input),
+  createRouteRule: (input: RouteTarget & { listId: number; enabled?: boolean }) => request<RouteRule>("POST", "/api/routing/rules", input),
   updateRouteRule: (id: number, input: RouteTarget & { listId: number; enabled: boolean }) =>
     request<void>("PUT", `/api/routing/rules/${id}`, input),
   deleteRouteRule: (id: number) => request<void>("DELETE", `/api/routing/rules/${id}`),

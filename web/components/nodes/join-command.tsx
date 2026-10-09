@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { CopyButton } from "@/components/copy-button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Note } from "@/components/wizard"
 import { api, errorText, type Node, type NodeJoin } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -13,9 +14,9 @@ function Command({ label, hint, value }: { label: string; hint?: string; value: 
       <span className="font-medium">{label}</span>
       {hint && <span className="text-muted-foreground">{hint}</span>}
       <div className="relative">
-        <pre className="max-h-32 overflow-auto rounded-lg bg-muted p-4 pr-12 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
-          {value}
-        </pre>
+        <ScrollArea className="rounded-lg bg-muted [&_[data-slot=scroll-area-viewport]]:max-h-32">
+          <pre className="p-4 pr-12 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{value}</pre>
+        </ScrollArea>
         <CopyButton value={value} className="absolute top-2 right-2 text-muted-foreground" />
       </div>
     </div>

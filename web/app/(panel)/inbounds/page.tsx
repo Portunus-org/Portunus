@@ -37,8 +37,12 @@ export default function InboundsPage() {
   const [confirm, confirmDialog] = useConfirm()
 
   const open = React.useCallback((inbound: Inbound) => {
-    setEditing(inbound)
-    setDrawerOpen(true)
+    // Rendered in the background and shown when ready: building the drawer
+    // must not hold up the frame of the click.
+    React.startTransition(() => {
+      setEditing(inbound)
+      setDrawerOpen(true)
+    })
   }, [])
 
   const act = React.useCallback(

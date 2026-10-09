@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar"
 import { useI18n } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/messages"
@@ -54,11 +55,12 @@ function Shell({ children }: { children: React.ReactNode }) {
       <AppSidebar variant="inset" />
       <SidebarInset className="min-h-0 overflow-hidden">
         <SiteHeader title={t(title)} />
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+        {/* A new page starts at its top, with its scrollbar announced anew. */}
+        <ScrollArea key={pathname} className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
           <div className="@container/main flex flex-1 flex-col gap-2">
             <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">{children}</div>
           </div>
-        </div>
+        </ScrollArea>
       </SidebarInset>
     </SidebarProvider>
   )

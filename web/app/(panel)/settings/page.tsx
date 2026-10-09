@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api, errorText, type ACMEChallenge, type Settings } from "@/lib/api"
 import { formatDuration } from "@/lib/format"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { useI18n } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/messages"
 import { useCanEdit, useSession } from "@/lib/session"
@@ -281,10 +282,11 @@ function SingBoxCard() {
   const { data: logs, reload: reloadLogs } = useResource(() => (isAdmin ? api.singboxLogs() : Promise.resolve({ lines: [] })), 5_000)
   const { data: cfg, reload: reloadCfg } = useResource(() => (isAdmin ? api.singboxConfig() : Promise.resolve({ config: null })))
   const [restarting, setRestarting] = React.useState(false)
-  const logRef = React.useRef<HTMLPreElement>(null)
+  const logRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
-    const el = logRef.current
+    // The newest lines are at the bottom: keep them in view.
+    const el = logRef.current?.querySelector<HTMLElement>("[data-slot=scroll-area-viewport]")
     if (el) el.scrollTop = el.scrollHeight
   }, [logs])
 
@@ -380,14 +382,20 @@ function SingBoxCard() {
               <TabsTrigger value="config">{t("settings.singbox.config")}</TabsTrigger>
             </TabsList>
             <TabsContent value="logs">
-              <pre ref={logRef} className="h-72 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
-                {logs?.lines?.length ? logs.lines.join("\n") : t("settings.singbox.noOutput")}
-              </pre>
+              <ScrollArea ref={logRef} className="h-72 rounded-lg bg-muted">
+                <pre className="p-4 font-mono text-xs leading-relaxed">
+                  {logs?.lines?.length ? logs.lines.join("\n") : t("settings.singbox.noOutput")}
+                </pre>
+                <ScrollBar orientation="horizontal" />
+              </ScrollArea>
             </TabsContent>
             <TabsContent value="config">
-              <pre className="h-72 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
-                {cfg?.config ? JSON.stringify(cfg.config, null, 2) : t("settings.singbox.notRunning")}
-              </pre>
+              <ScrollArea className="h-72 rounded-lg bg-muted">
+                <pre className="p-4 font-mono text-xs leading-relaxed">
+                  {cfg?.config ? JSON.stringify(cfg.config, null, 2) : t("settings.singbox.notRunning")}
+                </pre>
+                <ScrollBar orientation="horizontal" />
+              </ScrollArea>
               <p className="mt-2 text-sm text-muted-foreground">{t("settings.singbox.masked")}</p>
             </TabsContent>
           </Tabs>

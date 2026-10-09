@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/PaulichP/Portunus/server/internal/agent"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/PaulichP/Portunus/server/internal/core"
@@ -240,8 +241,17 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	host, _ := s.core.PublicHost(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"main": map[string]any{"host": host, "location": s.core.ServerLocation(r.Context())},
-		// Whether detailed map tiles are available (PORTUNUS_MAP_TILES).
+		// Whether detailed map tiles are available (PORTUNUS_MAP_TILES),
+		// and what the map component has to know about them.
 		"tiles": s.cfg.MapTiles != "",
+		"map": map[string]any{
+			// The provider has a light and a dark version of its own.
+			"themed": strings.Contains(s.cfg.MapTiles, "{style}"),
+			"labels": s.cfg.MapLabels != "",
+			// The drawn map can be zoomed in to towns (PORTUNUS_MAP_DETAIL).
+			"detail": s.cfg.MapDetail != "",
+			"credit": s.cfg.MapCredit,
+		},
 	})
 }
 

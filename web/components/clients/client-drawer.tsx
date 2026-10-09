@@ -21,6 +21,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -255,7 +257,7 @@ function ClientForm({
         <FormField id="name" label={t("clients.form.name")}>
           <Input id="name" name="name" defaultValue={client?.name} required maxLength={64} autoFocus={!client} />
         </FormField>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 items-end gap-4">
           <FormField id="limit" label={t("clients.form.limit")}>
             <Input
               id="limit"
@@ -346,7 +348,7 @@ export function ClientDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"}>
       <DrawerContent>
-        <DrawerHeader className="gap-1">
+        <DrawerHeader className="gap-1 text-left!">
           <div className="flex items-center justify-between gap-2">
             <DrawerTitle className="truncate">{client ? client.name : t("clients.drawer.new")}</DrawerTitle>
             {client && <ClientStatus status={client.status} />}
@@ -360,31 +362,33 @@ export function ClientDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm">
-          {client && (
-            <>
-              <Usage client={client} />
-              <Separator />
-              {canEdit && (
-                <>
-                  <Access clientId={client.id} version={accessVersion} />
-                  <Separator />
-                </>
-              )}
-            </>
-          )}
-          <ClientForm
-            key={client ? `${client.id}:${client.exitId}` : "new"}
-            client={client}
-            formId="client-form"
-            setPending={setPending}
-            onSubmitted={(c) => {
-              onChanged()
-              setClient(c)
-              setAccessVersion((v) => v + 1)
-            }}
-          />
-        </div>
+        <ScrollArea className={drawerScroll}>
+          <div className="flex flex-col gap-4 px-4 text-sm">
+            {client && (
+              <>
+                <Usage client={client} />
+                <Separator />
+                {canEdit && (
+                  <>
+                    <Access clientId={client.id} version={accessVersion} />
+                    <Separator />
+                  </>
+                )}
+              </>
+            )}
+            <ClientForm
+              key={client ? `${client.id}:${client.exitId}` : "new"}
+              client={client}
+              formId="client-form"
+              setPending={setPending}
+              onSubmitted={(c) => {
+                onChanged()
+                setClient(c)
+                setAccessVersion((v) => v + 1)
+              }}
+            />
+          </div>
+        </ScrollArea>
 
         <DrawerFooter>
           {canEdit && (
