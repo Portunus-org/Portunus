@@ -362,10 +362,37 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 scripts/scan.sh
 ```
 
-Releases: pushing a tag `v1.2.3` builds both images, scans them with Trivy
-and, if nothing HIGH or CRITICAL is found, publishes them to
-`ghcr.io/paulichp/portunus` and `ghcr.io/paulichp/portunus-node`
-(`.github/workflows/release.yml`). The published images are scanned again
-every week (`scan.yml`).
+## Versions and releases
+
+A version is three numbers, `vMAJOR.MINOR.PATCH`, for example `v0.3.1`:
+
+- the **last** number grows when something is fixed and nothing else
+  changes: `v0.3.1` → `v0.3.2`. Always safe to take;
+- the **middle** number grows when something is added: `v0.3.2` → `v0.4.0`
+  (the last number starts again from 0);
+- the **first** number grows when an upgrade needs something done by hand
+  (a setting renamed, a step in the release notes): `v0.9.4` → `v1.0.0`.
+  While it is 0 the panel is still taking shape.
+
+A version is a tag in git, and nothing else has to be edited: the build
+takes the number from the tag, the panel shows it in **Settings**, and nodes
+are started from the node image with the same number.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Pushing the tag starts `.github/workflows/release.yml`: both images are
+built for x86 and ARM, scanned with Trivy and, if nothing HIGH or CRITICAL
+is found, published as `ghcr.io/paulichp/portunus:v0.1.0` and
+`ghcr.io/paulichp/portunus-node:v0.1.0`, and as `latest`. The first time,
+make both packages public on GitHub (profile → Packages → the package →
+Package settings → Change visibility), or servers would have to sign in to
+download them. The published images are scanned again every week
+(`scan.yml`).
+
+A build without a tag (the development setup above) calls itself `dev` and
+starts nodes from `latest`.
 
 pnpm is required for the web part (`npm i -g pnpm@12.6.0`).

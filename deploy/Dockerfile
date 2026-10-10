@@ -2,11 +2,15 @@
 
 # Base images are pinned by digest; bump tag and digest together.
 ARG NODE_IMAGE=node:26.9.0-alpine3.24@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070
-ARG GO_IMAGE=golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+ARG GO_IMAGE=golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
 ARG RUNTIME_IMAGE=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # --- frontend: Next.js static export --------------------------------------
-FROM ${NODE_IMAGE} AS web
+# The build stages run on the machine that builds (BUILDPLATFORM) and
+# cross-compile for the platform the image is for: an image for ARM built on
+# an x86 runner needs no emulation, which would take an hour instead of
+# minutes.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web
 ARG PNPM_VERSION=12.6.0
 ENV NEXT_TELEMETRY_DISABLED=1 PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 RUN npm install -g pnpm@${PNPM_VERSION}
@@ -20,7 +24,9 @@ RUN pnpm build
 # Built here rather than taken from the release archive: Portunus needs the
 # v2ray_api stats service (per-client traffic), which release builds omit,
 # and does not need tailscale, cloudflared & co. (smaller binary, less RAM).
-FROM ${GO_IMAGE} AS singbox
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS singbox
+ARG TARGETOS
+ARG TARGETARCH
 ARG SINGBOX_VERSION=v1.14.1
 ARG SINGBOX_COMMIT=1ac1a339cb1223e9c70eae14c44411c75033c02d
 ARG SINGBOX_TAGS=with_quic,with_utls,with_acme,with_clash_api,with_v2ray_api,badlinkname,tfogo_checklinkname0
@@ -29,10 +35,10 @@ RUN git clone --depth 1 --branch "${SINGBOX_VERSION}" https://github.com/SagerNe
  && test "$(git -C /src/sing-box rev-parse HEAD)" = "${SINGBOX_COMMIT}"
 WORKDIR /src/sing-box
 # Security bumps of sing-box's dependencies ahead of its own release: fixes
-# for CVEs in grpc (v2ray_api), x/crypto and x/mod that trivy reports in the
+# for CVEs in grpc (v2ray_api), x/crypto, x/mod and x/net that trivy reports in the
 # release's module graph. Pinned, so builds stay reproducible; drop an entry
 # once sing-box itself requires that version or newer.
-ARG SINGBOX_DEP_BUMPS="golang.org/x/crypto@v0.55.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.83.2"
+ARG SINGBOX_DEP_BUMPS="golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2"
 RUN --mount=type=cache,target=/go/pkg/mod \
     go get ${SINGBOX_DEP_BUMPS} && go mod tidy
 # Patched sing-quic: a stable stateless-reset key so Hysteria2/TUIC clients
@@ -48,7 +54,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
  && patch -d /src/sing-quic -p1 < /patches/sing-quic-stable-stateless-reset.patch \
  && go mod edit -replace github.com/sagernet/sing-quic=/src/sing-quic
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -tags "${SINGBOX_TAGS}" \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -tags "${SINGBOX_TAGS}" \
       -ldflags "-s -w -X github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION#v} -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0" \
       -o /out/sing-box ./cmd/sing-box
 # Let the unprivileged process bind ports below 1024 (443), nothing else.
@@ -57,7 +63,9 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 RUN apk add --no-cache libcap-setcap && setcap cap_net_bind_service=+ep /out/sing-box
 
 # --- backend: static Go binary with the frontend embedded ------------------
-FROM ${GO_IMAGE} AS build
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=unknown
 WORKDIR /src/server
@@ -66,15 +74,18 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY server/ ./
 COPY --from=web /src/web/out internal/webui/dist
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
-      -o /out/portunus ./cmd/portunus
+      -o /out/portunus ./cmd/portunus \
+ && install -d -m 0700 /out/data
 
 # --- node: the agent alone --------------------------------------------------
 # A node runs sing-box with what the panel sends it and nothing else: no web
 # interface, no database, no accounts. Its binary is built without the
 # frontend, so `docker build --target node` never touches Node.js.
-FROM ${GO_IMAGE} AS build-node
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build-node
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=unknown
 WORKDIR /src/server
@@ -82,7 +93,7 @@ COPY server/go.mod server/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY server/ ./
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus-node ./cmd/portunus-node \
  && install -d -m 0700 /out/data
@@ -94,7 +105,7 @@ FROM scratch AS node
 COPY --from=build-node /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
 COPY --from=build-node /out/portunus-node /usr/local/bin/portunus-node
-COPY --from=build-node --chown=10001:10001 /out/data /var/lib/portunus
+COPY --from=build-node --chown=10001:10001 --chmod=700 /out/data /var/lib/portunus
 USER 10001:10001
 ENV PATH=/usr/local/bin \
     PORTUNUS_DATA_DIR=/var/lib/portunus \
@@ -104,16 +115,15 @@ VOLUME ["/var/lib/portunus"]
 ENTRYPOINT ["portunus-node"]
 
 # --- panel ----------------------------------------------------------------
-# The default target. Alpine rather than distroless: setcap on the sing-box
-# binary needs a package manager at build time (see docs/DECISIONS.md, D-07).
+# The default target. Alpine, for a shell to look around with (`docker
+# compose exec portunus sh`). Nothing is run in this stage, so it builds for
+# any platform without emulation; the service's user is given by number.
 FROM ${RUNTIME_IMAGE} AS panel
 COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
-RUN addgroup -S -g 10001 portunus \
- && adduser -S -D -H -u 10001 -G portunus -s /sbin/nologin portunus \
- && install -d -o portunus -g portunus -m 0700 /var/lib/portunus
 COPY --from=build /out/portunus /usr/local/bin/portunus
+COPY --from=build --chown=10001:10001 --chmod=700 /out/data /var/lib/portunus
 
-USER portunus:portunus
+USER 10001:10001
 ENV PORTUNUS_DATA_DIR=/var/lib/portunus \
     PORTUNUS_LOG_FORMAT=json \
     GOMEMLIMIT=96MiB

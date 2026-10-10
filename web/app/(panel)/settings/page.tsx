@@ -281,6 +281,7 @@ function SingBoxCard() {
   const { data, reload } = useResource(api.singbox, 5_000)
   const { data: logs, reload: reloadLogs } = useResource(() => (isAdmin ? api.singboxLogs() : Promise.resolve({ lines: [] })), 5_000)
   const { data: cfg, reload: reloadCfg } = useResource(() => (isAdmin ? api.singboxConfig() : Promise.resolve({ config: null })))
+  const { data: system } = useResource(api.system)
   const [restarting, setRestarting] = React.useState(false)
   const logRef = React.useRef<HTMLDivElement>(null)
 
@@ -317,6 +318,12 @@ function SingBoxCard() {
       ) : (
         <Skeleton className="h-5 w-20" />
       ),
+    ],
+    [
+      t("settings.panelVersion"),
+      <span key="pv" className="font-mono">
+        {system?.version ?? ""}
+      </span>,
     ],
     [
       t("settings.singbox.version"),

@@ -740,6 +740,21 @@ Raster tiles remain an option: `PORTUNUS_MAP_TILES` (a template, or
 pass through the panel and its cache, kept apart per provider. CARTO's
 comparable basemaps answer "API key required".
 
+## D-39 Versions are git tags; images build without emulation — Accepted
+
+A version is `vMAJOR.MINOR.PATCH`, and the tag is the only place it is
+written: the release workflow passes the tag to the build, the panel reports
+it (Settings) and names its node image by it. The workflow accepts only
+tags of that shape.
+
+The Dockerfile's build stages run on the builder's own platform and
+cross-compile (`GOOS`/`GOARCH` from the target), and the final stages run
+nothing: the service's user is a number (10001) and its data directory is
+copied in with its owner and mode instead of being made by `adduser` and
+`install`. An ARM image therefore builds on an x86 runner in minutes,
+without QEMU. (This also lifts the reason D-07 gave for Alpine in the
+panel's image; it stays for the shell.)
+
 ## Open questions for the owner
 
 1. ~~D-15~~: decided, nodes are linked by a VLESS + REALITY hop.

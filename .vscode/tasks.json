@@ -1,0 +1,32 @@
+{
+  // Terminal → Run Task…
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Tags the current commit with a version and sends the tag to GitHub,
+      // which builds, scans and publishes the images (docs/DEPLOY.md,
+      // "Versions and releases"). Commit and push your changes first: the
+      // release is made from what is on GitHub.
+      "label": "Release: publish a new version",
+      "type": "shell",
+      "command": "git diff --quiet && git diff --cached --quiet || { echo 'There are uncommitted changes: commit them first.'; exit 1; }; git push origin HEAD && git tag ${input:version} && git push origin ${input:version} && echo 'Sent. Watch the build in the Actions tab on GitHub.'",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Release: show the latest versions",
+      "type": "shell",
+      "command": "git fetch --tags --quiet; git tag --sort=-v:refname | head -5",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "version",
+      "type": "promptString",
+      "description": "Version, three numbers: v0.1.0 (a fix: last number, something new: middle number)",
+      "default": "v0.1.0"
+    }
+  ]
+}
