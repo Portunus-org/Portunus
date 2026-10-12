@@ -90,8 +90,9 @@ func newTestEnv(t *testing.T) *testEnv {
 		StatsAPI:  "127.0.0.1:1",
 		NodeImage: "portunus:local",
 		// Lists are downloaded from a local test server.
-		ListHTTP: http.DefaultClient,
-		ACME:     core.ACMEPaths{DataDirectory: "acme", StorageDir: filepath.Join(cfg.DataDir, "sing-box", "acme")},
+		ListHTTP:     http.DefaultClient,
+		ACME:         core.ACMEPaths{DataDirectory: "acme", StorageDir: filepath.Join(cfg.DataDir, "sing-box", "acme")},
+		PanelCertDir: filepath.Join(cfg.DataDir, "sing-box", "panel-cert"),
 	}, log)
 
 	srv := httptest.NewServer(New(cfg, log, st, as, c, mgr).Handler(http.NotFoundHandler()))

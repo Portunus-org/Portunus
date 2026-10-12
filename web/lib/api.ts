@@ -216,6 +216,8 @@ export interface PanelAccessCheck {
   /** A browser accepts the certificate without a warning. */
   trusted?: boolean
   error?: string
+  /** Waiting will not help: something has to be changed first. */
+  final?: boolean
 }
 
 export interface SettingsInput {

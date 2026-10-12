@@ -325,6 +325,28 @@ Database migrations run automatically on start. Migrations are forward-only.
 A binary refuses to start against a database from a newer version, so take a
 backup before upgrading if you might want to roll back.
 
+### Starting over, and Let's Encrypt's limits
+
+`docker compose down -v` removes the container with its data, certificates
+included, and the next start asks Let's Encrypt for new ones. Let's Encrypt
+issues at most **5 certificates for the same domain per 7 days** (one more
+becomes available about every 34 hours). A fresh installation with a
+domain uses one: the panel's own, which the connections on the same domain
+(Hysteria2, TUIC, Trojan) serve as well. They ask for one of their own only
+when the panel is not opened by that domain, or when they use another
+domain. Five reinstalls in a week are enough to run out. The panel then says so, with
+the time the limit ends, and gets its certificate by itself after that.
+
+An upgrade (`pull`, `up -d`) keeps the data and asks for nothing. When
+trying things out, either keep the volume (`docker compose down` without
+`-v`) or point the panel at Let's Encrypt's staging server, whose limits are
+far higher and whose certificates browsers do not trust:
+
+```yaml
+    environment:
+      PORTUNUS_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
 ## Health and logs
 
 - `docker compose ps` shows the health status (`portunus healthcheck` probes

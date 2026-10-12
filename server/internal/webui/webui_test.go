@@ -61,6 +61,14 @@ func TestHandler(t *testing.T) {
 
 func TestPageCSPHashesOnlyInlineScripts(t *testing.T) {
 	csp := pageCSP("index.html", []byte(`<script src="x.js"></script><script async>a()</script><SCRIPT>a()</SCRIPT><script></script>`))
+	// Whichever page is opened first, the check of the panel's own domain
+	// from the browser must be allowed: pages follow one another without a
+	// new document, and so without a new policy.
+	for _, page := range []string{"index.html", "login/index.html", "welcome/index.html", "settings/index.html"} {
+		if p := pageCSP(page, nil); !strings.Contains(p, "connect-src 'self' https:") {
+			t.Fatalf("%s: the domain check is blocked: %s", page, p)
+		}
+	}
 	// Two identical inline scripts collapse to one hash; external and empty ones are skipped.
 	if n := strings.Count(csp, "'sha256-"); n != 1 {
 		t.Fatalf("want 1 hash, got %d in %q", n, csp)

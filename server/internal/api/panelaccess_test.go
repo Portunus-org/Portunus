@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -225,6 +226,33 @@ func TestPanelAccessGate(t *testing.T) {
 	e.core.Reconcile(ctx)
 	if _, body, _ := fetch(stranger, "GET", "/", ""); body != covered {
 		t.Fatalf("panel did not take its port back: %q", body)
+	}
+
+	// A connection that would ask Let's Encrypt for a certificate of the
+	// same domain serves the panel's instead: no second certificate.
+	hyPort := freeTCPPort(t)
+	resp, hy := e.do(t, "POST", "/api/inbounds", map[string]any{"protocol": "hysteria2", "port": hyPort, "serverName": domain, "tlsMode": "acme"}, h)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create hysteria2: %d %v", resp.StatusCode, hy)
+	}
+	certFile, keyFile := e.core.PanelCertFiles()
+	for _, f := range []string{certFile, keyFile} {
+		if st, err := os.Stat(f); err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("shared certificate file %s: %v", f, err)
+		}
+	}
+	if info, _ := hy["certificate"].(map[string]any); info == nil || info["issuer"] == "" {
+		t.Fatalf("the connection does not report the panel's certificate: %v", hy["certificate"])
+	}
+	// Another domain is not covered by it and keeps its own way.
+	_, otherIn := e.do(t, "POST", "/api/inbounds", map[string]any{"protocol": "tuic", "port": freeTCPPort(t), "serverName": "other.example.com", "tlsMode": "acme"}, h)
+	if otherIn["certificate"] != nil {
+		t.Fatalf("a connection on another domain got the panel's certificate: %v", otherIn["certificate"])
+	}
+	for _, in := range []map[string]any{hy, otherIn} {
+		if id, ok := in["id"].(float64); ok {
+			e.do(t, "DELETE", "/api/inbounds/"+strconv.Itoa(int(id)), nil, h)
+		}
 	}
 
 	// Guessing the secret word shuts the gate to the guesser: after too

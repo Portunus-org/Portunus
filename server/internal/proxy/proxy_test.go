@@ -282,3 +282,29 @@ func TestPrivateCA(t *testing.T) {
 	}
 	singBoxCheck(t, cfg)
 }
+
+// An inbound handed the panel's certificate serves those files and is left
+// out of what sing-box asks Let's Encrypt for.
+func TestSharedCertificate(t *testing.T) {
+	set, sec, err := Provision(Hysteria2, ProvisionOptions{ServerName: "panel.example.com", TLSMode: TLSACME})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Inbound{ID: 1, Tag: "hysteria2-443", Protocol: Hysteria2, Port: 443, Enabled: true, Settings: set, Secret: sec}
+	own, err := ServerConfig([]Inbound{in}, testClients, "", ACMEOptions{DataDirectory: "acme"}, Routing{})
+	if err != nil || !strings.Contains(string(own), `"certificate_provider"`) {
+		t.Fatalf("without the panel's certificate the inbound asks for its own: %v\n%s", err, own)
+	}
+	in.SharedCert, in.SharedKey = "/data/panel-cert/fullchain.pem", "/data/panel-cert/key.pem"
+	shared, err := ServerConfig([]Inbound{in}, testClients, "", ACMEOptions{DataDirectory: "acme"}, Routing{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(shared)
+	if !strings.Contains(cfg, `"certificate_path": "/data/panel-cert/fullchain.pem"`) || !strings.Contains(cfg, `"key_path": "/data/panel-cert/key.pem"`) {
+		t.Fatalf("the files are not served:\n%s", cfg)
+	}
+	if strings.Contains(cfg, `"certificate_provider"`) || strings.Contains(cfg, `"type": "acme"`) {
+		t.Fatalf("Let's Encrypt is still asked:\n%s", cfg)
+	}
+}

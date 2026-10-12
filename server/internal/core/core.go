@@ -69,9 +69,10 @@ type Core struct {
 	nodeRuntime
 	online online
 	// beforeApply runs before a configuration is handed to sing-box.
-	beforeApply func(context.Context)
-	offline     bool
-	hostPorts   func() (tcp, udp map[int]bool)
+	beforeApply  func(context.Context)
+	offline      bool
+	panelCertDir string
+	hostPorts    func() (tcp, udp map[int]bool)
 	// listHTTP replaces the list downloader in tests.
 	listHTTP *http.Client
 
@@ -95,6 +96,9 @@ type ACMEPaths struct {
 // Options configure a Core.
 type Options struct {
 	StatsAPI string
+	// PanelCertDir is where the panel puts the certificate it serves its
+	// own HTTPS with (PanelCertFiles); empty: inbounds never share it.
+	PanelCertDir string
 	// ControlAPI is the loopback address of sing-box's control API, used
 	// to measure exits; empty disables that.
 	ControlAPI string
@@ -132,12 +136,13 @@ func New(st *store.Store, box *secrets.Box, mgr *singbox.Manager, o Options, log
 		reserved: append(o.Reserved,
 			ReservedPort{Port: PanelInnerPort, What: "panel (inner HTTPS)"},
 			ReservedPort{Port: DecoyPort, What: "cover site"}),
-		subListen: o.SubListen,
-		log:       log,
-		now:       time.Now,
-		listHTTP:  o.ListHTTP,
-		offline:   o.Offline,
-		hostPorts: o.HostPorts,
+		subListen:    o.SubListen,
+		log:          log,
+		now:          time.Now,
+		listHTTP:     o.ListHTTP,
+		offline:      o.Offline,
+		panelCertDir: o.PanelCertDir,
+		hostPorts:    o.HostPorts,
 		nodeRuntime: nodeRuntime{
 			nodeStatus:  map[int64]NodeStatus{},
 			exitHealth:  map[int64]exitHealth{},
@@ -985,6 +990,8 @@ type CertificateInfo struct {
 // serves: issued by ACME (nil while pending) or read from its file.
 func (c *Core) CertificateFor(in proxy.Inbound) *CertificateInfo {
 	switch {
+	case in.ACME() && c.sharedCertificate(in.Settings.ServerName) != nil:
+		return c.sharedCertificate(in.Settings.ServerName)
 	case in.ACME():
 		return c.Certificate(in.Settings.ServerName)
 	case in.Protocol.UsesTLSCert() && in.Settings.TLSMode == proxy.TLSFile:
@@ -1075,6 +1082,7 @@ func (c *Core) reconcileLocked(ctx context.Context) error {
 	}
 	if pa, err := c.PanelAccess(ctx); err == nil {
 		for i := range inbounds {
+			c.shareCertificate(&inbounds[i], pa)
 			switch in := &inbounds[i]; {
 			case in.Protocol == proxy.VLESS && pa.Enabled && in.Port == pa.Port:
 				in.RealityDial = net.JoinHostPort("127.0.0.1", strconv.Itoa(PanelInnerPort))

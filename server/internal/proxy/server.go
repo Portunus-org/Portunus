@@ -48,7 +48,7 @@ func serverConfig(inbounds []Inbound, clients []Client, statsAPI string, acme AC
 		if !in.Enabled {
 			continue
 		}
-		if in.ACME() && !slices.Contains(domains, in.Settings.ServerName) {
+		if in.ACME() && in.SharedCert == "" && !slices.Contains(domains, in.Settings.ServerName) {
 			domains = append(domains, in.Settings.ServerName)
 		}
 		v, err := serverInbound(in, clients)
@@ -227,6 +227,17 @@ func serverTLS(in Inbound, alpn ...string) obj {
 			"alpn":             alpn,
 			"certificate_path": in.Settings.CertificatePath,
 			"key_path":         in.Settings.KeyPath,
+		}
+	}
+	if in.ACME() && in.SharedCert != "" {
+		// sing-box reads the files again when they change: a renewal by
+		// the panel reaches the inbound without a restart.
+		return obj{
+			"enabled":          true,
+			"server_name":      in.Settings.ServerName,
+			"alpn":             alpn,
+			"certificate_path": in.SharedCert,
+			"key_path":         in.SharedKey,
 		}
 	}
 	if in.ACME() {

@@ -120,11 +120,12 @@ func pageCSP(name string, body []byte) string {
 
 	// The first setup and the settings check from the browser that the
 	// panel can be reached by its domain over HTTPS, which is another
-	// origin; no other page may talk to anything but the panel.
-	connect := "connect-src 'self'"
-	if name == "welcome/index.html" || name == "settings/index.html" {
-		connect += " https:"
-	}
+	// origin. That is allowed on every page and not on those two alone: the
+	// panel moves between its pages without loading a new document, so the
+	// policy in force is that of whichever page was opened first, usually
+	// the sign-in. What a page can run is still pinned by hash above, so
+	// there is no foreign script to make use of the wider reach.
+	connect := "connect-src 'self' https:"
 
 	return strings.Join([]string{
 		"default-src 'self'",

@@ -95,6 +95,12 @@ type Secret struct {
 }
 
 type Inbound struct {
+	// SharedCert and SharedKey, when set, are files with a certificate for
+	// Settings.ServerName that the panel already holds (its own, for being
+	// opened by that domain). An inbound in ACME mode then serves it and
+	// asks for none of its own: one certificate per domain is enough, and
+	// Let's Encrypt counts every one it issues.
+	SharedCert, SharedKey string
 	// RealityDial, when set, is where a REALITY inbound takes the handshake
 	// it shows to strangers from, instead of Settings.RealityServer: the
 	// panel's own HTTPS listener on this machine, when the two share a port.

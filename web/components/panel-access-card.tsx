@@ -61,6 +61,9 @@ export function PanelAddress({ access, onChanged }: { access: PanelAccess; onCha
   )
 }
 
+// How long the certificate is waited for before the wait is called a failure.
+const CERTIFICATE_WAIT_MS = 4 * 60_000
+
 /**
  * Checks, one after the other, that the panel has a certificate and that
  * this browser reaches it by the domain. The first is asked of the server
@@ -76,12 +79,25 @@ export function usePanelAccessChecks(enabled: boolean) {
   React.useEffect(() => {
     if (!enabled) return
     let alive = true
-    api.checkPanelAccess().then(
-      (c) => alive && setCheck(c),
-      (err) => alive && setCheck({ ok: false, error: err instanceof Error ? err.message : String(err) })
-    )
+    let timer: ReturnType<typeof setTimeout>
+    // A certificate takes from seconds to a couple of minutes, and the
+    // server waits for it only so long per request. So a "not yet" is asked
+    // about again, quietly, and becomes an error on screen only when it
+    // has lasted, or when the server says that waiting will not help.
+    const started = Date.now()
+    const attempt = () =>
+      api
+        .checkPanelAccess()
+        .catch((err): PanelAccessCheck => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+        .then((c) => {
+          if (!alive) return
+          if (c.ok || c.final || Date.now() - started > CERTIFICATE_WAIT_MS) setCheck(c)
+          else timer = setTimeout(attempt, 3000)
+        })
+    attempt()
     return () => {
       alive = false
+      clearTimeout(timer)
     }
   }, [enabled, round])
 

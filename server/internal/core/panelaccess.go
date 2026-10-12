@@ -13,6 +13,8 @@ import (
 	"math/big"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -363,4 +365,49 @@ func (c *Core) PanelGateToken(gate string) string {
 func (c *Core) ACMEEmail(ctx context.Context) string {
 	s, _ := c.ACME(ctx)
 	return s.Email
+}
+
+// PanelCertFiles are where the panel keeps a copy of the certificate it
+// serves its own HTTPS with, for sing-box to read: the chain and the key.
+// Both are empty when there is no such place (see Options.PanelCertDir).
+func (c *Core) PanelCertFiles() (cert, key string) {
+	if c.panelCertDir == "" {
+		return "", ""
+	}
+	return filepath.Join(c.panelCertDir, "fullchain.pem"), filepath.Join(c.panelCertDir, "key.pem")
+}
+
+// sharedCertificate describes the panel's certificate when it can serve
+// domain right now: it is there, it names the domain and it has not
+// expired. Otherwise nil.
+func (c *Core) sharedCertificate(domain string) *CertificateInfo {
+	cert, key := c.PanelCertFiles()
+	if cert == "" || domain == "" {
+		return nil
+	}
+	if _, err := os.Stat(key); err != nil {
+		return nil
+	}
+	info, err := readCertificate(cert)
+	if err != nil || !c.now().Before(info.NotAfter) {
+		return nil
+	}
+	if !certCovers(info.names, domain) {
+		return nil
+	}
+	return info
+}
+
+// shareCertificate lets an inbound that would ask Let's Encrypt for a
+// certificate use the panel's instead, when the panel is opened by the
+// same domain and has one. Nothing about it is stored: if the panel stops
+// being opened by the domain, the inbound gets a certificate of its own
+// again at the next round.
+func (c *Core) shareCertificate(in *proxy.Inbound, pa PanelAccess) {
+	if !in.ACME() || !pa.Enabled || !strings.EqualFold(in.Settings.ServerName, pa.Domain) {
+		return
+	}
+	if c.sharedCertificate(pa.Domain) != nil {
+		in.SharedCert, in.SharedKey = c.PanelCertFiles()
+	}
 }
