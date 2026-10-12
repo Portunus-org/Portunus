@@ -78,6 +78,9 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
       -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus ./cmd/portunus \
  && install -d -m 0700 /out/data
+# The panel listens on 443 itself when it is opened by its domain, and runs
+# as an unprivileged user as well: the same single capability as sing-box.
+RUN apk add --no-cache libcap-setcap && setcap cap_net_bind_service=+ep /out/portunus
 
 # --- node: the agent alone --------------------------------------------------
 # A node runs sing-box with what the panel sends it and nothing else: no web

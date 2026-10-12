@@ -221,7 +221,7 @@ func CheckDomain(ctx context.Context, domain string, here PublicAddress) DomainC
 	out := DomainCheck{Domain: domain, Addresses: []string{}}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, domain)
+	ips, err := LookupFresh(ctx, domain)
 	if err != nil {
 		return out
 	}
@@ -234,6 +234,56 @@ func CheckDomain(ctx context.Context, domain string, here PublicAddress) DomainC
 	}
 	sort.Strings(out.Addresses)
 	return out
+}
+
+// LookupFresh resolves a name by asking the name servers of its own zone,
+// not the resolver this host is set up with. That one is usually a cache at
+// the hosting provider, and after a record is changed it goes on giving the
+// old address for as long as it pleases, a day in one observed case, while
+// the rest of the world already sees the new one. The zone's servers have
+// no cache, and they are also where Let's Encrypt looks.
+//
+// When they cannot be asked (no outgoing DNS, a name that is an alias into
+// another zone), the host's resolver is the fallback.
+func LookupFresh(ctx context.Context, name string) ([]net.IPAddr, error) {
+	for _, server := range zoneServers(ctx, name) {
+		actx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		r := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(server, "53"))
+			},
+		}
+		ips, err := r.LookupIPAddr(actx, name)
+		cancel()
+		if err == nil && len(ips) > 0 {
+			return ips, nil
+		}
+	}
+	return net.DefaultResolver.LookupIPAddr(ctx, name)
+}
+
+// zoneServers returns the addresses of up to three name servers of the
+// zone name belongs to: the nearest parent that has any.
+func zoneServers(ctx context.Context, name string) []string {
+	zone := strings.TrimSuffix(name, ".")
+	for strings.Contains(zone, ".") {
+		nss, err := net.DefaultResolver.LookupNS(ctx, zone)
+		if err == nil && len(nss) > 0 {
+			var out []string
+			for _, ns := range nss {
+				if addrs, err := net.DefaultResolver.LookupHost(ctx, ns.Host); err == nil && len(addrs) > 0 {
+					out = append(out, addrs[0])
+				}
+				if len(out) == 3 {
+					break
+				}
+			}
+			return out
+		}
+		_, zone, _ = strings.Cut(zone, ".")
+	}
+	return nil
 }
 
 // VerifyChallengeForwarding checks that http://domain/.well-known/acme-challenge/

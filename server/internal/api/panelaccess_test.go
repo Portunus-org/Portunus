@@ -67,7 +67,7 @@ func TestPanelAccessGate(t *testing.T) {
 	}
 	entry := out["url"].(string)
 	origin := "https://" + net.JoinHostPort(domain, strconv.Itoa(port))
-	if !strings.HasPrefix(entry, origin+"/") || len(entry) < len(origin)+17 {
+	if !strings.HasPrefix(entry, origin+"/") || len(strings.TrimPrefix(entry, origin+"/")) < 4 || strings.ContainsAny(strings.TrimPrefix(entry, origin+"/"), "/-") {
 		t.Fatalf("entry address %q", entry)
 	}
 	gate := strings.TrimPrefix(entry, origin)
@@ -227,6 +227,24 @@ func TestPanelAccessGate(t *testing.T) {
 		t.Fatalf("panel did not take its port back: %q", body)
 	}
 
+	// Guessing the secret word shuts the gate to the guesser: after too
+	// many word-like paths that are not it, the right one shows the cover
+	// site as well. A browser already through is not affected.
+	_, now := e.do(t, "GET", "/api/panel-access", nil, h)
+	word := strings.TrimPrefix(now["url"].(string), origin)
+	if code, _, _ := fetch(stranger, "GET", word, ""); code != 303 {
+		t.Fatalf("the gate before any guessing: %d", code)
+	}
+	for i := range gateGuesses + 1 {
+		fetch(stranger, "GET", "/guess"+string(rune('a'+i)), "")
+	}
+	if code, body, hdr := fetch(stranger, "GET", word, ""); code != 200 || body != covered || hdr.Get("Set-Cookie") != "" {
+		t.Fatalf("the gate after %d wrong guesses: %d %q", gateGuesses+1, code, body)
+	}
+	if code, _, _ := fetch(stranger, "GET", "/healthz", cookieNow(t, e, h, origin, stranger)); code != 200 {
+		t.Fatalf("a browser already through is shut out: %d", code)
+	}
+
 	// Off again: nothing listens.
 	if resp, out := e.do(t, "PUT", "/api/panel-access", map[string]any{"enabled": false}, h); resp.StatusCode != 200 || out["enabled"] != false {
 		t.Fatalf("disable: %d %v", resp.StatusCode, out)
@@ -235,4 +253,14 @@ func TestPanelAccessGate(t *testing.T) {
 		conn.Close()
 		t.Fatal("still listening after being switched off")
 	}
+}
+
+// cookieNow is the gate cookie a browser let in earlier would carry.
+func cookieNow(t *testing.T, e *testEnv, h map[string]string, origin string, c *http.Client) string {
+	t.Helper()
+	pa, err := e.core.PanelAccess(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return gateCookie + "=" + e.core.PanelGateToken(pa.Gate)
 }

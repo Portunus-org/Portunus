@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/PaulichP/Portunus/server/internal/setup"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -49,7 +51,7 @@ func (c *Core) locate(ctx context.Context, host string) (*Location, error) {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
-		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		addrs, err := setup.LookupFresh(ctx, host)
 		if err != nil || len(addrs) == 0 {
 			return nil, fmt.Errorf("resolve %s: %w", host, err)
 		}

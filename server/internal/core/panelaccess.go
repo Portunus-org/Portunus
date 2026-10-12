@@ -7,9 +7,10 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base32"
+	_ "embed"
 	"encoding/hex"
 	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"math/big"
 	"net"
 	"net/url"
 	"strconv"
@@ -308,12 +309,45 @@ func (c *Core) RotatePanelGate(ctx context.Context) error {
 	return c.store.SetSetting(ctx, settingPanelGate, newGate())
 }
 
-// newGate makes up a secret path: 100 random bits in lower-case letters and
-// digits, easy to copy and impossible to guess.
+// gateWordList is what a secret path is chosen from: the EFF long word
+// list (eff.org/dice, CC BY 3.0 US), its words of four to eight letters.
+// Its authors chose them to be easy to read and free of rude ones.
+//
+//go:embed gatewords.txt
+var gateWordList string
+
+// gateReserved are words a secret path must not be: the panel's own paths,
+// the paths the cover site may use, and the first things anyone would try.
+var gateReserved = map[string]bool{
+	"login": true, "welcome": true, "account": true, "clients": true, "docs": true, "inbounds": true,
+	"nodes": true, "routing": true, "settings": true, "healthz": true, "icon": true, "static": true,
+	"about": true, "notes": true, "posts": true, "journal": true, "entries": true, "style": true,
+	"main": true, "site": true, "screen": true, "base": true, "blog": true, "feed": true, "index": true,
+	"admin": true, "panel": true, "secret": true, "private": true, "manage": true, "console": true,
+	"dashboard": true, "portal": true, "control": true, "system": true, "server": true,
+}
+
+var gateWords = func() []string {
+	var out []string
+	for _, w := range strings.Fields(gateWordList) {
+		if !gateReserved[w] {
+			out = append(out, w)
+		}
+	}
+	return out
+}()
+
+// newGate makes up a secret path: one random word, something a person can
+// read out and remember. A word alone is a weak secret, some thirteen bits,
+// so the listener counts wrong guesses and shuts the gate to whoever makes
+// too many (api: gateGuard). The path only keeps the panel out of sight;
+// signing in still takes the password.
 func newGate() string {
-	b := make([]byte, 13)
-	rand.Read(b)
-	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))[:20]
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(gateWords))))
+	if err != nil {
+		panic(err) // no randomness: nothing safe can be made up
+	}
+	return gateWords[n.Int64()]
 }
 
 // PanelGateToken is what a browser that came through the gate carries from

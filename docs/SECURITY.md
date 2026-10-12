@@ -25,8 +25,8 @@ a global passive observer.
 | Area | Control | Status |
 |---|---|---|
 | Exposure | Panel binds to `127.0.0.1` by default; access through SSH tunnel. Non-loopback binding produces a warning in logs and UI. | built |
-| Exposure | Panel behind a probe-resistant decoy on a secret path; unknown paths show the decoy site. | stage 6 |
-| Container | Non-root user (uid 10001), read-only root filesystem, all capabilities dropped except `NET_BIND_SERVICE` (granted to the sing-box binary only, via a file capability), base images pinned by digest, sing-box built from a verified commit. | built |
+| Exposure | Panel behind a probe-resistant decoy on a secret path; unknown paths show the decoy site. The path is one random word of about 6,000 (13 bits), chosen for being easy to remember, so guessing is throttled: more than 10 wrong word-like paths from one address in 10 minutes shut the entry to that address for the window. It hides the panel; the password protects it. | stage 6 |
+| Container | Non-root user (uid 10001), read-only root filesystem, all capabilities dropped except `NET_BIND_SERVICE` (granted to the sing-box binary and to the panel binary, which listens on 443 itself when opened by its domain, via a file capability), base images pinned by digest, sing-box built from a verified commit. | built |
 | Passwords | argon2id (m=19 MiB, t=2, p=1); min. length 12; constant-time compare; same-duration failure for unknown users. | built |
 | Bootstrap | Random initial admin password, logged once, must be changed before the API allows anything else. | built |
 | Brute force | Per-IP token bucket and per-username exponential lockout; `429` with `Retry-After`. | built |

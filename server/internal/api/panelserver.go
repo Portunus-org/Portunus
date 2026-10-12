@@ -56,6 +56,7 @@ type panelState struct {
 	gate   string
 	token  string
 	probes map[string]time.Time
+	guard  gateGuard
 	// decoy is the address of the operator's cover site, cover the site
 	// the panel made itself, shown when there is none; decoyStop closes
 	// the cover site's loopback listener.
@@ -356,7 +357,8 @@ func (s *Server) gated(next http.Handler) http.Handler {
 			io.WriteString(w, strings.TrimPrefix(r.URL.Path, "/"))
 			return
 		}
-		if gate != "" && r.Method == http.MethodGet && hmac.Equal([]byte(r.URL.Path), []byte("/"+gate)) {
+		who := remoteHost(r)
+		if gate != "" && r.Method == http.MethodGet && hmac.Equal([]byte(r.URL.Path), []byte("/"+gate)) && !s.panel.guard.shut(who) {
 			http.SetCookie(w, &http.Cookie{
 				Name: gateCookie, Value: token, Path: "/", MaxAge: 180 * 24 * 3600,
 				HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
@@ -369,8 +371,91 @@ func (s *Server) gated(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// A stranger asking for something that looks like a secret path may
+		// be guessing it.
+		if r.Method == http.MethodGet && gateShaped(r.URL.Path) {
+			s.panel.guard.miss(who)
+		}
 		decoy.ServeHTTP(w, r)
 	})
+}
+
+// The secret path is a single word, and a word can be guessed by trying
+// them all. So whoever asks for more than gateGuesses word-like paths that
+// are not it within gateWindow finds the gate shut for the rest of that
+// time: even the right word then shows the cover site. With about seven
+// thousand words that makes guessing from one address a matter of days,
+// and it shows in the log long before.
+//
+// Browsers that are already through carry the cookie and are not affected.
+// Behind a VLESS inbound sharing the port every visitor comes from the
+// loopback address, and the count is then common to all of them.
+const (
+	gateGuesses = 10
+	gateWindow  = 10 * time.Minute
+)
+
+type gateGuard struct {
+	mu     sync.Mutex
+	misses map[string][]time.Time
+}
+
+func gateShaped(path string) bool {
+	if len(path) < 4 || len(path) > 10 || path[0] != '/' {
+		return false
+	}
+	for _, c := range path[1:] {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+// recent drops what is older than the window. Callers hold mu.
+func (g *gateGuard) recent(who string, now time.Time) []time.Time {
+	list := g.misses[who]
+	for len(list) > 0 && now.Sub(list[0]) > gateWindow {
+		list = list[1:]
+	}
+	if len(list) == 0 {
+		delete(g.misses, who)
+	} else {
+		g.misses[who] = list
+	}
+	return list
+}
+
+func (g *gateGuard) miss(who string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := time.Now()
+	if g.misses == nil {
+		g.misses = map[string][]time.Time{}
+	}
+	// Not a place to keep a list of everybody who ever came by.
+	if len(g.misses) > 20000 {
+		for k := range g.misses {
+			g.recent(k, now)
+		}
+	}
+	if list := g.recent(who, now); len(list) <= gateGuesses {
+		g.misses[who] = append(list, now)
+	}
+}
+
+func (g *gateGuard) shut(who string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.recent(who, time.Now())) >= gateGuesses
+}
+
+func remoteHost(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // newProbe makes up a one-off address on the HTTPS listener.
