@@ -42,8 +42,22 @@ type tileCache struct {
 	// detail is the resolved tile address of the detailed map.
 	detail   string
 	detailAt time.Time
-	sem      chan struct{}
-	http     *http.Client
+	// complained is when a failure to fetch tiles was last logged.
+	complained time.Time
+	sem        chan struct{}
+	http       *http.Client
+}
+
+// complain reports whether a failure should be logged now: at most once in
+// ten minutes.
+func (c *tileCache) complain() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if time.Since(c.complained) < 10*time.Minute {
+		return false
+	}
+	c.complained = time.Now()
+	return true
 }
 
 func newTileCache(dir string) *tileCache {
@@ -83,7 +97,11 @@ func (s *Server) handleMapDetail(w http.ResponseWriter, r *http.Request) {
 		data, err = s.tiles.fetch(r.Context(), s.tiles.path(s.cfg.MapDetail, "vector", z, x, y), tileURL(template, "", z, x, y), false)
 	}
 	if err != nil {
-		s.log.Debug("map detail tile", "err", err)
+		// Said once in a while and not for every tile: a server that cannot
+		// reach the tile provider fails all of them.
+		if s.tiles.complain() {
+			s.log.Warn("the detailed map is unavailable: tiles cannot be fetched; the built-in map is shown instead", "source", s.cfg.MapDetail, "err", err)
+		}
 		http.Error(w, "tile unavailable", http.StatusBadGateway)
 		return
 	}

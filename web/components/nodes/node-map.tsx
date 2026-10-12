@@ -123,8 +123,34 @@ export function NodeMap({
   const layer = React.useRef<Leaflet.LayerGroup | null>(null)
   const fitted = React.useRef("")
   const labels = tiles && !!mapStyle?.labels
-  // The drawn map can be zoomed in past the scale of countries.
-  const detail = !tiles && !!mapStyle?.detail
+  // The drawn map can be zoomed in past the scale of countries, into a
+  // view made of tiles the server fetches from elsewhere. A server may be
+  // unable to fetch them, so that is tried first, with one tile. Until it
+  // is known to work the map is the built-in one alone, shapes and names
+  // that come with the panel and depend on nothing, and it does not zoom
+  // in further than they look good at.
+  const wantsDetail = !tiles && !!mapStyle?.detail
+  const [detailWorks, setDetailWorks] = React.useState(false)
+  React.useEffect(() => {
+    if (!wantsDetail || detailWorks) return
+    let alive = true
+    const probe = () =>
+      fetch("/api/map/detail/4/9/4.pbf")
+        .then(
+          (r) => r.ok,
+          () => false
+        )
+        .then((ok) => alive && ok && setDetailWorks(true))
+    probe()
+    // A failure is not for ever: the provider may be back, or reachable
+    // again.
+    const timer = setInterval(probe, 60_000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [wantsDetail, detailWorks])
+  const detail = wantsDetail && detailWorks
   const pick = React.useRef(onPick)
   React.useEffect(() => {
     pick.current = onPick
@@ -310,7 +336,9 @@ export function NodeMap({
           stopFonts = () => document.fonts.removeEventListener("loadingdone", redraw)
         })
       }
-      // Names appear when there is room for them at the current zoom.
+      // Names appear when there is room for them at the current zoom. Up
+      // close it is the detailed view alone: the built-in shapes are too
+      // coarse to lie under it, and their layer is above the tiles' anyway.
       const refresh = () => {
         const zoom = m.getZoom()
         const near = detail && zoom > DRAWN_MAX_ZOOM
@@ -520,7 +548,9 @@ export function NodeMap({
     }
     // Frame the servers when the set of places changes, not on every refresh:
     // the operator may have moved the map.
-    const key = points.map((p) => `${p.id}:${p.location.lat},${p.location.lon}`).join("|")
+    // (and once more when the detailed view turns out to be there, since
+    // servers close to each other can then be told apart).
+    const key = (detail ? "detail|" : "") + points.map((p) => `${p.id}:${p.location.lat},${p.location.lon}`).join("|")
     if (key !== fitted.current && points.length > 0) {
       fitted.current = key
       const bounds = L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon]))

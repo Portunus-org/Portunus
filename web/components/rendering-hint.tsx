@@ -9,8 +9,13 @@ function softwareRendering(): boolean {
   try {
     const gl = document.createElement("canvas").getContext("webgl")
     if (!gl) return true
-    const info = gl.getExtension("WEBGL_debug_renderer_info")
-    const renderer = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : ""
+    // Firefox names the renderer in the plain parameter and warns about
+    // the extension; Chromium says only "WebKit WebGL" there and needs it.
+    let renderer = String(gl.getParameter(gl.RENDERER) ?? "")
+    if (!renderer || /^webkit webgl$/i.test(renderer)) {
+      const info = gl.getExtension("WEBGL_debug_renderer_info")
+      if (info) renderer = String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))
+    }
     gl.getExtension("WEBGL_lose_context")?.loseContext()
     return /swiftshader|llvmpipe|software|basic render/i.test(renderer)
   } catch {
