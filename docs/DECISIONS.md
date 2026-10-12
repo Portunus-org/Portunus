@@ -24,8 +24,8 @@ in `deploy/Dockerfile`).
 | Next.js | 16.3.6 | Turbopack, static export |
 | React | 19.3.0 | |
 | Tailwind CSS | 4.3.3 | |
-| shadcn (CLI) | 4.21.0 | style `radix-nova`, base color neutral |
-| TypeScript | **6.0.3** | 7.0.2 is out, but `typescript-eslint` 8.x (used by `eslint-config-next`) supports `<6.1` only |
+| shadcn (CLI) | 4.21.0 | style `radix-nova`, base color neutral. Not installed: run with `npx shadcn@4.21.0 add …`; its `tailwind.css` is copied to `web/app/shadcn.css`. The package and `eslint-config-next` both brought `braces` 3.0.3 (CVE-2026-93687, no fixed release) |
+| TypeScript | **6.0.3** | 7.0.2 is out, but `typescript-eslint` 8.x supports `<6.1` only |
 | ESLint | **9.39.5** | 10.x is out, but `eslint-plugin-react`, `-import`, `-jsx-a11y` declare `^9` at most |
 | modernc.org/sqlite | 1.59.0 | pure-Go SQLite |
 | golang.org/x/crypto | 0.57.0 | argon2id |
@@ -754,6 +754,81 @@ copied in with its owner and mode instead of being made by `adduser` and
 `install`. An ARM image therefore builds on an x86 runner in minutes,
 without QEMU. (This also lifts the reason D-07 gave for Alpine in the
 panel's image; it stays for the shell.)
+
+## D-40 The panel by its domain, behind a gate — Accepted
+
+The panel listened on loopback only, to be reached through an SSH tunnel.
+That stays the default and the way back in, but a panel one opens by typing
+`https://domain` is what an operator expects, so the panel can now serve
+itself over HTTPS:
+
+- **Its own listener**, managed at run time from the settings (domain,
+  port, source of the certificate). No reverse proxy to install.
+- **Certificate**: Let's Encrypt through `autocert`, answered on the same
+  listener (TLS-ALPN-01), obtained on the first connection and renewed in
+  time; or a certificate the operator pastes in. TLS-ALPN-01 is only
+  checked on port 443, so Let's Encrypt means the panel holds TCP 443 and a
+  TCP inbound needs another port (QUIC inbounds are untouched). Port 80 is
+  left alone: sing-box's own ACME client may need it for inbounds.
+- **The gate.** A panel on a public port must not be recognisable. Every
+  request from a browser that has not opened the secret entry path gets the
+  standard library's plain 404, with none of the panel's headers: sign-in
+  page, static files and API alike. Without the domain's name in the
+  handshake there is no handshake. Opening the path sets a cookie derived
+  from the path and the master key; a new path voids it. The gate is not a
+  credential (signing in still needs the password); it keeps the sign-in
+  page off the internet, and with it password guessing and fingerprinting.
+- **Two checks before the address is handed over**: the server connects to
+  its own listener and reads the certificate (which is also what makes
+  `autocert` ask for it), and the operator's browser fetches a one-off
+  address on the listener. The second exists because a fresh DNS record is
+  seen by Let's Encrypt long before it is seen everywhere. The first setup
+  will not continue past the domain step until the domain points at the
+  server, and offers the address only once the browser has reached it.
+  (The two pages that run the browser check may `connect-src https:`; no
+  other page may talk to anything but the panel.)
+
+Settings lost two fields with addresses in them: "domain" beside "public
+address" (one field now: a domain is both) and the manual public URL of
+subscriptions.
+
+Not verified against the real Let's Encrypt from the development machine
+(it has no public address): issuance is exercised on a real server.
+
+## D-41 One port for the panel and VLESS; a cover site instead of refusals — Accepted
+
+D-40 put the panel on TCP 443 and so took the best port away from VLESS,
+and answered strangers with a bare 404. Both were wrong for a tool whose
+point is not to stand out.
+
+- **A cover site.** Everybody who has not been through the gate is answered
+  by an ordinary site. By default the panel makes it itself (package
+  `cover`): a small personal site with a few notes, generated from the
+  master key and the domain, so it is stable for one installation, differs
+  between installations and needs no setting up. Showing a well-known site
+  under another domain, the first default, was itself a tell. The operator
+  may still name another site (`decoy_url`); that one is
+  fetched and passed on as a reverse proxy would: nothing of ours
+  goes upstream (no cookies, no visitor address), and headers that would
+  bind the visitor's browser to that site's rules for our domain are
+  dropped. A domain with a valid certificate that serves a site is what a
+  probe expects to find; a 404 on every path is not.
+- **Trojan** gets `fallback` to the same cover site (a plain-HTTP listener on
+  loopback, port 2059), so a browser on a Trojan port gets a site too and
+  not a reset. On the main server only: nodes do not run the panel.
+- **Sharing the port.** The panel's HTTPS always listens on loopback as
+  well (port 2058). A VLESS + REALITY inbound may be put on the panel's
+  public port; it then presents the panel's own domain, and REALITY sends
+  everybody who is not its client to the inner listener. To a stranger the
+  port is one HTTPS site with a real certificate, which is the best
+  camouflage REALITY can have (no borrowed third-party name on an address
+  that is not theirs). Let's Encrypt's check (TLS-ALPN-01) arrives the same
+  way, so renewal keeps working. The panel lets go of the public port
+  before sing-box takes it and takes it back when the inbound goes.
+- Costs: behind the shared port the panel sees every visitor as 127.0.0.1
+  (sign-in rate limits are then shared, audit shows loopback); on a backup
+  entry such a VLESS inbound takes its handshake from the main server, so
+  it stops when the main server does (the node's other protocols go on).
 
 ## Open questions for the owner
 

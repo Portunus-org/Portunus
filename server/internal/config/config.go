@@ -135,7 +135,7 @@ func Load() (*Config, error) {
 		SingBoxCtl:    env("PORTUNUS_SINGBOX_CTL", "127.0.0.1:2055"),
 		SingBoxMemory: env("PORTUNUS_SINGBOX_MEMLIMIT", "256MiB"),
 		NodeImage:     env("PORTUNUS_NODE_IMAGE", DefaultNodeImage()),
-		GeoLookup:     env("PORTUNUS_GEO_LOOKUP", "https://ipwho.is/"),
+		GeoLookup:     env("PORTUNUS_GEO_LOOKUP", "auto"),
 		MapTiles:      env("PORTUNUS_MAP_TILES", "off"),
 		MapDetail:     env("PORTUNUS_MAP_DETAIL", "https://tiles.openfreemap.org/planet"),
 		MapLabels:     os.Getenv("PORTUNUS_MAP_LABELS"),
@@ -190,6 +190,8 @@ func Load() (*Config, error) {
 	}
 	if strings.EqualFold(c.GeoLookup, "off") {
 		c.GeoLookup = ""
+	} else if strings.EqualFold(c.GeoLookup, "auto") {
+		c.GeoLookup = "auto"
 	} else if u, err := url.Parse(c.GeoLookup); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return nil, fmt.Errorf("PORTUNUS_GEO_LOOKUP: must be a URL or \"off\", got %q", c.GeoLookup)
 	}

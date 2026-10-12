@@ -125,6 +125,19 @@ export interface Client {
   /** The exit the client is bound to; null while there are no exits. */
   exitId: number | null
   createdAt: string
+  /** Connected and passing traffic right now, at these speeds in bytes per second. */
+  online: boolean
+  downRate: number
+  upRate: number
+  /** When traffic of the client was last counted; null: never. */
+  lastSeenAt: string | null
+}
+
+/** Traffic of all clients together within one hour, which starts at `at`. */
+export interface TrafficPoint {
+  at: string
+  upload: number
+  download: number
 }
 
 export interface ClientInput {
@@ -168,6 +181,41 @@ export interface Settings {
   acmeChallenge: ACMEChallenge
   acmeHttpPort: number
   cloudflareTokenSet: boolean
+}
+
+/** How the panel is opened by its domain. */
+export interface PanelAccess {
+  enabled: boolean
+  domain: string
+  port: number
+  mode: "acme" | "own"
+  /** A certificate of the operator's own is stored. */
+  hasCertificate: boolean
+  /** The secret entry address ("" when off). */
+  url: string
+  /** The site shown to everybody who has not opened that address. */
+  decoy: string
+  /** A VLESS connection is on the same port and passes browsers on. */
+  shared: boolean
+  error?: string
+}
+
+export interface PanelAccessInput {
+  enabled: boolean
+  port?: number
+  mode?: "acme" | "own"
+  certificate?: string
+  key?: string
+  decoy?: string
+}
+
+export interface PanelAccessCheck {
+  ok: boolean
+  issuer?: string
+  notAfter?: string
+  /** A browser accepts the certificate without a warning. */
+  trusted?: boolean
+  error?: string
 }
 
 export interface SettingsInput {
@@ -234,6 +282,8 @@ export interface InboundSuggestion {
   domainCheck?: DomainCheck
   certificate?: CertificatePlan
   publicHost: string
+  /** The panel's domain, when the connection shares the panel's port and presents it. */
+  sharedWith?: string
 }
 
 /** Where a server is, for the map. */
@@ -436,6 +486,7 @@ export const api = {
       newPassword,
     }),
   system: () => request<SystemInfo>("GET", "/api/system"),
+  traffic: () => request<TrafficPoint[]>("GET", "/api/traffic"),
 
   inbounds: () => request<Inbound[]>("GET", "/api/inbounds"),
   createInbound: (input: InboundInput) => request<Inbound>("POST", "/api/inbounds", input),
@@ -456,6 +507,25 @@ export const api = {
 
   setupState: () => request<{ completed: boolean }>("GET", "/api/setup"),
   setupAddress: () => request<{ detected: PublicAddress; publicHost: string; domain: string; error?: string }>("GET", "/api/setup/address"),
+  panelAccess: () => request<PanelAccess>("GET", "/api/panel-access"),
+  setPanelAccess: (input: PanelAccessInput) => request<PanelAccess>("PUT", "/api/panel-access", input),
+  /** Connects to the panel's HTTPS port from the server itself; with Let's Encrypt this obtains the certificate. */
+  checkPanelAccess: () => request<PanelAccessCheck>("POST", "/api/panel-access/check"),
+  rotatePanelGate: () => request<PanelAccess>("POST", "/api/panel-access/rotate"),
+  /**
+   * Whether this browser reaches the panel by its domain: fetches a one-off
+   * address on the HTTPS port. A fresh DNS record may be visible to the
+   * server and to Let's Encrypt and not yet to the operator's own computer.
+   */
+  browserReachesPanel: async (): Promise<boolean> => {
+    const probe = await request<{ url: string; expect: string }>("POST", "/api/panel-access/probe")
+    try {
+      const res = await fetch(probe.url, { cache: "no-store", credentials: "omit" })
+      return res.ok && (await res.text()) === probe.expect
+    } catch {
+      return false
+    }
+  },
   setupBasics: (publicHost: string, domain: string) => request<void>("POST", "/api/setup/basics", { publicHost, domain }),
   setupSkip: () => request<void>("POST", "/api/setup/skip"),
 

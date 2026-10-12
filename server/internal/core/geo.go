@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -56,7 +60,52 @@ func (c *Core) locate(ctx context.Context, host string) (*Location, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.geoURL+url.PathEscape(ip.String()), nil)
+	if c.geoURL != GeoAuto {
+		return geoAsk(ctx, c.geoURL+url.PathEscape(ip.String()))
+	}
+	// No free service places every address right, and each is wrong in its
+	// own way (one put a Moscow address in Washington). So several are
+	// asked at once and the country most of them name is taken; within it,
+	// the answer of the first service that names that country. A city can
+	// still be off: that is what placing a server by hand is for.
+	answers := make([]*Location, len(geoServices))
+	var wg sync.WaitGroup
+	for i, service := range geoServices {
+		wg.Go(func() { answers[i], _ = geoAsk(ctx, fmt.Sprintf(service, url.PathEscape(ip.String()))) })
+	}
+	wg.Wait()
+	votes := map[string]int{}
+	for _, a := range answers {
+		if a != nil && a.CountryCode != "" {
+			votes[a.CountryCode]++
+		}
+	}
+	var best *Location
+	for _, a := range answers {
+		if a != nil && (best == nil || votes[a.CountryCode] > votes[best.CountryCode]) {
+			best = a
+		}
+	}
+	if best == nil {
+		return nil, errors.New("no location for this address")
+	}
+	return best, nil
+}
+
+// GeoAuto asks the built-in services and takes what most of them say.
+const GeoAuto = "auto"
+
+// geoServices are address templates of services that answer without a key.
+var geoServices = []string{
+	"https://ipapi.co/%s/json/",
+	"https://get.geojs.io/v1/ip/geo/%s.json",
+	"https://ipwho.is/%s",
+}
+
+// geoAsk reads one service's answer. They agree on the names of the fields
+// well enough; numbers come as numbers or as text.
+func geoAsk(ctx context.Context, address string) (*Location, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -66,18 +115,27 @@ func (c *Core) locate(ctx context.Context, host string) (*Location, error) {
 	}
 	defer res.Body.Close()
 	var body struct {
-		Success     *bool   `json:"success"`
-		Latitude    float64 `json:"latitude"`
-		Longitude   float64 `json:"longitude"`
-		City        string  `json:"city"`
-		Country     string  `json:"country"`
-		CountryCode string  `json:"country_code"`
+		Success     *bool       `json:"success"`
+		Error       bool        `json:"error"`
+		Latitude    json.Number `json:"latitude"`
+		Longitude   json.Number `json:"longitude"`
+		City        string      `json:"city"`
+		Country     string      `json:"country"`
+		CountryName string      `json:"country_name"`
+		CountryCode string      `json:"country_code"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+	dec := json.NewDecoder(io.LimitReader(res.Body, 1<<20))
+	dec.UseNumber()
+	if err := dec.Decode(&body); err != nil {
 		return nil, err
 	}
-	loc := &Location{Lat: body.Latitude, Lon: body.Longitude, City: body.City, Country: body.Country, CountryCode: body.CountryCode}
-	if res.StatusCode != http.StatusOK || (body.Success != nil && !*body.Success) || !loc.valid() || (loc.Lat == 0 && loc.Lon == 0) {
+	lat, _ := strconv.ParseFloat(strings.Trim(body.Latitude.String(), `"`), 64)
+	lon, _ := strconv.ParseFloat(strings.Trim(body.Longitude.String(), `"`), 64)
+	if body.CountryName != "" {
+		body.Country = body.CountryName
+	}
+	loc := &Location{Lat: lat, Lon: lon, City: body.City, Country: body.Country, CountryCode: strings.ToUpper(body.CountryCode)}
+	if res.StatusCode != http.StatusOK || body.Error || (body.Success != nil && !*body.Success) || !loc.valid() || (loc.Lat == 0 && loc.Lon == 0) {
 		return nil, errors.New("no location for this address")
 	}
 	return loc, nil

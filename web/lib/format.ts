@@ -7,11 +7,12 @@ const units: Record<Locale, string[]> = {
 
 export function formatBytes(bytes: number, locale: Locale = "en"): string {
   const u = units[locale]
-  if (!Number.isFinite(bytes) || bytes <= 0) return `0 ${u[0]}`
+  // A no-break space: the unit never wraps away from its number.
+  if (!Number.isFinite(bytes) || bytes <= 0) return `0\u00a0${u[0]}`
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), u.length - 1)
   const v = bytes / 1024 ** i
   const num = new Intl.NumberFormat(locale, { maximumFractionDigits: v >= 100 || i === 0 ? 0 : 1 }).format(v)
-  return `${num} ${u[i]}`
+  return `${num}\u00a0${u[i]}`
 }
 
 export function formatDuration(seconds: number, locale: Locale = "en"): string {

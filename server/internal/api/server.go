@@ -39,13 +39,22 @@ type Server struct {
 	mgr     *singbox.Manager
 	started time.Time
 	sub     subState
-	tiles   *tileCache
+	panel   panelState
+	// full is the whole panel (API and interface), as served on loopback;
+	// the HTTPS listener serves the same behind its gate.
+	full  http.Handler
+	tiles *tileCache
 }
 
 func New(cfg *config.Config, log *slog.Logger, st *store.Store, as *auth.Service, c *core.Core, mgr *singbox.Manager) *Server {
-	return &Server{cfg: cfg, log: log, store: st, auth: as, core: c, mgr: mgr, started: time.Now(),
+	s := &Server{cfg: cfg, log: log, store: st, auth: as, core: c, mgr: mgr, started: time.Now(),
 		sub:   subState{kick: make(chan struct{}, 1)},
+		panel: panelState{kick: make(chan struct{}, 1), probes: map[string]time.Time{}},
 		tiles: newTileCache(filepath.Join(cfg.DataDir, "cache", "tiles"))}
+	// Before sing-box takes a port the panel is on (to share it), the panel
+	// has to let go of it.
+	c.OnBeforeApply(s.syncPanelAccess)
+	return s
 }
 
 // SubscriptionHandler serves only /sub/{token}; it is what the optional
@@ -79,10 +88,17 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 	mux.Handle("POST /api/auth/password", s.requireSession(s.handleChangePassword))
 
 	mux.Handle("GET /api/system", s.requireSession(s.handleSystem))
+	mux.Handle("GET /api/traffic", s.requireSession(s.handleTraffic))
 	s.routesProxy(mux)
 	s.routesSetup(mux)
 	s.routesRouting(mux)
 	s.routesMap(mux)
+	admin := func(h http.HandlerFunc) http.Handler { return s.requireSession(requireRole(store.RoleAdmin, h)) }
+	mux.Handle("GET /api/panel-access", admin(s.handleGetPanelAccess))
+	mux.Handle("PUT /api/panel-access", admin(s.handlePutPanelAccess))
+	mux.Handle("POST /api/panel-access/check", admin(s.handleCheckPanelAccess))
+	mux.Handle("POST /api/panel-access/probe", admin(s.handlePanelProbe))
+	mux.Handle("POST /api/panel-access/rotate", admin(s.handleRotatePanelGate))
 	mux.HandleFunc("GET /sub/{token}", s.handleSubscription)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +106,8 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 	})
 	mux.Handle("/", ui)
 
-	return s.recoverer(s.logRequests(securityHeaders(mux)))
+	s.full = s.recoverer(s.logRequests(securityHeaders(mux)))
+	return s.full
 }
 
 type ctxKey struct{}

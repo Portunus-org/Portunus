@@ -3,7 +3,9 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
+	"strconv"
 )
 
 // obj is a JSON object; the sing-box config is built from these rather than
@@ -94,6 +96,22 @@ func serverConfig(inbounds []Inbound, clients []Client, statsAPI string, acme AC
 		delete(cfg, "experimental")
 	}
 	routing.apply(cfg)
+	// A Trojan inbound reaches its fallback, a web server on this machine,
+	// through the router like any connection, where the guard that keeps
+	// clients away from loopback would stop it. That one address is let
+	// through, ahead of every other rule; all it leads to is the cover site.
+	for _, in := range inbounds {
+		host, port, err := net.SplitHostPort(in.Fallback)
+		n, nerr := strconv.Atoi(port)
+		if !in.Enabled || in.Protocol != Trojan || err != nil || nerr != nil {
+			continue
+		}
+		route := cfg["route"].(obj)
+		rules := route["rules"].([]any)
+		allow := obj{"ip_cidr": []string{host + "/32"}, "port": []int{n}, "action": "route", "outbound": "direct"}
+		route["rules"] = append([]any{rules[0], allow}, rules[1:]...)
+		break
+	}
 	if len(domains) > 0 {
 		p := obj{
 			"type":           "acme",
@@ -140,11 +158,8 @@ func serverInbound(in Inbound, clients []Client) (obj, error) {
 			"enabled":     true,
 			"server_name": in.Settings.RealityServer,
 			"reality": obj{
-				"enabled": true,
-				"handshake": obj{
-					"server":      in.Settings.RealityServer,
-					"server_port": in.Settings.RealityServerPort,
-				},
+				"enabled":     true,
+				"handshake":   realityHandshake(in),
 				"private_key": in.Secret.RealityPrivateKey,
 				"short_id":    []string{in.Settings.RealityShortID},
 			},
@@ -174,6 +189,11 @@ func serverInbound(in Inbound, clients []Client) (obj, error) {
 			users = append(users, obj{"name": c.UserName(), "password": c.Password})
 		}
 		o["tls"] = serverTLS(in, "h2", "http/1.1")
+		if host, port, err := net.SplitHostPort(in.Fallback); err == nil {
+			if n, err := strconv.Atoi(port); err == nil {
+				o["fallback"] = obj{"server": host, "server_port": n}
+			}
+		}
 
 	case Shadowsocks:
 		for _, c := range clients {
@@ -187,6 +207,16 @@ func serverInbound(in Inbound, clients []Client) (obj, error) {
 	}
 	o["users"] = users
 	return o, nil
+}
+
+// realityHandshake says where the handshake shown to strangers comes from.
+func realityHandshake(in Inbound) obj {
+	if host, port, err := net.SplitHostPort(in.RealityDial); err == nil {
+		if n, err := strconv.Atoi(port); err == nil {
+			return obj{"server": host, "server_port": n}
+		}
+	}
+	return obj{"server": in.Settings.RealityServer, "server_port": in.Settings.RealityServerPort}
 }
 
 func serverTLS(in Inbound, alpn ...string) obj {

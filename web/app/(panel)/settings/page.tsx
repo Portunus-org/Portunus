@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
+import { PanelAccessCard } from "@/components/panel-access-card"
 import { StatusBadge } from "@/components/status"
 import { FormField, FormError } from "@/components/form-field"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -89,19 +90,29 @@ function ServerCard({ settings, onSaved }: { settings: Settings; onSaved: () => 
       title={t("settings.server.title")}
       description={t("settings.server.description")}
       onSubmit={async (f) => {
+        // One address: a domain is also what certificates are issued for
+        // and what the panel is opened by; an IP address is only an address.
+        const address = String(f.get("publicHost") ?? "")
+          .trim()
+          .toLowerCase()
+        const isDomain = /[a-z]/.test(address) && !address.includes(":")
         await api.updateSettings({
-          publicHost: String(f.get("publicHost") ?? ""),
-          domain: String(f.get("domain") ?? ""),
+          publicHost: address,
+          domain: isDomain ? address : "",
           subscriptionBaseUrl: settings.subscriptionBaseUrl,
         })
         onSaved()
       }}
     >
       <FormField id="publicHost" label={t("settings.server.publicHost")} hint={t("settings.server.publicHostHint")}>
-        <Input id="publicHost" name="publicHost" defaultValue={settings.publicHost} placeholder="203.0.113.10" spellCheck={false} />
-      </FormField>
-      <FormField id="domain" label={t("settings.server.domain")} hint={t("settings.server.domainHint")}>
-        <Input id="domain" name="domain" defaultValue={settings.domain} placeholder="vpn.example.com" spellCheck={false} />
+        <Input
+          id="publicHost"
+          name="publicHost"
+          defaultValue={settings.domain || settings.publicHost}
+          placeholder="vpn.example.com"
+          autoCapitalize="none"
+          spellCheck={false}
+        />
       </FormField>
     </SettingsCard>
   )
@@ -116,7 +127,7 @@ function SubscriptionsCard({ settings, onSaved }: { settings: Settings; onSaved:
       onSubmit={async (f) => {
         await api.updateSettings({
           publicHost: settings.publicHost,
-          subscriptionBaseUrl: String(f.get("subscriptionBaseUrl") ?? ""),
+          subscriptionBaseUrl: settings.subscriptionBaseUrl,
           ...(settings.subscriptionListen ? {} : { subscriptionPort: Number(f.get("subscriptionPort") || 0) }),
         })
         onSaved()
@@ -137,15 +148,6 @@ function SubscriptionsCard({ settings, onSaved }: { settings: Settings; onSaved:
           />
         </FormField>
       )}
-      <FormField id="subscriptionBaseUrl" label={t("settings.subs.url")} hint={t("settings.subs.urlHint")}>
-        <Input
-          id="subscriptionBaseUrl"
-          name="subscriptionBaseUrl"
-          defaultValue={settings.subscriptionBaseUrl}
-          placeholder="https://sub.example.com"
-          spellCheck={false}
-        />
-      </FormField>
       {settings.subscriptionUrl && (
         <p className="text-sm text-muted-foreground">
           {t("settings.subs.effective", { url: "" })}
@@ -322,7 +324,7 @@ function SingBoxCard() {
     [
       t("settings.panelVersion"),
       <span key="pv" className="font-mono">
-        {system?.version ?? ""}
+        {system ? (system.commit && system.commit !== "unknown" ? `${system.version} (${system.commit.slice(0, 7)})` : system.version) : ""}
       </span>,
     ],
     [
@@ -429,11 +431,13 @@ function CACard() {
 
 export default function SettingsPage() {
   const { data: settings, reload } = useResource(api.settings)
+  const isAdmin = useSession().user.role === "admin"
   return (
     <div className="grid gap-4 px-4 lg:px-6">
       {settings && (
         <>
           <ServerCard key={`server-${settings.publicHost}-${settings.domain}`} settings={settings} onSaved={reload} />
+          <PanelAccessCard key={`access-${settings.domain}`} canEdit={isAdmin} />
           <SubscriptionsCard
             key={`subs-${settings.subscriptionPort}-${settings.subscriptionBaseUrl}`}
             settings={settings}

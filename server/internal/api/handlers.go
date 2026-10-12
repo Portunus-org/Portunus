@@ -134,6 +134,29 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// trafficDays is how far back the overview's chart can look.
+const trafficDays = 90
+
+// handleTraffic returns the traffic of all clients together, hour by hour,
+// for the chart on the overview. Hours without traffic are left out.
+func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
+	hours, err := s.core.TrafficSince(r.Context(), time.Now().AddDate(0, 0, -trafficDays))
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	type point struct {
+		At       time.Time `json:"at"`
+		Upload   int64     `json:"upload"`
+		Download int64     `json:"download"`
+	}
+	out := make([]point, 0, len(hours))
+	for _, h := range hours {
+		out = append(out, point{At: h.Hour.UTC(), Upload: h.Upload, Download: h.Download})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	var dbSize int64
 	for _, suffix := range []string{"", "-wal"} {

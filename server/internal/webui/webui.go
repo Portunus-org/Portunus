@@ -86,7 +86,7 @@ func New(files fs.FS) (*Handler, error) {
 		if err != nil {
 			return err
 		}
-		h.pages[p] = &page{body: body, gz: compress(body), csp: pageCSP(body)}
+		h.pages[p] = &page{body: body, gz: compress(body), csp: pageCSP(p, body)}
 		return nil
 	})
 	names := make([]string, 0, len(h.pages))
@@ -102,7 +102,7 @@ func New(files fs.FS) (*Handler, error) {
 	return h, err
 }
 
-func pageCSP(body []byte) string {
+func pageCSP(name string, body []byte) string {
 	seen := map[string]bool{}
 	for _, m := range scriptRE.FindAllSubmatch(body, -1) {
 		attrs, content := m[1], m[2]
@@ -118,6 +118,14 @@ func pageCSP(body []byte) string {
 	}
 	sort.Strings(hashes)
 
+	// The first setup and the settings check from the browser that the
+	// panel can be reached by its domain over HTTPS, which is another
+	// origin; no other page may talk to anything but the panel.
+	connect := "connect-src 'self'"
+	if name == "welcome/index.html" || name == "settings/index.html" {
+		connect += " https:"
+	}
+
 	return strings.Join([]string{
 		"default-src 'self'",
 		"script-src 'self' " + strings.Join(hashes, " "),
@@ -125,7 +133,7 @@ func pageCSP(body []byte) string {
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' data:",
 		"font-src 'self'",
-		"connect-src 'self'",
+		connect,
 		"object-src 'none'",
 		"base-uri 'none'",
 		"form-action 'self'",

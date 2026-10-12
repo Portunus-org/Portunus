@@ -146,6 +146,9 @@ function ProtocolStep({ value, onChange }: { value: Protocol; onChange: (p: Prot
 function CamouflageStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>) => void; sug: InboundSuggestion | null }) {
   const { t } = useI18n()
   if (!sug) return <Note tone="pending">{t("wizard.reality.measuring")}</Note>
+  // On the panel's own port there is nothing to choose: the connection
+  // presents the panel's domain, and strangers get the site behind it.
+  if (sug.sharedWith) return <Note tone="ok">{t("wizard.reality.shared", { domain: sug.sharedWith })}</Note>
   return (
     <RadioGroup value={draft.reality} onValueChange={(v) => set({ reality: v })} className="gap-3">
       {(sug.reality ?? []).slice(0, 5).map((r) => (

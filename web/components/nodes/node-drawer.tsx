@@ -69,18 +69,11 @@ export function NodeDrawer({
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const agent = node.kind === "agent"
-  const [location, setLocation] = React.useState(node.location)
-
-  async function place(next: { lat: number; lon: number } | null) {
-    try {
-      await api.setNodeLocation(node.id, next)
-      setLocation(next ? { ...next, manual: true } : undefined)
-      toast.success(t("nodes.location.saved"))
-      onSaved()
-    } catch (err) {
-      toast.error(errorText(err, t))
-    }
-  }
+  // The place on the map is one more field of this form: a click on the
+  // map changes what will be saved, and nothing is saved before "Save".
+  // undefined: left as it is; null: to be found by address again.
+  const [draft, setDraft] = React.useState<{ lat: number; lon: number } | null | undefined>(undefined)
+  const location: GeoLocation | undefined = draft ? { ...draft, manual: true } : node.location
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -97,6 +90,7 @@ export function NodeDrawer({
         hopPort: agent ? Number(f.get("hopPort")) : undefined,
         agentPort: agent ? Number(f.get("agentPort")) : undefined,
       })
+      if (draft !== undefined) await api.setNodeLocation(node.id, draft)
       toast.success(t("nodes.toast.saved"))
       onSaved()
       onOpenChange(false)
@@ -214,26 +208,37 @@ export function NodeDrawer({
                   )}
                   tiles={tiles}
                   mapStyle={mapStyle}
-                  onPick={isAdmin ? place : undefined}
+                  onPick={isAdmin ? setDraft : undefined}
                   className="[&_.portunus-map]:h-56 md:[&_.portunus-map]:h-56"
                 />
               ) : (
                 <div className="h-56 rounded-lg border bg-muted/50" />
               )}
               <p className="text-muted-foreground">
-                {location
-                  ? location.manual
-                    ? t("nodes.location.manual")
-                    : t("nodes.location.auto", {
-                        place: [location.city, location.country].filter(Boolean).join(", "),
-                      })
-                  : t("nodes.location.none")}
-                {isAdmin && location && " " + t("nodes.location.pick")}
+                {draft === null
+                  ? t("nodes.location.willLookUp")
+                  : location
+                    ? location.manual
+                      ? t("nodes.location.manual")
+                      : t("nodes.location.auto", {
+                          place: [location.city, location.country].filter(Boolean).join(", "),
+                        })
+                    : t("nodes.location.none")}
+                {isAdmin && " " + t(draft === undefined ? "nodes.location.pick" : "nodes.location.unsaved")}
               </p>
-              {isAdmin && location?.manual && (
-                <Button variant="outline" size="sm" className="w-fit" onClick={() => place(null)}>
-                  {t("nodes.location.reset")}
-                </Button>
+              {isAdmin && (draft !== undefined || node.location?.manual) && (
+                <div className="flex flex-wrap gap-2">
+                  {draft !== undefined && (
+                    <Button variant="outline" size="sm" onClick={() => setDraft(undefined)}>
+                      {t("nodes.location.undo")}
+                    </Button>
+                  )}
+                  {draft !== null && (draft || node.location?.manual) && (
+                    <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
+                      {t("nodes.location.reset")}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 

@@ -36,7 +36,6 @@ import { cn } from "@/lib/utils"
 /** A scannable QR code: always dark on white, whatever the theme. */
 export function QR({ svg, label, className }: { svg: string; label: string; className?: string }) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={`data:image/svg+xml;base64,${btoa(svg)}`}
       alt={label}
@@ -351,7 +350,7 @@ export function ClientDrawer({
         <DrawerHeader className="gap-1 text-left!">
           <div className="flex items-center justify-between gap-2">
             <DrawerTitle className="truncate">{client ? client.name : t("clients.drawer.new")}</DrawerTitle>
-            {client && <ClientStatus status={client.status} />}
+            {client && <ClientStatus client={client} />}
           </div>
           <DrawerDescription>
             {client

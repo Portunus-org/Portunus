@@ -67,8 +67,11 @@ type Core struct {
 	now       func() time.Time
 
 	nodeRuntime
-	offline   bool
-	hostPorts func() (tcp, udp map[int]bool)
+	online online
+	// beforeApply runs before a configuration is handed to sing-box.
+	beforeApply func(context.Context)
+	offline     bool
+	hostPorts   func() (tcp, udp map[int]bool)
 	// listHTTP replaces the list downloader in tests.
 	listHTTP *http.Client
 
@@ -120,13 +123,15 @@ type Options struct {
 
 func New(st *store.Store, box *secrets.Box, mgr *singbox.Manager, o Options, log *slog.Logger) *Core {
 	c := &Core{
-		acme:      o.ACME,
-		store:     st,
-		box:       box,
-		mgr:       mgr,
-		stats:     singbox.NewStatsClient(o.StatsAPI),
-		statsAPI:  o.StatsAPI,
-		reserved:  o.Reserved,
+		acme:     o.ACME,
+		store:    st,
+		box:      box,
+		mgr:      mgr,
+		stats:    singbox.NewStatsClient(o.StatsAPI),
+		statsAPI: o.StatsAPI,
+		reserved: append(o.Reserved,
+			ReservedPort{Port: PanelInnerPort, What: "panel (inner HTTPS)"},
+			ReservedPort{Port: DecoyPort, What: "cover site"}),
 		subListen: o.SubListen,
 		log:       log,
 		now:       time.Now,
@@ -258,9 +263,20 @@ func (c *Core) validateInbound(ctx context.Context, id int64, in *InboundInput) 
 				return invalid("port", "reserved")
 			}
 		}
+		// The panel itself, opened by its domain. VLESS can share the port
+		// with it (below); nothing else can.
+		if in.Port == c.PanelPort(ctx) && in.Protocol != proxy.VLESS {
+			return invalid("port", "panel_port")
+		}
 	}
 	switch in.Protocol {
 	case proxy.VLESS:
+		// On the panel's port the connection presents the panel's domain:
+		// whoever is not its client is passed on to the panel's listener
+		// and sees a real site with a real certificate.
+		if pa, err := c.PanelAccess(ctx); err == nil && pa.Enabled && in.Port == pa.Port {
+			in.RealityServer, in.RealityServerPort = pa.Domain, pa.Port
+		}
 		if in.RealityServer == "" {
 			in.RealityServer = proxy.DefaultRealityServer
 		}
@@ -367,6 +383,10 @@ func (c *Core) validateInbound(ctx context.Context, id int64, in *InboundInput) 
 			if e.ID == id && e.Port == in.Port {
 				own = true
 			}
+		}
+		// So is the panel's port, to a VLESS inbound that will share it.
+		if in.Protocol == proxy.VLESS && in.Port == c.PanelPort(ctx) {
+			own = true
 		}
 		if !own {
 			tcp, udp := c.hostPorts()
@@ -1053,6 +1073,21 @@ func (c *Core) reconcileLocked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if pa, err := c.PanelAccess(ctx); err == nil {
+		for i := range inbounds {
+			switch in := &inbounds[i]; {
+			case in.Protocol == proxy.VLESS && pa.Enabled && in.Port == pa.Port:
+				in.RealityDial = net.JoinHostPort("127.0.0.1", strconv.Itoa(PanelInnerPort))
+			case in.Protocol == proxy.Trojan:
+				in.Fallback = net.JoinHostPort("127.0.0.1", strconv.Itoa(DecoyPort))
+			}
+		}
+	}
+	// Whoever listens beside sing-box gets out of its way first (the panel
+	// leaves a port it is about to share).
+	if c.beforeApply != nil {
+		c.beforeApply(ctx)
+	}
 	active, err := c.activeClients(ctx)
 	if err != nil {
 		return err
@@ -1104,6 +1139,7 @@ func (c *Core) flushStatsLocked(ctx context.Context) {
 		}
 		deltas = append(deltas, store.TrafficDelta{ClientID: id, Upload: u.Uplink, Download: u.Downlink})
 	}
+	c.online.note(0, deltas, c.now())
 	if err := c.store.AddTraffic(ctx, deltas); err != nil {
 		c.log.Error("store traffic stats", "err", err)
 	}
@@ -1117,7 +1153,9 @@ func (c *Core) RestartSingBox(ctx context.Context) error {
 }
 
 // Run collects traffic every interval and re-applies the config, which
-// disconnects clients that just expired or exhausted their limit.
+// disconnects clients that just expired or exhausted their limit. In
+// between it only reads the counters, so that the panel knows who is
+// online (see online).
 func (c *Core) Run(ctx context.Context, interval time.Duration) {
 	c.renewPrivateCertificates(ctx)
 	c.dropUnusedLists(ctx)
@@ -1125,10 +1163,18 @@ func (c *Core) Run(ctx context.Context, interval time.Duration) {
 	c.Reconcile(ctx)
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	stats := time.NewTicker(statsEvery)
+	defer stats.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-stats.C:
+			c.applyMu.Lock()
+			if c.mgr.Status().PID != 0 {
+				c.flushStatsLocked(ctx)
+			}
+			c.applyMu.Unlock()
 		case <-t.C:
 			if time.Since(lastRenew) > time.Hour {
 				lastRenew = time.Now()
@@ -1144,3 +1190,7 @@ func (c *Core) Run(ctx context.Context, interval time.Duration) {
 		}
 	}
 }
+
+// OnBeforeApply registers what has to happen before sing-box gets a new
+// configuration.
+func (c *Core) OnBeforeApply(fn func(context.Context)) { c.beforeApply = fn }

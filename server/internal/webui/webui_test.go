@@ -60,7 +60,7 @@ func TestHandler(t *testing.T) {
 }
 
 func TestPageCSPHashesOnlyInlineScripts(t *testing.T) {
-	csp := pageCSP([]byte(`<script src="x.js"></script><script async>a()</script><SCRIPT>a()</SCRIPT><script></script>`))
+	csp := pageCSP("index.html", []byte(`<script src="x.js"></script><script async>a()</script><SCRIPT>a()</SCRIPT><script></script>`))
 	// Two identical inline scripts collapse to one hash; external and empty ones are skipped.
 	if n := strings.Count(csp, "'sha256-"); n != 1 {
 		t.Fatalf("want 1 hash, got %d in %q", n, csp)

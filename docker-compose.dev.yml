@@ -11,3 +11,6 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       PORTUNUS_NODE_IMAGE: portunus-node:local
+      # Another port when 2053 is taken, by an SSH tunnel to a real server
+      # for example: PORTUNUS_LISTEN=127.0.0.1:2060 docker compose ... up -d
+      PORTUNUS_LISTEN: ${PORTUNUS_LISTEN:-127.0.0.1:2053}

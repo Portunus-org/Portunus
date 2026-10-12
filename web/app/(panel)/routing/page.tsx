@@ -7,7 +7,7 @@ import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm"
 import { RuleDrawer } from "@/components/routing/rule-drawer"
-import { TargetSelect, useTargetLabel } from "@/components/routing/target-select"
+import { TargetSelect, targetValue, useTargetLabel } from "@/components/routing/target-select"
 import { StatusBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -61,6 +61,9 @@ export default function RoutingPage() {
   } | null>(null)
   const [ruleOpen, setRuleOpen] = React.useState(false)
   const keys = React.useRef(0)
+  // Where all other traffic goes is chosen first and saved after: picking
+  // an item in a list must not reroute everybody at once.
+  const [pending, setPending] = React.useState<RouteTarget | null>(null)
 
   const openRule = (rule: RouteRule | null) => {
     setRuleDrawer({ key: ++keys.current, rule })
@@ -96,6 +99,8 @@ export default function RoutingPage() {
     act(() => api.orderRouteRules(ids))
   }
   const hasExits = nodes.some((n) => n.isExit)
+  const chosen = pending ?? routing.default
+  const changed = targetValue(chosen) !== targetValue(routing.default)
 
   return (
     <div className="grid gap-4 px-4 lg:px-6">
@@ -106,15 +111,29 @@ export default function RoutingPage() {
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
           <div className="flex flex-wrap items-center gap-3">
-            <TargetSelect
-              value={routing.default}
-              onChange={(target) => act(() => api.setDefaultRoute(target), t("routing.toast.defaultSaved"))}
-              nodes={nodes}
-              disabled={!canEdit}
-              className="w-full sm:w-80"
-            />
-            {targetBroken(routing.default, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>}
+            <TargetSelect value={chosen} onChange={setPending} nodes={nodes} disabled={!canEdit} className="w-full sm:w-96" />
+            {changed ? (
+              <>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    await act(() => api.setDefaultRoute(chosen), t("routing.toast.defaultSaved"))
+                    setPending(null)
+                  }}
+                >
+                  {t("common.save")}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setPending(null)}>
+                  {t("common.cancel")}
+                </Button>
+              </>
+            ) : (
+              targetBroken(routing.default, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>
+            )}
           </div>
+          {nodes.some((n) => n.isEntry && n.enabled) && chosen.action === "direct" && (
+            <p className="text-muted-foreground">{t("routing.directNote")}</p>
+          )}
           {nodeData && !hasExits && (
             <p className="text-muted-foreground">
               {t("routing.noExits")}{" "}

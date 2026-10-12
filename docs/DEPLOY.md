@@ -30,6 +30,13 @@ ssh -N -L 2053:127.0.0.1:2053 user@your-server
 and open <http://localhost:2053>. At the first sign-in you set your own
 password (required before anything else is accessible).
 
+If the server has a domain, the first setup then offers to open the panel
+by it: the panel takes TCP port 443, gets a certificate from Let's Encrypt
+and shows a secret address, `https://your-domain/…`, to use from then on.
+To anyone without that address the server answers as if there were nothing
+there. A certificate of your own, or another port, is set in **Settings →
+Opening the panel**. The tunnel keeps working either way.
+
 Until then the made-up password is kept in the data volume
 (`initial-password`, readable by the service only) and shown again on every
 start, so it cannot be lost with the logs. Changing the password removes it.

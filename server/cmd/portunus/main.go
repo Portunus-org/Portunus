@@ -210,6 +210,7 @@ func serve() error {
 	go func() { errc <- srv.Serve(ln) }()
 
 	wg.Go(func() { apiSrv.RunSubscriptions(ctx) })
+	wg.Go(func() { apiSrv.RunPanelAccess(ctx) })
 
 	select {
 	case err := <-errc:

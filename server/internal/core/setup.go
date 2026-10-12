@@ -74,7 +74,7 @@ func (c *Core) SetSubscriptionPort(ctx context.Context, port int) error {
 		}
 	}
 	if port != 0 && port != c.SubscriptionPort(ctx) {
-		if c.tcpPortTaken(ctx, port) || port == c.acmeListenPort(ctx) {
+		if c.tcpPortTaken(ctx, port) || port == c.acmeListenPort(ctx) || port == c.PanelPort(ctx) {
 			return invalid("subscriptionPort", "in_use")
 		}
 		if c.hostPorts != nil {
@@ -240,6 +240,9 @@ type InboundSuggestion struct {
 	DomainCheck       *setup.DomainCheck   `json:"domainCheck,omitempty"`
 	Certificate       *CertificatePlan     `json:"certificate,omitempty"`
 	PublicHost        string               `json:"publicHost"`
+	// SharedWith is the panel's domain when the suggested port is the one
+	// the panel is opened on: the connection then presents that domain.
+	SharedWith string `json:"sharedWith,omitempty"`
 }
 
 // SuggestInbound inspects the host for creating an inbound of protocol p.
@@ -281,6 +284,11 @@ func (c *Core) SuggestInbound(ctx context.Context, p proxy.Protocol, domain stri
 		}
 	}
 	out.PreferredPortBusy = out.Port != preferred[0]
+	// VLESS can share the panel's port, which is the best one to have.
+	pa, _ := c.PanelAccess(ctx)
+	if p == proxy.VLESS && pa.Enabled && !pa.Shared {
+		out.Port, out.PreferredPortBusy, out.SharedWith = pa.Port, false, pa.Domain
+	}
 
 	best := proxy.DefaultRealityServer
 	if p == proxy.VLESS || p == proxy.Hysteria2 {
@@ -291,6 +299,9 @@ func (c *Core) SuggestInbound(ctx context.Context, p proxy.Protocol, domain stri
 				break
 			}
 		}
+	}
+	if out.SharedWith != "" {
+		out.Reality = []setup.RealityProbe{{Host: out.SharedWith, OK: true}}
 	}
 	if p == proxy.Hysteria2 {
 		// The probes only served to pick a masquerade site.

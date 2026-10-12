@@ -824,6 +824,7 @@ func (c *Core) syncNode(ctx context.Context, n *Node, inbounds []proxy.Inbound, 
 				}
 				deltas = append(deltas, store.TrafficDelta{ClientID: id, Upload: t.Uplink, Download: t.Downlink})
 			}
+			c.online.note(n.ID, deltas, c.now())
 			if err := c.store.AddTraffic(ctx, deltas); err != nil {
 				c.log.Error("store node traffic", "node", n.Name, "err", err)
 			}

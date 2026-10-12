@@ -62,13 +62,20 @@ export function NodesMapCard({
   onChanged: () => void
 }) {
   const { t } = useI18n()
+  // Moving the main server: a click only shows where it would go, and it
+  // goes there when that is saved. A stray click must not move a server.
   const [moving, setMoving] = React.useState(false)
-  const points = mapPoints(main, nodes, t)
+  const [draft, setDraft] = React.useState<{ lat: number; lon: number } | null>(null)
+  const stopMoving = () => {
+    setMoving(false)
+    setDraft(null)
+  }
+  const points = mapPoints(main && draft ? { ...main, location: { ...draft, manual: true } } : main, nodes, t)
   const states = [...new Set(points.map((p) => p.state))] as MapState[]
   const unplaced = nodes.filter((n) => !n.location).map((n) => n.name)
 
   async function moveMain(location: { lat: number; lon: number }) {
-    setMoving(false)
+    stopMoving()
     try {
       await api.setServerLocation(location)
       toast.success(t("nodes.location.saved"))
@@ -84,16 +91,27 @@ export function NodesMapCard({
         <CardTitle>{t("nodes.map.title")}</CardTitle>
         <CardDescription>{moving ? t("nodes.map.pickHint") : t("nodes.map.description")}</CardDescription>
         {canEdit && (
-          <CardAction>
-            <Button variant={moving ? "secondary" : "outline"} size="sm" onClick={() => setMoving((m) => !m)}>
-              <MapPinIcon />
-              <span className="sr-only lg:not-sr-only">{t(moving ? "common.cancel" : "nodes.map.moveMain")}</span>
-            </Button>
+          <CardAction className="flex gap-2">
+            {moving ? (
+              <>
+                <Button size="sm" disabled={!draft} onClick={() => draft && moveMain(draft)}>
+                  {t("nodes.location.save")}
+                </Button>
+                <Button variant="outline" size="sm" onClick={stopMoving}>
+                  {t("common.cancel")}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setMoving(true)}>
+                <MapPinIcon />
+                <span className="sr-only lg:not-sr-only">{t("nodes.map.moveMain")}</span>
+              </Button>
+            )}
           </CardAction>
         )}
       </CardHeader>
       <CardContent className="grid gap-3">
-        <NodeMap points={points} tiles={tiles} mapStyle={mapStyle} onPick={moving ? moveMain : undefined} />
+        <NodeMap points={points} tiles={tiles} mapStyle={mapStyle} onPick={moving ? setDraft : undefined} />
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
           <NodeMapLegend states={states} />
           <span className="text-xs text-muted-foreground">{t("nodes.map.autoHint")}</span>

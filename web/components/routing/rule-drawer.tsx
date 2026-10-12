@@ -105,6 +105,9 @@ export function RuleDrawer({
             <FormField id="rule-target" label={t("routing.rule.target")}>
               <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} allowBlock />
               {(target.action === "node" || target.action === "auto") && <p className="text-muted-foreground">{t("routing.failClosed")}</p>}
+              {target.action === "direct" && nodes.some((n) => n.isEntry && n.enabled) && (
+                <p className="text-muted-foreground">{t("routing.directNote")}</p>
+              )}
             </FormField>
             <FormError>{error}</FormError>
           </div>

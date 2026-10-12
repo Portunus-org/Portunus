@@ -95,6 +95,14 @@ type Secret struct {
 }
 
 type Inbound struct {
+	// RealityDial, when set, is where a REALITY inbound takes the handshake
+	// it shows to strangers from, instead of Settings.RealityServer: the
+	// panel's own HTTPS listener on this machine, when the two share a port.
+	RealityDial string
+	// Fallback, when set, is the local address (host:port) a Trojan inbound
+	// hands a connection to that is not Trojan: a web server, so a browser
+	// or a probe gets a site and not a closed connection.
+	Fallback string
 	ID       int64
 	Tag      string
 	Name     string

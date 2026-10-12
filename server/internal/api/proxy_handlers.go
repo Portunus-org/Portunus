@@ -265,6 +265,13 @@ type clientDTO struct {
 	// ExitID is the exit the client is bound to (null: no exits yet).
 	ExitID    *int64    `json:"exitId"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Online: traffic of the client is being counted right now, at these
+	// speeds in bytes per second. LastSeenAt is when it last was (null:
+	// never).
+	Online     bool       `json:"online"`
+	DownRate   int64      `json:"downRate"`
+	UpRate     int64      `json:"upRate"`
+	LastSeenAt *time.Time `json:"lastSeenAt"`
 }
 
 func (s *Server) toClientDTO(c *store.ClientRow) clientDTO {
@@ -273,10 +280,17 @@ func (s *Server) toClientDTO(c *store.ClientRow) clientDTO {
 		t := c.ExpiresAt.UTC()
 		exp = &t
 	}
+	var seen *time.Time
+	if c.LastSeen != nil {
+		t := c.LastSeen.UTC()
+		seen = &t
+	}
+	act := s.core.ClientActivity(c.ID)
 	return clientDTO{
 		ID: c.ID, Name: c.Name, Enabled: c.Enabled, Status: s.core.ClientStatus(c),
 		TrafficLimit: c.TrafficLimit, Upload: c.Upload, Download: c.Download,
 		ExpiresAt: exp, Note: c.Note, ExitID: c.ExitID, CreatedAt: c.CreatedAt.UTC(),
+		Online: act.Online, DownRate: act.DownRate, UpRate: act.UpRate, LastSeenAt: seen,
 	}
 }
 

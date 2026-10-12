@@ -6,6 +6,8 @@ import { toast } from "sonner"
 
 import { ClientDrawer, NEW_CLIENT_EVENT } from "@/components/clients/client-drawer"
 import { ClientStatus } from "@/components/clients/client-status"
+import { TrafficCell } from "@/components/clients/traffic-cell"
+import { clientViews, filterClients } from "@/components/clients/views"
 import { useConfirm } from "@/components/confirm"
 import { columnHelper, DataTable } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { api, errorText, type Client } from "@/lib/api"
-import { daysUntil, formatBytes, formatDate } from "@/lib/format"
+import { daysUntil, formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { useCanEdit } from "@/lib/session"
 import { useResource } from "@/lib/use-resource"
@@ -30,7 +32,7 @@ const used = (c: Client) => c.upload + c.download
 export default function ClientsPage() {
   const { t, tp, locale } = useI18n()
   const canEdit = useCanEdit()
-  const { data, reload } = useResource(api.clients, 30_000)
+  const { data, reload } = useResource(api.clients, 10_000)
   const [view, setView] = React.useState("all")
   const [query, setQuery] = React.useState("")
   const [selected, setSelected] = React.useState<Client | null>(null)
@@ -98,24 +100,12 @@ export default function ClientsPage() {
         }),
         col.accessor("status", {
           header: t("clients.col.status"),
-          cell: ({ getValue }) => <ClientStatus status={getValue()} />,
+          cell: ({ row }) => <ClientStatus client={row.original} />,
         }),
         col.accessor(used, {
           id: "traffic",
-          header: () => <div className="w-full text-right">{t("clients.col.traffic")}</div>,
-          cell: ({ row }) => (
-            <div className="text-right tabular-nums">
-              {formatBytes(used(row.original), locale)}
-              {row.original.trafficLimit > 0 && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  {t("clients.ofLimit", {
-                    limit: formatBytes(row.original.trafficLimit, locale),
-                  })}
-                </span>
-              )}
-            </div>
-          ),
+          header: t("clients.col.traffic"),
+          cell: ({ row }) => <TrafficCell client={row.original} />,
         }),
         col.accessor((c) => (c.expiresAt ? new Date(c.expiresAt).getTime() : Infinity), {
           id: "expires",
@@ -151,12 +141,6 @@ export default function ClientsPage() {
           cell: ({ row }) => {
             const c = row.original
             if (!canEdit) return null
-            const input = {
-              name: c.name,
-              trafficLimit: c.trafficLimit,
-              expiresAt: c.expiresAt,
-              note: c.note,
-            }
             return (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -168,14 +152,17 @@ export default function ClientsPage() {
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem onSelect={() => open(c)}>
                     <PencilIcon />
-                    {t("common.open")}
+                    {t("common.edit")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
                       act(
                         () =>
                           api.updateClient(c.id, {
-                            ...input,
+                            name: c.name,
+                            trafficLimit: c.trafficLimit,
+                            expiresAt: c.expiresAt,
+                            note: c.note,
                             enabled: !c.enabled,
                           }),
                         t(c.enabled ? "clients.toast.disabled" : "clients.toast.enabled")
@@ -219,41 +206,16 @@ export default function ClientsPage() {
   // that in the very frame the drawer starts to move.
   const table = React.useMemo(() => {
     const clients = data ?? []
-    const needsAttention = (c: Client) => c.status === "expired" || c.status === "limited"
-    const byView: Record<string, (c: Client) => boolean> = {
-      all: () => true,
-      active: (c) => c.status === "active",
-      attention: needsAttention,
-      disabled: (c) => c.status === "disabled",
-    }
-    const count = (f: (c: Client) => boolean) => clients.filter(f).length
-    const q = query.trim().toLowerCase()
-    const rows = clients.filter((c) => byView[view](c) && (!q || c.name.toLowerCase().includes(q) || c.note.toLowerCase().includes(q)))
+    const rows = filterClients(clients, view, query)
     return (
       <DataTable
         data={rows}
         columns={columns}
         getRowId={(r) => String(r.id)}
-        views={[
-          { value: "all", label: t("clients.view.all") },
-          {
-            value: "active",
-            label: t("clients.view.active"),
-            count: count(byView.active),
-          },
-          {
-            value: "attention",
-            label: t("clients.view.attention"),
-            count: count(needsAttention),
-          },
-          {
-            value: "disabled",
-            label: t("clients.view.disabled"),
-            count: count(byView.disabled),
-          },
-        ]}
+        views={clientViews(clients, t)}
         view={view}
         onViewChange={setView}
+        initialHidden={["created"]}
         columnLabels={{
           status: t("clients.col.status"),
           traffic: t("clients.col.traffic"),

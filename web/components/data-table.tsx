@@ -74,6 +74,9 @@ export function DataTable<T extends RowData>({
   empty,
   columnLabels = {},
   initialSorting = [],
+  initialHidden = [],
+  pageSize = 20,
+  pager = "auto",
 }: {
   data: T[]
   columns: ColumnDef<TableFeatures, T, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -86,13 +89,21 @@ export function DataTable<T extends RowData>({
   /** Human names for the column visibility menu, by column id. */
   columnLabels?: Record<string, string>
   initialSorting?: SortingState
+  /** Columns that are not shown until chosen in the columns menu, by id. */
+  initialHidden?: string[]
+  /** Rows on a page to begin with. */
+  pageSize?: number
+  /** The page controls under the table: only when there is a second page, or always. */
+  pager?: "auto" | "always"
 }) {
   const { t, tp } = useI18n()
-  const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>(() =>
+    Object.fromEntries(initialHidden.map((id) => [id, false]))
+  )
   const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
   const [pagination, setPagination] = React.useState({
     pageIndex: 0,
-    pageSize: 20,
+    pageSize,
   })
 
   const table = useTable({
@@ -226,7 +237,7 @@ export function DataTable<T extends RowData>({
           </Table>
         </div>
 
-        {table.getPageCount() > 1 && (
+        {(pager === "always" || table.getPageCount() > 1) && (
           <div className="flex items-center justify-between px-2">
             <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">{tp("common.rows", data.length)}</div>
             <div className="flex w-full items-center gap-8 lg:w-fit">
@@ -252,7 +263,7 @@ export function DataTable<T extends RowData>({
               <div className="flex w-fit items-center justify-center text-sm font-medium tabular-nums">
                 {t("common.page", {
                   page: pagination.pageIndex + 1,
-                  pages: table.getPageCount(),
+                  pages: Math.max(1, table.getPageCount()),
                 })}
               </div>
               <div className="ml-auto flex items-center gap-2 lg:ml-0">

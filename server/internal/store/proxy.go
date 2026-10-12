@@ -130,21 +130,24 @@ type ClientRow struct {
 	Download     int64
 	Note         string
 	// ExitID is the exit the client is bound to (nil: none yet).
-	ExitID    *int64
+	ExitID *int64
+	// LastSeen is when traffic of the client was last counted (nil: never).
+	LastSeen  *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, exit_node_id, created_at, updated_at`
+const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, exit_node_id, last_seen_at, created_at, updated_at`
 
 func scanClient(row interface{ Scan(...any) error }) (*ClientRow, error) {
 	var (
 		c                ClientRow
 		expires, exit    sql.NullInt64
+		seen             sql.NullInt64
 		created, updated int64
 	)
 	err := row.Scan(&c.ID, &c.Name, &c.Enabled, &c.UUID, &c.Password, &c.SubToken, &c.TrafficLimit,
-		&expires, &c.Upload, &c.Download, &c.Note, &exit, &created, &updated)
+		&expires, &c.Upload, &c.Download, &c.Note, &exit, &seen, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -157,6 +160,10 @@ func scanClient(row interface{ Scan(...any) error }) (*ClientRow, error) {
 	}
 	if exit.Valid {
 		c.ExitID = &exit.Int64
+	}
+	if seen.Valid {
+		t := time.Unix(seen.Int64, 0)
+		c.LastSeen = &t
 	}
 	c.CreatedAt = time.Unix(created, 0)
 	c.UpdatedAt = time.Unix(updated, 0)
@@ -260,6 +267,11 @@ type TrafficDelta struct {
 	Download int64
 }
 
+// trafficKept is how far back the hourly history of traffic goes.
+const trafficKept = 92 * 24 * time.Hour
+
+// AddTraffic adds what was counted since the last poll to its clients and
+// to the hour it was counted in.
 func (s *Store) AddTraffic(ctx context.Context, deltas []TrafficDelta) error {
 	if len(deltas) == 0 {
 		return nil
@@ -269,18 +281,61 @@ func (s *Store) AddTraffic(ctx context.Context, deltas []TrafficDelta) error {
 		return err
 	}
 	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, `UPDATE clients SET upload = upload + ?, download = download + ? WHERE id = ?`)
+	stmt, err := tx.PrepareContext(ctx, `UPDATE clients SET upload = upload + ?, download = download + ?, last_seen_at = ? WHERE id = ?`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
+	now := s.now()
+	var up, down int64
 	for _, d := range deltas {
 		// A client deleted between polls simply matches no row.
-		if _, err := stmt.ExecContext(ctx, d.Upload, d.Download, d.ClientID); err != nil {
+		if _, err := stmt.ExecContext(ctx, d.Upload, d.Download, now.Unix(), d.ClientID); err != nil {
 			return err
 		}
+		up, down = up+d.Upload, down+d.Download
+	}
+	hour := now.Truncate(time.Hour).Unix()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO traffic_hours (hour, upload, download) VALUES (?, ?, ?)
+		 ON CONFLICT (hour) DO UPDATE SET upload = upload + excluded.upload, download = download + excluded.download`,
+		hour, up, down); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM traffic_hours WHERE hour < ?`, now.Add(-trafficKept).Unix()); err != nil {
+		return err
 	}
 	return tx.Commit()
+}
+
+// TrafficHour is the traffic of all clients within one hour.
+type TrafficHour struct {
+	Hour     time.Time
+	Upload   int64
+	Download int64
+}
+
+// TrafficSince returns the hours with traffic from since on, oldest first.
+// Hours in which nothing passed are simply absent.
+func (s *Store) TrafficSince(ctx context.Context, since time.Time) ([]TrafficHour, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT hour, upload, download FROM traffic_hours WHERE hour >= ? ORDER BY hour`, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TrafficHour
+	for rows.Next() {
+		var (
+			h    TrafficHour
+			hour int64
+		)
+		if err := rows.Scan(&hour, &h.Upload, &h.Download); err != nil {
+			return nil, err
+		}
+		h.Hour = time.Unix(hour, 0)
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) ResetTraffic(ctx context.Context, clientID int64) error {
