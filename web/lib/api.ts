@@ -218,6 +218,8 @@ export interface PanelAccessCheck {
   error?: string
   /** Waiting will not help: something has to be changed first. */
   final?: boolean
+  /** Nothing is wrong that the server knows of: the certificate is not there yet. */
+  waiting?: boolean
 }
 
 export interface SettingsInput {

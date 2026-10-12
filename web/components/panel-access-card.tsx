@@ -62,7 +62,7 @@ export function PanelAddress({ access, onChanged }: { access: PanelAccess; onCha
 }
 
 // How long the certificate is waited for before the wait is called a failure.
-const CERTIFICATE_WAIT_MS = 4 * 60_000
+const CERTIFICATE_WAIT_MS = 3 * 60_000
 
 /**
  * Checks, one after the other, that the panel has a certificate and that
@@ -75,15 +75,19 @@ export function usePanelAccessChecks(enabled: boolean) {
   const [check, setCheck] = React.useState<PanelAccessCheck | null>(null)
   const [reached, setReached] = React.useState(false)
   const [round, setRound] = React.useState(0)
+  // While the certificate is waited for: what the server last heard from
+  // Let's Encrypt, if anything.
+  const [waiting, setWaiting] = React.useState<{ said?: string } | null>(null)
 
   React.useEffect(() => {
     if (!enabled) return
     let alive = true
     let timer: ReturnType<typeof setTimeout>
-    // A certificate takes from seconds to a couple of minutes, and the
-    // server waits for it only so long per request. So a "not yet" is asked
-    // about again, quietly, and becomes an error on screen only when it
-    // has lasted, or when the server says that waiting will not help.
+    // A certificate takes from seconds to a couple of minutes. The server
+    // answers every few seconds how things stand, and until it has the
+    // certificate that is shown as waiting, with whatever Let's Encrypt
+    // has said. It becomes an error when the server
+    // says that waiting will not help, or when it has lasted too long.
     const started = Date.now()
     const attempt = () =>
       api
@@ -91,8 +95,13 @@ export function usePanelAccessChecks(enabled: boolean) {
         .catch((err): PanelAccessCheck => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
         .then((c) => {
           if (!alive) return
-          if (c.ok || c.final || Date.now() - started > CERTIFICATE_WAIT_MS) setCheck(c)
-          else timer = setTimeout(attempt, 3000)
+          if (c.ok || c.final || Date.now() - started > CERTIFICATE_WAIT_MS) {
+            setWaiting(null)
+            setCheck(c)
+          } else {
+            setWaiting({ said: c.error || undefined })
+            timer = setTimeout(attempt, c.waiting ? 500 : 3000)
+          }
         })
     attempt()
     return () => {
@@ -124,17 +133,42 @@ export function usePanelAccessChecks(enabled: boolean) {
 
   const retry = React.useCallback(() => {
     setCheck(null)
+    setWaiting(null)
     setReached(false)
     setRound((r) => r + 1)
   }, [])
-  return { check, reached, retry }
+  return { check, reached, retry, waiting }
 }
 
 /** The two checks as status lines. */
-export function PanelAccessStatus({ check, reached, domain }: { check: PanelAccessCheck | null; reached: boolean; domain: string }) {
+export function PanelAccessStatus({
+  check,
+  reached,
+  domain,
+  waiting,
+}: {
+  check: PanelAccessCheck | null
+  reached: boolean
+  domain: string
+  waiting?: { said?: string } | null
+}) {
   const { t, locale } = useI18n()
-  if (!check) return <Note tone="pending">{t("access.check.certificate")}</Note>
-  if (!check.ok) return <Note tone="error">{t("access.check.failed", { error: check.error ?? "" })}</Note>
+  if (!check) {
+    return (
+      <div className="grid gap-1">
+        <Note tone="pending">{t("access.check.certificate")}</Note>
+        {waiting?.said && <p className="pl-6 text-sm text-muted-foreground">{waiting.said}</p>}
+      </div>
+    )
+  }
+  if (!check.ok)
+    return (
+      <Note tone="error">
+        {check.final || !check.waiting
+          ? t("access.check.failed", { error: check.error ?? "" })
+          : t("access.check.slow", { error: check.error ?? "" })}
+      </Note>
+    )
   return (
     <div className="grid gap-2">
       <Note tone={check.trusted ? "ok" : "warn"}>
@@ -161,7 +195,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
   const [port, setPort] = React.useState(443)
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const { check, reached, retry } = usePanelAccessChecks(!!access?.enabled)
+  const { check, reached, retry, waiting } = usePanelAccessChecks(!!access?.enabled)
 
   const show = React.useCallback((a: PanelAccess) => {
     setAccess(a)
@@ -282,7 +316,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                     {access.error && !check ? (
                       <Note tone="error">{access.error}</Note>
                     ) : (
-                      <PanelAccessStatus check={check} reached={reached} domain={access.domain} />
+                      <PanelAccessStatus check={check} reached={reached} domain={access.domain} waiting={waiting} />
                     )}
                     <PanelAddress access={access} onChanged={canEdit ? show : undefined} />
                   </>

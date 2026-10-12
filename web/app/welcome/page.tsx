@@ -111,12 +111,15 @@ function ServerStep({
   total,
   onNext,
   onSkip,
+  onChoice,
 }: {
   step: number
   total: number
   /** domain: the server has one, and the panel can be opened by it. */
   onNext: (domain: boolean) => void
   onSkip: () => void
+  /** Told whenever "the server has a domain" is chosen or dropped: more steps follow with one. */
+  onChoice: (domain: boolean) => void
 }) {
   const { t } = useI18n()
   const [detected, setDetected] = React.useState<PublicAddress | null>(null)
@@ -127,6 +130,7 @@ function ServerStep({
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const dns = useDomainCheck(hasDomain === "yes" ? domain : "")
+  React.useEffect(() => onChoice(hasDomain === "yes"), [hasDomain, onChoice])
 
   React.useEffect(() => {
     api.setupAddress().then(
@@ -237,22 +241,50 @@ function ServerStep({
 // -------------------------------------------------------------------- access
 
 /**
- * With a domain, the panel is opened by it from here on: the panel starts
- * answering on HTTPS, gets its certificate, and this browser confirms that
- * the domain leads it here. Only then is there an address worth handing
- * over; until then the tunnel this page came through stays the way in.
+ * With a domain, the panel is opened by it from here on. First it is set
+ * up, and the step says so: the panel starts answering on HTTPS, gets its
+ * certificate, and this browser confirms that the domain leads it here.
+ * Only then is there an address worth handing over, and "Next" shows it,
+ * with the way to carry on there; until then the tunnel this page came
+ * through stays the way in.
  */
 function AccessStep({ step, total, onNext }: { step: number; total: number; onNext: () => void }) {
   const { t } = useI18n()
   const [access, setAccess] = React.useState<PanelAccess | null>(null)
   const [error, setError] = React.useState<string | null>(null)
-  const { check, reached, retry } = usePanelAccessChecks(!!access?.enabled)
+  const { check, reached, retry, waiting } = usePanelAccessChecks(!!access?.enabled)
 
   React.useEffect(() => {
     api.setPanelAccess({ enabled: true, mode: "acme", port: 443 }).then(setAccess, (err) => setError(errorText(err, t)))
   }, [t])
 
+  const [ready, setReady] = React.useState(false)
   const failed = error !== null || (check !== null && !check.ok)
+  if (ready && access) {
+    return (
+      <StepFrame
+        step={step + 1}
+        total={total}
+        title={t("welcome.access.readyTitle")}
+        lead={t("welcome.access.readyLead")}
+        footer={
+          <>
+            <Button variant="outline" onClick={onNext}>
+              {t("welcome.access.stay")}
+            </Button>
+            <Button asChild>
+              <a href={access.url}>
+                {t("welcome.access.go")}
+                <ArrowRightIcon />
+              </a>
+            </Button>
+          </>
+        }
+      >
+        <PanelAddress access={access} />
+      </StepFrame>
+    )
+  }
   return (
     <StepFrame
       step={step}
@@ -273,7 +305,7 @@ function AccessStep({ step, total, onNext }: { step: number; total: number; onNe
           ) : (
             <span />
           )}
-          <Button onClick={onNext} disabled={!reached}>
+          <Button onClick={() => setReady(true)} disabled={!reached}>
             {t("common.next")}
             <ArrowRightIcon />
           </Button>
@@ -286,9 +318,9 @@ function AccessStep({ step, total, onNext }: { step: number; total: number; onNe
         <Note tone="pending">{t("welcome.access.starting")}</Note>
       ) : (
         <>
-          <PanelAccessStatus check={check} reached={reached} domain={access.domain} />
+          <PanelAccessStatus check={check} reached={reached} domain={access.domain} waiting={waiting} />
           {check?.ok && !reached && <p className="text-sm text-muted-foreground">{t("welcome.access.dnsHint")}</p>}
-          {reached && <PanelAddress access={access} />}
+          {reached && <p className="text-sm text-muted-foreground">{t("welcome.access.allSet")}</p>}
         </>
       )}
     </StepFrame>
@@ -343,11 +375,14 @@ function WelcomeFlow() {
     if (steps.length === 0) router.replace("/")
   }, [steps, router])
 
-  // The step for opening the panel by its domain appears once a domain is
-  // given, after the step that asks for it.
-  const [withAccess, setWithAccess] = React.useState(false)
+  // Opening the panel by its domain follows the step that asks for a
+  // domain, and takes two: the panel being set up, then its address handed
+  // over, the last step. They are counted from the moment a domain is
+  // chosen: the number of steps and the bar follow the choice as it is
+  // made, and without a domain the setup ends where it says it does.
+  const [withDomain, setWithDomain] = React.useState(false)
   const index = step === "access" ? steps.length + 1 : steps.indexOf(step) + 1
-  const total = steps.length + (withAccess ? 1 : 0)
+  const total = steps.length + (withDomain ? 2 : 0)
   const next = (after: Step) => {
     const i = steps.indexOf(after)
     setStep(i + 1 < steps.length ? steps[i + 1] : "done")
@@ -372,8 +407,8 @@ function WelcomeFlow() {
           <ServerStep
             step={index}
             total={total}
+            onChoice={setWithDomain}
             onNext={(domain) => {
-              setWithAccess(domain)
               if (domain) setStep("access")
               else next("server")
             }}

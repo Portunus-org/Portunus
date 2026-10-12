@@ -28,6 +28,10 @@ func TestACMEFailure(t *testing.T) {
 	if _, pause := acmeFailure(limited); pause != time.Hour {
 		t.Fatalf("a long wait is asked about again within the hour, got %s", pause)
 	}
+	// The same refusal with its type lost on the way is still recognised.
+	if msg, _ := acmeFailure(errors.New("acme/autocert: order: 429 urn:ietf:params:acme:error:rateLimited: too many certificates")); !strings.Contains(msg, "too many were requested") {
+		t.Fatalf("rate limit as plain text: %q", msg)
+	}
 	msg, pause = acmeFailure(&acme.Error{ProblemType: "urn:ietf:params:acme:error:dns", Detail: "no valid A records found"})
 	if msg != "Let's Encrypt: no valid A records found" || pause != time.Minute {
 		t.Fatalf("other refusal: %q, %s", msg, pause)

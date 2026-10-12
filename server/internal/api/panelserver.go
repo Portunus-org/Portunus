@@ -196,6 +196,7 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 			waitMu    sync.Mutex
 			waitUntil time.Time
 			waitErr   error
+			slowSaid  time.Time
 		)
 		tlsCfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			ours := strings.EqualFold(hello.ServerName, pa.Domain)
@@ -209,7 +210,36 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 					return nil, last
 				}
 			}
+			// A request that neither succeeds nor fails is said so, here and
+			// on the page: it means that this server cannot reach Let's
+			// Encrypt, or Let's Encrypt cannot reach it, and nothing else
+			// would ever tell.
+			done := make(chan struct{})
+			started := time.Now()
+			if ours && !validating {
+				go func() {
+					select {
+					case <-done:
+					case <-time.After(30 * time.Second):
+						s.setPanelError("Let's Encrypt: still no answer after 30 seconds. Either this server cannot reach Let's Encrypt " +
+							"(acme-v02.api.letsencrypt.org, port 443), or Let's Encrypt cannot reach this server on port 443 by the domain.")
+						waitMu.Lock()
+						quiet := time.Since(slowSaid) < 2*time.Minute
+						if !quiet {
+							slowSaid = time.Now()
+						}
+						waitMu.Unlock()
+						if !quiet {
+							s.log.Warn("the certificate for the panel is taking long: no answer from Let's Encrypt in 30 seconds", "domain", pa.Domain)
+						}
+					}
+				}()
+			}
 			cert, err := get(hello)
+			close(done)
+			if ours && !validating && err == nil && time.Since(started) > 2*time.Second {
+				s.log.Info("certificate for the panel obtained", "domain", pa.Domain, "took", time.Since(started).Round(time.Second))
+			}
 			// Only failures for our own name say something about the
 			// certificate; the rest is strangers knocking.
 			if ours && !validating {
@@ -233,17 +263,11 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 		}
 	}
 	tlsCfg.MinVersion = tls.VersionTLS12
-	if pa.Mode != core.PanelCertOwn {
-		// Asked for now and not at the first visit: the connections that
-		// serve the same certificate should not have to wait for somebody
-		// to open the panel. (Let's Encrypt checks the domain on this very
-		// port, so the listener below has to be up: a moment's delay.)
-		get := tlsCfg.GetCertificate
-		go func() {
-			time.Sleep(2 * time.Second)
-			get(&tls.ClientHelloInfo{ServerName: pa.Domain})
-		}()
-	}
+	// With Let's Encrypt the certificate is asked for now and not at the
+	// first visit (the connections that serve the same certificate should
+	// not have to wait for somebody to open the panel): see warmUp below,
+	// started once the listeners are up.
+	warm := pa.Mode != core.PanelCertOwn
 
 	newServer := func() *http.Server {
 		return &http.Server{
@@ -292,6 +316,9 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 	}
 	s.panel.mu.Unlock()
 	s.log.Info("panel available by its domain", "address", pa.Origin(), "certificate", pa.Mode, "shared_with_vless", pa.Shared)
+	if warm {
+		go s.warmUp(pa.Domain)
+	}
 }
 
 // serveDecoy starts the cover site on loopback, in plain HTTP: what a
@@ -385,6 +412,25 @@ func (s *Server) decoyHandler() http.Handler {
 	})
 }
 
+// warmUp has the certificate asked for, by connecting to our own listener
+// the way a browser would. It has to be a real connection: what is asked
+// of Let's Encrypt depends on what the client says it can do, and anything
+// else here (a made-up greeting was tried) orders a second certificate, of
+// another kind, at the same time as the first real visitor's, the two then
+// getting in each other's way. Through the listener there is one order,
+// whoever comes first, and everybody else waits for it.
+func (s *Server) warmUp(domain string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+	dialer := &tls.Dialer{
+		NetDialer: &net.Dialer{Timeout: 5 * time.Second},
+		Config:    &tls.Config{ServerName: domain, InsecureSkipVerify: true}, // nosemgrep: go.lang.security.audit.net.use-tls.use-tls, problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- a handshake with ourselves, only to have the certificate obtained; nothing is sent
+	}
+	if conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(core.PanelInnerPort))); err == nil {
+		conn.Close()
+	}
+}
+
 // shareCertificate puts the certificate the panel serves its HTTPS with
 // into files, for the connections on the same domain to serve as well
 // (core: shareCertificate), and has the configuration applied when that
@@ -442,7 +488,11 @@ func (s *Server) shareCertificate(cert *tls.Certificate) {
 func acmeFailure(err error) (msg string, pause time.Duration) {
 	pause = time.Minute
 	var ae *acme.Error
-	if errors.As(err, &ae) {
+	if !errors.As(err, &ae) && strings.Contains(err.Error(), ":rateLimited") {
+		// The same refusal, come wrapped in a way that hides its type.
+		ae = &acme.Error{ProblemType: "urn:ietf:params:acme:error:rateLimited", Detail: err.Error(), Header: http.Header{}}
+	}
+	if ae != nil {
 		if strings.HasSuffix(ae.ProblemType, ":rateLimited") {
 			// Their answer names the limit and when it ends.
 			pause = 15 * time.Minute
@@ -694,12 +744,13 @@ func (s *Server) handleCheckPanelAccess(w http.ResponseWriter, r *http.Request) 
 		// itself goes to this very machine by its loopback address.
 		Config: &tls.Config{ServerName: pa.Domain, InsecureSkipVerify: true}, // nosemgrep: go.lang.security.audit.net.use-tls.use-tls, problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- a handshake with ourselves; the certificate is verified explicitly below
 	}
-	// Kept under the time this server gives any request to answer. Within
-	// it the handshake is tried again and again: right after the panel is
-	// switched on the listener may not be up yet, and a certificate from
-	// Let's Encrypt takes from seconds to a minute. The page asks again
-	// when this runs out.
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	// Short, so that the page hears how things stand every few seconds
+	// and can show it. Within that time the handshake is tried again and
+	// again: right after the panel is switched on the listener may not be
+	// up yet, and a certificate from Let's Encrypt takes from seconds to a
+	// minute. The page asks again when this runs out; the request for the
+	// certificate itself goes on meanwhile and is not started anew.
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	var conn net.Conn
 	for {
@@ -714,10 +765,10 @@ func (s *Server) handleCheckPanelAccess(w http.ResponseWriter, r *http.Request) 
 		}
 		select {
 		case <-ctx.Done():
-			if msg == "" {
-				msg = err.Error()
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": msg})
+			// Nothing has gone wrong that we know of: the certificate is
+			// simply not there yet. What Let's Encrypt last said, if it
+			// said anything, goes along for the page to show.
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "waiting": true, "error": msg})
 			return
 		case <-time.After(2 * time.Second):
 		}

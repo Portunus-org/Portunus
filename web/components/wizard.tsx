@@ -32,13 +32,22 @@ export function StepFrame({
   className?: string
 }) {
   const { t } = useI18n()
+  // The bar moves to where the step stands and does not jump there: it
+  // starts from the step before, and follows when the number of steps
+  // changes under it (a choice on the step can add or drop later ones).
+  const target = (step / total) * 100
+  const [filled, setFilled] = React.useState(((step - 1) / total) * 100)
+  React.useEffect(() => {
+    const frame = requestAnimationFrame(() => setFilled(target))
+    return () => cancelAnimationFrame(frame)
+  }, [target])
   return (
     <div key={step} className={cn("flex w-full max-w-xl flex-col gap-6 duration-500 animate-in fade-in slide-in-from-bottom-2", className)}>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>{t("welcome.step", { n: step, total })}</span>
         {aside}
       </div>
-      <Progress value={(step / total) * 100} className="h-1" />
+      <Progress value={filled} className="h-1 *:data-[slot=progress-indicator]:duration-500 *:data-[slot=progress-indicator]:ease-out" />
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">{title}</CardTitle>
