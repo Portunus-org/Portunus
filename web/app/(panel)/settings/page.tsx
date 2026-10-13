@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
 import { PanelAccessCard } from "@/components/panel-access-card"
+import { UpdateCard } from "@/components/update-card"
 import { StatusBadge } from "@/components/status"
 import { FormField, FormError } from "@/components/form-field"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -432,8 +433,19 @@ function CACard() {
 export default function SettingsPage() {
   const { data: settings, reload } = useResource(api.settings)
   const isAdmin = useSession().user.role === "admin"
+  const { data: update, reload: reloadUpdate } = useResource(api.update)
   return (
     <div className="grid gap-4 px-4 lg:px-6">
+      {/* Always the first thing on the page, so it is found in one place
+          whether there is something to install or not. */}
+      {update && (
+        <UpdateCard
+          key={`update-${update.auto}-${update.weekday}-${update.minute}`}
+          update={update}
+          reload={reloadUpdate}
+          canEdit={isAdmin}
+        />
+      )}
       {settings && (
         <>
           <ServerCard key={`server-${settings.publicHost}-${settings.domain}`} settings={settings} onSaved={reload} />

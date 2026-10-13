@@ -6,7 +6,9 @@ import { ArrowRightIcon, LoaderIcon } from "lucide-react"
 
 import { Handwriting } from "@/components/brand/handwriting"
 import { LogoMark } from "@/components/brand/logo"
+import { Access } from "@/components/clients/client-drawer"
 import { DomainStatus, useDomainCheck } from "@/components/domain-check"
+import { InboundWizard } from "@/components/inbounds/inbound-wizard"
 import { PanelAccessStatus, PanelAddress, usePanelAccessChecks } from "@/components/panel-access-card"
 import { ChoiceCard, Note, StepFrame } from "@/components/wizard"
 import { FormField, FormError } from "@/components/form-field"
@@ -14,15 +16,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup } from "@/components/ui/radio-group"
-import { api, ApiError, errorText, type PanelAccess, type PublicAddress } from "@/lib/api"
+import { api, ApiError, errorText, type Client, type PanelAccess, type PublicAddress } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { SessionGate, takeHandoffPassword, useSession } from "@/lib/session"
+import { useResource } from "@/lib/use-resource"
 import { cn } from "@/lib/utils"
 
-// The welcome covers only the basics: a password of one's own and where the
-// server is reachable. Connections are created afterwards by the inbound
-// wizard, one protocol at a time.
-type Step = "hello" | "password" | "server" | "access" | "done"
+// The welcome has two halves. First the basics: a password of one's own and
+// where the server is reachable (with a domain, the panel is opened by it
+// from then on). Then what makes the server of use: a connection, made by
+// the same wizard as any later one, and a first client. The second half can
+// be skipped, and is picked up again after signing in at the panel's own
+// domain; the overview keeps its hints for whoever skipped it.
+type Step = "hello" | "password" | "server" | "access" | "continue" | "inbound" | "client" | "connect" | "done"
 
 // --------------------------------------------------------------------- hello
 
@@ -327,9 +333,178 @@ function AccessStep({ step, total, onNext }: { step: number; total: number; onNe
   )
 }
 
+// ------------------------------------------------------------------ the rest
+
+/**
+ * Between the two halves of the first setup: the server has its address,
+ * and what makes it of use comes next, a connection and a client. This is
+ * also where the setup is picked up after the browser has moved from the
+ * tunnel to the panel's own domain.
+ */
+function ContinueStep({ hasInbound, onNext, onSkip }: { hasInbound: boolean; onNext: () => void; onSkip: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="flex w-full max-w-xl flex-col items-center gap-8 text-center duration-500 animate-in fade-in slide-in-from-bottom-2">
+      <h1 className="font-heading text-4xl font-semibold text-balance">{t("welcome.continue.title")}</h1>
+      <p className="max-w-md text-balance text-muted-foreground">
+        {t(hasInbound ? "welcome.continue.leadClient" : "welcome.continue.lead")}
+      </p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <Button size="lg" variant="ghost" onClick={onSkip}>
+          {t("common.skip")}
+        </Button>
+        <Button size="lg" onClick={onNext}>
+          {t("welcome.continue.go")}
+          <ArrowRightIcon />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** The last step: the first client, by a name alone. */
+function ClientStep({
+  step,
+  total,
+  onNext,
+  onSkip,
+}: {
+  step: number
+  total: number
+  onNext: (client: Client) => void
+  onSkip: () => void
+}) {
+  const { t } = useI18n()
+  const [name, setName] = React.useState("")
+  const [pending, setPending] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setPending(true)
+    setError(null)
+    try {
+      onNext(await api.createClient({ name: name.trim(), trafficLimit: 0, expiresAt: null, note: "", enabled: true }))
+    } catch (err) {
+      setError(errorText(err, t))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="flex w-full justify-center">
+      <StepFrame
+        step={step}
+        total={total}
+        title={t("welcome.client.title")}
+        lead={t("welcome.client.lead")}
+        aside={
+          <button type="button" onClick={onSkip} className="hover:text-foreground hover:underline">
+            {t("common.skip")}
+          </button>
+        }
+        footer={
+          <>
+            <span />
+            <Button type="submit" disabled={pending || !name.trim()}>
+              {pending ? t("common.saving") : t("welcome.client.create")}
+              <ArrowRightIcon />
+            </Button>
+          </>
+        }
+      >
+        <FormField id="client-name" label={t("clients.form.name")} hint={t("welcome.client.nameHint")}>
+          <Input
+            id="client-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("welcome.client.placeholder")}
+            autoFocus
+          />
+        </FormField>
+        <FormError>{error}</FormError>
+      </StepFrame>
+    </form>
+  )
+}
+
+/**
+ * The client is made; now it is connected. The step shows what the device
+ * needs (a code to scan, links to copy) and waits for the proof that it
+ * worked: traffic of this client counted by the server. Only then is there
+ * a "Next", because only then is the server known to do what it is for.
+ * Whoever does not want to wait skips, as anywhere else.
+ */
+function ConnectStep({
+  client,
+  step,
+  total,
+  onNext,
+  onSkip,
+}: {
+  client: Client
+  step: number
+  total: number
+  onNext: () => void
+  onSkip: () => void
+}) {
+  const { t } = useI18n()
+  const [connected, setConnected] = React.useState(false)
+  React.useEffect(() => {
+    if (connected) return
+    let alive = true
+    // The server reads its counters every ten seconds: asking more often
+    // than every few would learn nothing sooner.
+    const look = () =>
+      api.clients().then(
+        (list) => {
+          const now = list.find((c) => c.id === client.id)
+          if (alive && now && (now.online || now.upload + now.download > 0)) setConnected(true)
+        },
+        () => {}
+      )
+    look()
+    const timer = setInterval(look, 3000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [client.id, connected])
+
+  return (
+    <StepFrame
+      step={step}
+      total={total}
+      title={t("welcome.connect.title", { name: client.name })}
+      lead={t("welcome.connect.lead")}
+      aside={
+        <button type="button" onClick={onSkip} className="hover:text-foreground hover:underline">
+          {t("common.skip")}
+        </button>
+      }
+      footer={
+        <>
+          <span />
+          <Button onClick={onNext} disabled={!connected}>
+            {t("common.next")}
+            <ArrowRightIcon />
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 text-sm">
+        <Access clientId={client.id} />
+      </div>
+      {connected ? <Note tone="ok">{t("welcome.connect.done")}</Note> : <Note tone="pending">{t("welcome.connect.waiting")}</Note>}
+    </StepFrame>
+  )
+}
+
 // ---------------------------------------------------------------------- done
 
-function DoneStep({ onCreate, onLater, canCreate }: { onCreate: () => void; onLater: () => void; canCreate: boolean }) {
+/** All set: the one way on is the panel. */
+function DoneStep({ client, onPanel }: { client: Client | null; onPanel: () => void }) {
   const { t } = useI18n()
   const [ready, setReady] = React.useState(false)
   return (
@@ -338,18 +513,13 @@ function DoneStep({ onCreate, onLater, canCreate }: { onCreate: () => void; onLa
       <div
         className={cn("flex flex-col items-center gap-8 transition-all duration-700", ready ? "opacity-100" : "translate-y-2 opacity-0")}
       >
-        <p className="max-w-md text-balance text-muted-foreground">{t("welcome.done.lead")}</p>
-        <div className="flex flex-wrap justify-center gap-3">
-          <Button size="lg" variant="ghost" onClick={onLater}>
-            {t("welcome.done.later")}
-          </Button>
-          {canCreate && (
-            <Button size="lg" onClick={onCreate}>
-              {t("welcome.done.create")}
-              <ArrowRightIcon />
-            </Button>
-          )}
-        </div>
+        <p className="max-w-md text-balance text-muted-foreground">
+          {client ? t("welcome.done.leadClient", { name: client.name }) : t("welcome.done.lead")}
+        </p>
+        <Button size="lg" onClick={onPanel}>
+          {t("welcome.done.panel")}
+          <ArrowRightIcon />
+        </Button>
       </div>
     </div>
   )
@@ -359,7 +529,7 @@ function DoneStep({ onCreate, onLater, canCreate }: { onCreate: () => void; onLa
 
 function WelcomeFlow() {
   const router = useRouter()
-  const { user, setupCompleted } = useSession()
+  const { user, setupCompleted, guide } = useSession()
 
   // Which steps this user goes through.
   const [steps] = React.useState(() => {
@@ -368,12 +538,16 @@ function WelcomeFlow() {
     if (user.role === "admin" && !setupCompleted) s.push("server")
     return s
   })
-  const [step, setStep] = React.useState<Step>("hello")
+  // Come back with the first half done (the usual case: signed in anew at
+  // the panel's own domain): straight on with the second.
+  const [step, setStep] = React.useState<Step>(steps.length > 0 ? "hello" : "continue")
+  const canGuide = user.role === "admin"
 
   // Nothing to do here (e.g. opened by hand later): go to the panel.
+  const idle = steps.length === 0 && !guide
   React.useEffect(() => {
-    if (steps.length === 0) router.replace("/")
-  }, [steps, router])
+    if (idle) router.replace("/")
+  }, [idle, router])
 
   // Opening the panel by its domain follows the step that asks for a
   // domain, and takes two: the panel being set up, then its address handed
@@ -383,16 +557,30 @@ function WelcomeFlow() {
   const [withDomain, setWithDomain] = React.useState(false)
   const index = step === "access" ? steps.length + 1 : steps.indexOf(step) + 1
   const total = steps.length + (withDomain ? 2 : 0)
+  // After the first half: on with the second for whoever can make
+  // connections; anybody else is done.
+  const onwards = () => setStep(canGuide ? "continue" : "done")
   const next = (after: Step) => {
     const i = steps.indexOf(after)
-    setStep(i + 1 < steps.length ? steps[i + 1] : "done")
+    if (i + 1 < steps.length) setStep(steps[i + 1])
+    else onwards()
   }
   const skip = async () => {
     await api.setupSkip().catch(() => {})
     router.replace("/")
   }
 
-  if (steps.length === 0) return null
+  // The second half: a connection (unless there is one), then a client.
+  const { data: inbounds } = useResource(api.inbounds)
+  const hasInbound = (inbounds?.length ?? 0) > 0
+  const [taken, setTaken] = React.useState(0) // steps the connection wizard took
+  const [client, setClient] = React.useState<Client | null>(null)
+  const endGuide = async (to: string) => {
+    await api.guideDone().catch(() => {})
+    router.replace(to)
+  }
+
+  if (idle) return null
 
   return (
     <main className="flex min-h-svh flex-col bg-muted">
@@ -415,14 +603,46 @@ function WelcomeFlow() {
             onSkip={skip}
           />
         )}
-        {step === "access" && <AccessStep step={index} total={total} onNext={() => setStep("done")} />}
-        {step === "done" && (
-          <DoneStep
-            canCreate={user.role !== "viewer"}
-            onCreate={() => router.replace("/inbounds/new/")}
-            onLater={() => router.replace("/")}
+        {step === "access" && <AccessStep step={index} total={total} onNext={onwards} />}
+        {step === "continue" && (
+          <ContinueStep hasInbound={hasInbound} onNext={() => setStep(hasInbound ? "client" : "inbound")} onSkip={() => endGuide("/")} />
+        )}
+        {step === "inbound" && (
+          <InboundWizard
+            guide={{
+              more: 2,
+              onCreated: (_inbound, wizardSteps) => {
+                setTaken(wizardSteps)
+                setStep("client")
+              },
+              onSkip: () => endGuide("/"),
+            }}
           />
         )}
+        {step === "client" && (
+          <ClientStep
+            step={taken + 1}
+            total={taken + 2}
+            onNext={(c) => {
+              setClient(c)
+              setStep("connect")
+            }}
+            onSkip={() => endGuide("/")}
+          />
+        )}
+        {step === "connect" && client && (
+          <ConnectStep
+            client={client}
+            step={taken + 2}
+            total={taken + 2}
+            onNext={() => {
+              api.guideDone().catch(() => {})
+              setStep("done")
+            }}
+            onSkip={() => endGuide("/")}
+          />
+        )}
+        {step === "done" && <DoneStep client={client} onPanel={() => endGuide("/")} />}
       </div>
     </main>
   )

@@ -22,6 +22,7 @@ func (s *Server) routesSetup(mux *http.ServeMux) {
 	mux.Handle("GET /api/setup/address", admin(s.handleSetupAddress))
 	mux.Handle("POST /api/setup/basics", admin(s.handleSetupBasics))
 	mux.Handle("POST /api/setup/skip", admin(s.handleSetupSkip))
+	mux.Handle("POST /api/setup/guide/done", admin(s.handleGuideDone))
 
 	// Inbound wizard.
 	mux.Handle("POST /api/inbounds/suggest", op(s.handleSuggestInbound))
@@ -34,7 +35,11 @@ func (s *Server) routesSetup(mux *http.ServeMux) {
 }
 
 func (s *Server) handleSetupState(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"completed": s.core.SetupCompleted(r.Context())})
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"completed": s.core.SetupCompleted(r.Context()),
+		// The rest of the first setup (a connection, a client) is waiting.
+		"guide": s.core.GuidePending(r.Context()),
+	})
 }
 
 func (s *Server) handleSetupAddress(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +70,14 @@ func (s *Server) handleSetupBasics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetupSkip(w http.ResponseWriter, r *http.Request) {
 	if err := s.core.MarkSetupCompleted(r.Context()); err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGuideDone(w http.ResponseWriter, r *http.Request) {
+	if err := s.core.EndGuide(r.Context()); err != nil {
 		s.internalError(w, r, err)
 		return
 	}

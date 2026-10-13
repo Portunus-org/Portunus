@@ -55,6 +55,9 @@ export function CAInstall({ compact = false }: { compact?: boolean }) {
               </a>
             </Button>
           </div>
+          {/* The code leads to the subscription listener, the only door of the
+              panel a phone can reach: without it there is nowhere to point. */}
+          {ca && !ca.downloadQr && <p className="text-muted-foreground">{t("ca.qrOff")}</p>}
           {ca && (
             <div className="grid gap-1">
               <span>{ca.subject}</span>

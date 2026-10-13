@@ -115,9 +115,20 @@ func serve() error {
 	log.Info("starting portunus", "version", version.Version, "commit", version.Commit, "data_dir", cfg.DataDir)
 
 	sqlDB, err := db.Open(ctx, cfg.DBPath(), log)
+	if errors.Is(err, db.ErrNewer) {
+		// An update that did not come up was undone, and this is the
+		// previous version again: it takes the database as it left it.
+		if put, perr := db.PutBack(cfg.DBPath(), cfg.BeforeUpdatePath(), time.Now()); perr != nil {
+			log.Error("put back the database from before the update", "err", perr)
+		} else if put {
+			log.Warn("the database was changed by a newer version that is gone: the copy from before the update is back in place", "newer_kept_as", cfg.DBPath()+".newer")
+			sqlDB, err = db.Open(ctx, cfg.DBPath(), log)
+		}
+	}
 	if err != nil {
 		return err
 	}
+
 	defer sqlDB.Close()
 	st := store.New(sqlDB)
 
@@ -162,13 +173,16 @@ func serve() error {
 		log.Error("sing-box unavailable; proxy inbounds will not start", "err", err)
 	}
 	coreSvc := core.New(st, box, mgr, core.Options{
-		StatsAPI:   cfg.SingBoxAPI,
-		ControlAPI: cfg.SingBoxCtl,
-		HostPorts:  setup.ListeningPorts,
-		NodeImage:  cfg.NodeImage,
-		Backup:     backupSource(cfg),
-		GeoURL:     cfg.GeoLookup,
-		Reserved:   reservedPorts(cfg),
+		StatsAPI:     cfg.SingBoxAPI,
+		ControlAPI:   cfg.SingBoxCtl,
+		HostPorts:    setup.ListeningPorts,
+		NodeImage:    cfg.NodeImage,
+		Backup:       backupSource(cfg),
+		GeoURL:       cfg.GeoLookup,
+		UpdateSource: updateSource(cfg.UpdateCheck),
+		UpdateDir:    cfg.UpdateDir,
+		BeforeUpdate: cfg.BeforeUpdatePath(),
+		Reserved:     reservedPorts(cfg),
 		// Inside sing-box's own directory: the one place it is sure to read.
 		PanelCertDir: filepath.Join(cfg.SingBoxDir(), "panel-cert"),
 		ACME: core.ACMEPaths{
@@ -183,6 +197,7 @@ func serve() error {
 	wg.Go(func() { mgr.Run(ctx) })
 	wg.Go(func() { coreSvc.Run(ctx, 30*time.Second) })
 	wg.Go(func() { coreSvc.RunNodes(ctx, 30*time.Second) })
+	wg.Go(func() { coreSvc.RunUpdates(ctx) })
 
 	ui, err := webui.New(webui.Dist())
 	if err != nil {
@@ -461,4 +476,13 @@ func resetPassword(username string) error {
 	}
 	fmt.Printf("New password for %s: %s\nAll sessions of this user were revoked; a password change is required on next login.\n", username, pw)
 	return nil
+}
+
+// updateSource is where to look for new releases: the configured image
+// repository, or nowhere when the check is turned off.
+func updateSource(v string) string {
+	if v = strings.TrimSpace(v); strings.EqualFold(v, "off") {
+		return ""
+	}
+	return v
 }

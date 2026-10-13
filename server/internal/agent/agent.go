@@ -11,11 +11,13 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -26,9 +28,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/PaulichP/Portunus/server/internal/selfupdate"
 	"github.com/PaulichP/Portunus/server/internal/singbox"
 	"github.com/PaulichP/Portunus/server/internal/version"
 )
@@ -48,6 +52,7 @@ type Bundle struct {
 	// panel certificate issued by it.
 	CA string `json:"ca"`
 	// Cert and Key are the node's own server certificate, for its address.
+	// The panel recognises it by its exact bytes.
 	Cert string `json:"cert"`
 	Key  string `json:"key"`
 }
@@ -82,6 +87,14 @@ type Status struct {
 	ConfigHash string `json:"configHash"`
 	// PanelCopy describes the copy of the panel this node keeps (nil: none).
 	PanelCopy *PanelCopy `json:"panelCopy,omitempty"`
+	// Updater is what the updater next to this node says (nil: there is
+	// none, and the node is updated by running its join command again).
+	Updater *selfupdate.Status `json:"updater,omitempty"`
+}
+
+// UpdateRequest asks the node to move to a release.
+type UpdateRequest struct {
+	Version string `json:"version"`
 }
 
 // PanelCopy is a sealed backup of the panel kept on a node, so that the
@@ -147,6 +160,8 @@ type Server struct {
 	stats *singbox.StatsClient
 	dir   string
 	log   *slog.Logger
+	// updateDir is shared with the updater; "" when updates are not wired.
+	updateDir string
 
 	mu      sync.Mutex
 	pending map[string]*Traffic // counters saved across sing-box reloads
@@ -206,6 +221,11 @@ func (s *Server) collect(ctx context.Context) {
 // difference and learns the reason when it sends its configuration again.
 func (s *Server) status() Status {
 	st := Status{Version: version.Version, SingBox: s.mgr.Status(), ConfigHash: HashConfig(s.mgr.Config())}
+	if s.updateDir != "" {
+		if up, there := selfupdate.Look(s.updateDir, time.Now()); there {
+			st.Updater = &up
+		}
+	}
 	if raw, err := os.ReadFile(filepath.Join(s.dir, PanelCopyInfo)); err == nil {
 		var pc PanelCopy
 		if json.Unmarshal(raw, &pc) == nil {
@@ -277,6 +297,30 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, s.status())
 	})
+	// The panel may only name a release, and only a newer one: which image
+	// that is, and everything else about the container, is not its to say.
+	mux.HandleFunc("PUT /v1/update", func(w http.ResponseWriter, r *http.Request) {
+		var req UpdateRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+			return
+		}
+		if err := selfupdate.Allowed(req.Version, version.Version); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+			return
+		}
+		if s.updateDir == "" || s.status().Updater == nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "this node has no updater"})
+			return
+		}
+		if err := selfupdate.Ask(s.updateDir, req.Version, time.Now()); err != nil {
+			s.log.Error("ask for an update", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		s.log.Info("update asked for", "version", req.Version)
+		writeJSON(w, http.StatusOK, s.status())
+	})
 	mux.HandleFunc("POST /v1/traffic", func(w http.ResponseWriter, r *http.Request) {
 		s.collect(r.Context())
 		s.mu.Lock()
@@ -311,17 +355,29 @@ func (b Bundle) TLSConfig() (*tls.Config, error) {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    pool,
-		// The CA also signs server certificates; only the panel's client
-		// certificate may command a node.
-		VerifyPeerCertificate: func(_ [][]byte, chains [][]*x509.Certificate) error {
-			for _, chain := range chains {
-				if len(chain) > 0 && chain[0].Subject.CommonName == proxy.PanelCommonName {
-					return nil
-				}
+		// A certificate is demanded, but the CA is not handed to the TLS
+		// layer: it would name the CA to every caller when asking for the
+		// certificate, and the port answers anyone. The check is made here
+		// instead, and it is the same one.
+		ClientAuth: tls.RequireAnyClientCert,
+		VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+			if len(raw) == 0 {
+				return errors.New("client is not the panel")
 			}
-			return errors.New("client is not the panel")
+			leaf, err := x509.ParseCertificate(raw[0])
+			if err != nil {
+				return errors.New("client is not the panel")
+			}
+			// The CA also signs server certificates; only a certificate
+			// for client authentication under the panel's name may command
+			// a node.
+			if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+				return errors.New("client is not the panel")
+			}
+			if leaf.Subject.CommonName != proxy.PanelCommonName {
+				return errors.New("client is not the panel")
+			}
+			return nil
 		},
 	}, nil
 }
@@ -332,33 +388,69 @@ func (b Bundle) TLSConfig() (*tls.Config, error) {
 type Client struct {
 	base string
 	http *http.Client
+	// shown is which of the known certificates the node last answered with.
+	shown atomic.Int32
 }
 
-// NewClient talks to the agent at address:port. ca verifies the node;
-// certPEM and keyPEM are the panel's client certificate.
-func NewClient(address string, port int, ca *proxy.CA, certPEM, keyPEM string) (*Client, error) {
+// NewClient talks to the agent at address:port. known are the certificates
+// (PEM) the node may answer with: the panel made them itself, so it accepts
+// exactly these and nothing else, whoever signed it. certPEM and keyPEM are
+// the panel's client certificate.
+func NewClient(address string, port int, known []string, certPEM, keyPEM string) (*Client, error) {
 	cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
 	if err != nil {
 		return nil, err
 	}
-	pool := x509.NewCertPool()
-	pool.AddCert(ca.Cert)
-	return &Client{
-		base: "https://" + net.JoinHostPort(address, fmt.Sprint(port)),
-		http: &http.Client{
-			Timeout: 20 * time.Second,
-			Transport: &http.Transport{
-				TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}},
-				TLSHandshakeTimeout: 8 * time.Second,
-				IdleConnTimeout:     90 * time.Second,
-				MaxIdleConns:        2,
-				// The panel reaches its nodes directly, never through a proxy
-				// from the environment.
-				Proxy: nil,
+	var pins [][]byte
+	for _, p := range known {
+		b, _ := pem.Decode([]byte(p))
+		if b == nil {
+			return nil, errors.New("node certificate is not valid PEM")
+		}
+		pins = append(pins, b.Bytes)
+	}
+	if len(pins) == 0 {
+		return nil, errors.New("node has no certificate")
+	}
+	c := &Client{base: "https://" + net.JoinHostPort(address, fmt.Sprint(port))}
+	c.shown.Store(-1)
+	c.http = &http.Client{
+		Timeout: 20 * time.Second,
+		Transport: &http.Transport{
+			// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- not bypassed: pinned to the exact certificate below
+			TLSClientConfig: &tls.Config{
+				MinVersion:   tls.VersionTLS13,
+				Certificates: []tls.Certificate{cert},
+				// The usual check (a trusted issuer, a matching name) is
+				// replaced by a stricter one: the very certificate. It runs
+				// before the panel shows its own certificate or sends a byte.
+				InsecureSkipVerify: true,
+				VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+					if len(raw) > 0 {
+						for i, pin := range pins {
+							if subtle.ConstantTimeCompare(raw[0], pin) == 1 {
+								c.shown.Store(int32(i))
+								return nil
+							}
+						}
+					}
+					return errors.New("the server at the node's address is not the node")
+				},
 			},
+			TLSHandshakeTimeout: 8 * time.Second,
+			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConns:        2,
+			// The panel reaches its nodes directly, never through a proxy
+			// from the environment.
+			Proxy: nil,
 		},
-	}, nil
+	}
+	return c, nil
 }
+
+// Shown is the index, in the list given to NewClient, of the certificate the
+// node last answered with; -1 before the first answer.
+func (c *Client) Shown() int { return int(c.shown.Load()) }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	var rd io.Reader
@@ -428,6 +520,13 @@ func (c *Client) Traffic(ctx context.Context) ([]Traffic, error) {
 func (c *Client) SetPanelCopy(ctx context.Context, node int64, sealed []byte) (Status, error) {
 	var st Status
 	return st, c.do(ctx, http.MethodPut, "/v1/panel", PanelCopyRequest{Node: node, Data: sealed}, &st)
+}
+
+// Update asks the node to move to a release; the updater next to it does
+// the rest.
+func (c *Client) Update(ctx context.Context, version string) (Status, error) {
+	var st Status
+	return st, c.do(ctx, http.MethodPut, "/v1/update", UpdateRequest{Version: version}, &st)
 }
 
 func (c *Client) Close() { c.http.CloseIdleConnections() }

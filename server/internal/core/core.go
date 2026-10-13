@@ -67,7 +67,8 @@ type Core struct {
 	now       func() time.Time
 
 	nodeRuntime
-	online online
+	online  online
+	updates updates
 	// beforeApply runs before a configuration is handed to sing-box.
 	beforeApply  func(context.Context)
 	offline      bool
@@ -96,6 +97,14 @@ type ACMEPaths struct {
 // Options configure a Core.
 type Options struct {
 	StatsAPI string
+	// UpdateSource is the image repository releases are published to; the
+	// panel reads its tags to learn of a newer version. Empty: never asked.
+	UpdateSource string
+	// UpdateDir is the directory shared with the updater next to the panel.
+	UpdateDir string
+	// BeforeUpdate is where a copy of the database is left before an update
+	// is installed; empty: none is made.
+	BeforeUpdate string
 	// PanelCertDir is where the panel puts the certificate it serves its
 	// own HTTPS with (PanelCertFiles); empty: inbounds never share it.
 	PanelCertDir string
@@ -140,6 +149,7 @@ func New(st *store.Store, box *secrets.Box, mgr *singbox.Manager, o Options, log
 		log:          log,
 		now:          time.Now,
 		listHTTP:     o.ListHTTP,
+		updates:      updates{source: o.UpdateSource, dir: o.UpdateDir, before: o.BeforeUpdate, client: &http.Client{Timeout: 20 * time.Second}},
 		offline:      o.Offline,
 		panelCertDir: o.PanelCertDir,
 		hostPorts:    o.HostPorts,

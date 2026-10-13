@@ -30,7 +30,10 @@ type RunOptions struct {
 	// SingBoxBin is the sing-box binary; SingBoxMemory its GOMEMLIMIT.
 	SingBoxBin    string
 	SingBoxMemory string
-	Log           *slog.Logger
+	// UpdateDir is shared with the updater next to this node, if there is
+	// one (internal/selfupdate).
+	UpdateDir string
+	Log       *slog.Logger
 }
 
 // Run is the node side: it takes its configuration from the panel and runs
@@ -64,6 +67,7 @@ func Run(o RunOptions) error {
 		return fmt.Errorf("sing-box unavailable: %w", err)
 	}
 	srv := NewServer(mgr, o.DataDir, log)
+	srv.updateDir = o.UpdateDir
 
 	var wg sync.WaitGroup
 	wg.Go(func() { mgr.Run(ctx) })

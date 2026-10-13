@@ -58,6 +58,123 @@ const DETAIL_MAX_ZOOM = 13
 
 /** Places with a lower rank are the more important ones. */
 const byRank = (a: Record<string, unknown>, b: Record<string, unknown>) => Number(a.rank ?? 99) - Number(b.rank ?? 99)
+// The same for tiles that carry the number of inhabitants and no rank.
+const byPeople = (a: Record<string, unknown>, b: Record<string, unknown>) => Number(b.population ?? 0) - Number(a.population ?? 0)
+
+type Countries = { features: { geometry: { type: string; coordinates: number[][][] | number[][][][] } | null }[] }
+
+/**
+ * The built-in map: all the land of the world as one shape, painted on a
+ * canvas that covers the map, anew in every frame the view changes.
+ *
+ * Leaflet's own way with shapes is to work out, for the part in view, the
+ * screen position of every point, and to do it again whenever the view has
+ * moved: the land then ends in a straight edge while the map is dragged,
+ * and every change of zoom stops for the reckoning. Here the shape is built
+ * once, in coordinates of the whole world, and a frame is two calls with a
+ * scale and an offset. The whole world is always there, at any zoom, and
+ * the map moves as often as the screen is refreshed.
+ */
+function worldCanvas(m: Leaflet.Map, fine: Countries, coarse: Countries, colours: () => { land: string; border: string }) {
+  const y = (lat: number) => {
+    const phi = (Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI) / 180
+    return (1 - Math.log(Math.tan(Math.PI / 4 + phi / 2)) / Math.PI) / 2
+  }
+  // Each country as a shape of its own, with the box it lies in: a frame
+  // paints only those in view. And twice over: the outlines drawn for a
+  // view of the whole world carry a tenth of the points, and nobody can
+  // tell them apart at that scale.
+  type Shape = { path: Path2D; west: number; east: number; north: number; south: number }
+  const shapes = (countries: Countries): Shape[] =>
+    countries.features.flatMap((f) => {
+      if (!f.geometry) return []
+      const polygons = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
+      const shape: Shape = { path: new Path2D(), west: Infinity, east: -Infinity, north: Infinity, south: -Infinity }
+      for (const polygon of polygons)
+        for (const ring of polygon) {
+          ring.forEach(([lon, lat], i) => {
+            const px = (lon + 180) / 360
+            const py = y(lat)
+            if (i) shape.path.lineTo(px, py)
+            else shape.path.moveTo(px, py)
+            shape.west = Math.min(shape.west, px)
+            shape.east = Math.max(shape.east, px)
+            shape.north = Math.min(shape.north, py)
+            shape.south = Math.max(shape.south, py)
+          })
+          shape.path.closePath()
+        }
+      return [shape]
+    })
+  const detailed = shapes(fine)
+  const rough = shapes(coarse)
+  const canvas = document.createElement("canvas")
+  canvas.className = "portunus-map-world"
+  const ctx = canvas.getContext("2d")!
+  const paint = colours()
+  let plain = false
+  const draw = () => {
+    const size = m.getSize()
+    const dpr = window.devicePixelRatio || 1
+    if (canvas.width !== Math.round(size.x * dpr) || canvas.height !== Math.round(size.y * dpr)) {
+      canvas.width = Math.round(size.x * dpr)
+      canvas.height = Math.round(size.y * dpr)
+    }
+    const scale = 256 * 2 ** m.getZoom() // the width of the world in pixels
+    const corner = m.getPixelBounds().min! // where the view's corner is in it
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = paint.land
+    if (plain) {
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      return
+    }
+    ctx.strokeStyle = paint.border
+    ctx.lineJoin = "round"
+    // The world repeats sideways; draw the copies that are in view. (Land
+    // across the 180th meridian reaches a little past its own copy.)
+    const world = m.getZoom() < 2.8 ? rough : detailed
+    const top = corner.y / scale
+    const bottom = (corner.y + size.y) / scale
+    for (let copy = Math.floor(corner.x / scale) - 1; copy * scale - corner.x < size.x; copy++) {
+      ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (copy * scale - corner.x), -dpr * corner.y)
+      ctx.lineWidth = 0.7 / scale
+      const left = corner.x / scale - copy
+      const right = (corner.x + size.x) / scale - copy
+      for (const c of world) {
+        if (c.east < left || c.west > right || c.south < top || c.north > bottom) continue
+        ctx.fill(c.path)
+        ctx.stroke(c.path)
+      }
+    }
+  }
+  let shown = false
+  return {
+    addTo() {
+      if (shown) return
+      shown = true
+      m.getContainer().prepend(canvas)
+      m.on("move zoom viewreset resize", draw)
+      draw()
+    },
+    remove() {
+      if (!shown) return
+      shown = false
+      m.off("move zoom viewreset resize", draw)
+      canvas.remove()
+    },
+    /**
+     * Under the detailed view the canvas is a plain sheet in the colour of
+     * land: tiles scaled to a zoom between two whole ones leave hairline
+     * gaps, and what shows through them should not be the sea.
+     */
+    sheet(on: boolean) {
+      if (plain === on) return
+      plain = on
+      if (shown) draw()
+    },
+  }
+}
 
 /**
  * The map's colours as the canvas needs them: the theme's CSS colours worked
@@ -122,6 +239,10 @@ export function NodeMap({
   const map = React.useRef<Leaflet.Map | null>(null)
   const layer = React.useRef<Leaflet.LayerGroup | null>(null)
   const fitted = React.useRef("")
+  const zoomBy = React.useRef<(levels: number) => void>(undefined)
+  // What the base is made of, for the code that zooms (set up once).
+  const tilesRef = React.useRef(false)
+  const detailRef = React.useRef(false)
   const labels = tiles && !!mapStyle?.labels
   // The drawn map can be zoomed in past the scale of countries, into a
   // view made of tiles the server fetches from elsewhere. A server may be
@@ -151,6 +272,10 @@ export function NodeMap({
     }
   }, [wantsDetail, detailWorks])
   const detail = wantsDetail && detailWorks
+  React.useEffect(() => {
+    tilesRef.current = tiles
+    detailRef.current = detail
+  })
   const pick = React.useRef(onPick)
   React.useEffect(() => {
     pick.current = onPick
@@ -174,7 +299,16 @@ export function NodeMap({
       minZoom: 2,
       maxZoom: MAX_ZOOM,
       worldCopyJump: true,
-      zoomSnap: 0.5,
+      // Any zoom is a zoom: the map is drawn from shapes, not from pictures
+      // made for whole steps, and the wheel moves through them smoothly
+      // (see below) instead of Leaflet's own stepping.
+      zoomSnap: 0,
+      scrollWheelZoom: false,
+      // Leaflet animates a zoom by stretching what is on its panes with
+      // CSS, in a rhythm of its own; the land is drawn outside the panes,
+      // frame by frame. So every zoom is made here, the same way.
+      zoomAnimation: false,
+      fadeAnimation: false,
     }).setView([35, 20], 2)
     m.on("click", (e) =>
       pick.current?.({
@@ -192,7 +326,90 @@ export function NodeMap({
     const box = el.current
     const resized = new ResizeObserver(() => m.invalidateSize({ pan: false }))
     resized.observe(box)
+
+    // The wheel zooms continuously, in and out: each turn sets where the
+    // zoom is headed, and the map glides there frame by frame, the place
+    // under the pointer staying under it. Leaflet's own wheel handling
+    // jumps a step at a time and animates only between whole steps.
+    const moving = m as unknown as {
+      _moveStart: (zoomChanged: boolean, noMoveStart: boolean) => void
+      _move: (center: Leaflet.LatLng, zoom: number) => void
+      _moveEnd: (zoomChanged: boolean) => void
+    }
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    let goal = m.getZoom()
+    let frame = 0
+    let under: Leaflet.Point | null = null
+    let place: Leaflet.LatLng | null = null
+    let last = performance.now()
+    const glide = () => {
+      const zoom = m.getZoom()
+      const left = goal - zoom
+      const done = calm || Math.abs(left) < 0.004
+      // A share of what is left each frame, by the time gone: the same
+      // pace at 60 frames a second and at 144.
+      const now = performance.now()
+      const share = 1 - Math.exp(-(now - last) / 55)
+      last = now
+      const next = done ? goal : zoom + left * share
+      // The centre that keeps `place` under the pointer at this zoom.
+      const centre = under && place ? m.unproject(m.project(place, next).subtract(under).add(m.getSize().divideBy(2)), next) : m.getCenter()
+      moving._move(centre, next)
+      if (done) {
+        frame = 0
+        moving._moveEnd(true)
+      } else frame = requestAnimationFrame(glide)
+    }
+    // Where the view is made of tiles the zoom comes to rest on a whole
+    // level: tiles are drawn for whole levels, and between two of them they
+    // are scaled, a little soft and with hairline gaps. So a moment after
+    // the wheel stops the map eases on to the nearest one.
+    let settle: ReturnType<typeof setTimeout> | undefined
+    const tiled = () => tilesRef.current || (detailRef.current && goal > DRAWN_MAX_ZOOM)
+    const rest = () => {
+      if (!tiled() || Number.isInteger(goal)) return
+      goal = Math.max(m.getMinZoom(), Math.min(m.getMaxZoom(), Math.round(goal)))
+      if (!frame) {
+        last = performance.now()
+        moving._moveStart(true, false)
+        frame = requestAnimationFrame(glide)
+      }
+    }
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault()
+      clearTimeout(settle)
+      settle = setTimeout(rest, 140)
+      const r = box.getBoundingClientRect()
+      under = L.point(e.clientX - r.left, e.clientY - r.top)
+      place = m.containerPointToLatLng(under)
+      // Lines (Firefox) or pixels; a pinch on a touchpad comes as a wheel
+      // with Ctrl held and much smaller numbers.
+      const pixels = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 300 : 1)
+      if (!frame) goal = m.getZoom()
+      goal = Math.max(m.getMinZoom(), Math.min(m.getMaxZoom(), goal - pixels / (e.ctrlKey ? 60 : 260)))
+      if (!frame) {
+        last = performance.now()
+        moving._moveStart(true, false)
+        frame = requestAnimationFrame(glide)
+      }
+    }
+    box.addEventListener("wheel", wheel, { passive: false })
+    // The buttons: the same glide, about the middle of the map.
+    zoomBy.current = (levels: number) => {
+      under = place = null
+      if (!frame) goal = m.getZoom()
+      goal = Math.max(m.getMinZoom(), Math.min(m.getMaxZoom(), Math.round((goal + levels) * 2) / 2))
+      if (tiled()) goal = Math.round(goal)
+      if (!frame) {
+        last = performance.now()
+        moving._moveStart(true, false)
+        frame = requestAnimationFrame(glide)
+      }
+    }
     return () => {
+      clearTimeout(settle)
+      box.removeEventListener("wheel", wheel)
+      cancelAnimationFrame(frame)
       resized.disconnect()
       m.remove()
       map.current = null
@@ -255,7 +472,7 @@ export function NodeMap({
       // tiles the panel fetches (coasts, borders of countries and regions,
       // names of cities, towns and villages as they are written there), in
       // the same colours, and as sharp. The library is loaded on first use.
-      let land: Leaflet.Layer | null = null
+      let land: ReturnType<typeof worldCanvas> | null = null
       let close: Leaflet.Layer | null = null
       let loadingClose = false
       const showClose = () => {
@@ -269,6 +486,7 @@ export function NodeMap({
           const c = mapPalette(el.current!)
           const family = `${getComputedStyle(document.body).fontFamily}, ${mapFontFamily}`
           const kind = (f: { props: Record<string, unknown> }) => String(f.props.class ?? "")
+          const place = (f: { props: Record<string, unknown> }) => String(f.props.kind ?? "")
           // The local name where this computer has a font for it, else the
           // name in Latin letters that the tiles carry beside it.
           const localName = (_z: number, f?: { props: Record<string, unknown> }) =>
@@ -286,18 +504,27 @@ export function NodeMap({
             url: "/api/map/detail/{z}/{x}/{y}.pbf",
             maxDataZoom: 14,
             backgroundColor: c.land,
+            // The tiles come in one of two layouts, whichever source the
+            // server could reach: OpenMapTiles (water, boundary, place) or
+            // Shortbread (ocean, water_polygons, boundaries, place_labels).
+            // Both are drawn the same; rules for layers a tile does not
+            // have do nothing.
             paintRules: [
               { dataLayer: "water", symbolizer: new pm.PolygonSymbolizer({ fill: c.sea }) },
-              {
-                dataLayer: "boundary",
-                filter: (_z, f) => f.props.admin_level === 4 && f.props.maritime !== 1,
-                symbolizer: new pm.LineSymbolizer({ color: c.border, width: 0.8, dash: [3, 3] }),
-              },
-              {
-                dataLayer: "boundary",
-                filter: (_z, f) => f.props.admin_level === 2 && f.props.maritime !== 1,
-                symbolizer: new pm.LineSymbolizer({ color: c.border, width: 1.4 }),
-              },
+              { dataLayer: "ocean", symbolizer: new pm.PolygonSymbolizer({ fill: c.sea }) },
+              { dataLayer: "water_polygons", symbolizer: new pm.PolygonSymbolizer({ fill: c.sea }) },
+              ...["boundary", "boundaries"].flatMap((dataLayer) => [
+                {
+                  dataLayer,
+                  filter: (_z: number, f: { props: Record<string, unknown> }) => Number(f.props.admin_level) === 4 && !f.props.maritime,
+                  symbolizer: new pm.LineSymbolizer({ color: c.border, width: 0.8, dash: [3, 3] }),
+                },
+                {
+                  dataLayer,
+                  filter: (_z: number, f: { props: Record<string, unknown> }) => Number(f.props.admin_level) === 2 && !f.props.maritime,
+                  symbolizer: new pm.LineSymbolizer({ color: c.border, width: 1.4 }),
+                },
+              ]),
             ],
             labelRules: [
               { dataLayer: "place", filter: (_z, f) => kind(f) === "city", symbolizer: text(600, 13, c.text), sort: byRank },
@@ -322,6 +549,40 @@ export function NodeMap({
                 symbolizer: text(400, 11, c.faint),
                 sort: byRank,
               },
+              // The same names in the Shortbread layout.
+              {
+                dataLayer: "place_labels",
+                filter: (_z, f) => ["city", "capital", "state_capital"].includes(place(f)),
+                symbolizer: text(600, 13, c.text),
+                sort: byPeople,
+              },
+              {
+                dataLayer: "place_labels",
+                minzoom: 8,
+                filter: (_z, f) => place(f) === "town",
+                symbolizer: text(500, 12, c.text),
+                sort: byPeople,
+              },
+              {
+                dataLayer: "boundary_labels",
+                maxzoom: 8,
+                filter: (_z, f) => Number(f.props.admin_level) === 2,
+                symbolizer: text(500, 11, c.faint, { textTransform: "uppercase", letterSpacing: 1.5 }),
+              },
+              {
+                dataLayer: "place_labels",
+                minzoom: 11,
+                filter: (_z, f) => ["village", "hamlet"].includes(place(f)),
+                symbolizer: text(400, 11, c.faint),
+                sort: byPeople,
+              },
+              {
+                dataLayer: "place_labels",
+                minzoom: 12,
+                filter: (_z, f) => ["suburb", "quarter", "neighbourhood"].includes(place(f)),
+                symbolizer: text(400, 11, c.faint),
+                sort: byPeople,
+              },
             ],
           }) as unknown as Leaflet.Layer
           if (m.getZoom() > DRAWN_MAX_ZOOM) close.addTo(group)
@@ -337,89 +598,98 @@ export function NodeMap({
         })
       }
       // Names appear when there is room for them at the current zoom. Up
-      // close it is the detailed view alone: the built-in shapes are too
-      // coarse to lie under it, and their layer is above the tiles' anyway.
+      // close it is the detailed view alone, over a plain sheet: the
+      // built-in shapes are too coarse to lie under it.
       const refresh = () => {
         const zoom = m.getZoom()
         const near = detail && zoom > DRAWN_MAX_ZOOM
-        if (near) {
-          land?.remove()
-          showClose()
-        } else {
-          close?.remove()
-          land?.addTo(group)
-        }
+        land?.addTo()
+        land?.sheet(near)
+        if (near) showClose()
+        else close?.remove()
         for (const n of named) {
           if (!near && n.shown(zoom)) n.marker.addTo(places)
           else n.marker.remove()
         }
       }
       m.on("zoomend", refresh)
-      Promise.all([import("topojson-client"), import("world-atlas/countries-50m.json")]).then(([topo, world]) => {
-        if (!alive) return
-        type Topology = Parameters<typeof topo.feature>[0]
-        const data = (world.default ?? world) as unknown as Topology
-        const countries = topo.feature(data, data.objects.countries) as unknown as {
-          features: { properties: { name?: string }; geometry: { type: string; coordinates: number[][][] | number[][][][] } }[]
-        }
-        // A piece of land that lies across the 180th meridian comes with
-        // points on both edges of the map, and would be drawn as a band
-        // right across the world. Its western points are moved past the
-        // eastern edge instead, where they belong.
-        for (const f of countries.features) {
-          if (!f.geometry) continue
-          const polygons = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
-          for (const polygon of polygons) {
-            for (const ring of polygon) {
-              let west = 180, east = -180 // prettier-ignore
-              for (const [lon] of ring) {
+      Promise.all([import("topojson-client"), import("world-atlas/countries-50m.json"), import("world-atlas/countries-110m.json")]).then(
+        ([topo, world, small]) => {
+          if (!alive) return
+          type Topology = Parameters<typeof topo.feature>[0]
+          const data = (world.default ?? world) as unknown as Topology
+          const countries = topo.feature(data, data.objects.countries) as unknown as {
+            features: { properties: { name?: string }; geometry: { type: string; coordinates: number[][][] | number[][][][] } }[]
+          }
+          // A piece of land that lies across the 180th meridian comes with
+          // points on both edges of the map, and would be drawn as a band
+          // right across the world. Its western points are moved past the
+          // eastern edge instead, where they belong.
+          const unwrap = (set: Countries) => {
+            for (const f of set.features) {
+              if (!f.geometry) continue
+              const polygons = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
+              for (const polygon of polygons) {
+                for (const ring of polygon) {
+                  let west = 180, east = -180 // prettier-ignore
+                  for (const [lon] of ring) {
+                    west = Math.min(west, lon)
+                    east = Math.max(east, lon)
+                  }
+                  if (east - west > 300) for (const point of ring) if (point[0] < 0) point[0] += 360
+                }
+              }
+            }
+            return set
+          }
+          unwrap(countries as unknown as Countries)
+          const far = (small.default ?? small) as unknown as Topology
+          const coarse = unwrap(topo.feature(far, far.objects.countries) as unknown as Countries)
+          land = worldCanvas(m, countries as unknown as Countries, coarse, () => mapPalette(el.current!))
+          for (const f of countries.features) {
+            if (!f.properties.name || !f.geometry) continue
+            // A country is named in the middle of its largest piece, once
+            // that piece is wide enough on screen to hold the name.
+            const rings = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
+            let best = { w: 0, h: 0, lat: 0, lon: 0 }
+            for (const polygon of rings) {
+              let west = 180, east = -180, south = 90, north = -90 // prettier-ignore
+              for (const [lon, lat] of polygon[0]) {
                 west = Math.min(west, lon)
                 east = Math.max(east, lon)
+                south = Math.min(south, lat)
+                north = Math.max(north, lat)
               }
-              if (east - west > 300) for (const point of ring) if (point[0] < 0) point[0] += 360
+              if ((east - west) * (north - south) > best.w * best.h)
+                best = { w: east - west, h: north - south, lat: (south + north) / 2, lon: (west + east) / 2 }
             }
+            if (best.w === 0) continue
+            const local = mapCountries[f.properties.name]
+            const label = local && canDraw(local) ? local : f.properties.name
+            // Letters are spaced out only in scripts that are written apart:
+            // spacing would pull the joined letters of Arabic to pieces.
+            const spaced = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Georgian}\s\p{P}]+$/u.test(
+              label
+            )
+            named.push({
+              marker: name(
+                label,
+                [best.lat, best.lon],
+                spaced ? "portunus-map-country portunus-map-country-spaced" : "portunus-map-country"
+              ),
+              shown: (zoom) => {
+                const px = (256 * 2 ** zoom) / 360
+                return best.w * px > label.length * 9 + 24 && best.h * px > 28
+              },
+            })
           }
+          refresh()
         }
-        land = L.geoJSON(countries as unknown as Parameters<typeof L.geoJSON>[0], {
-          interactive: false,
-          style: () => ({ className: "portunus-map-land" }),
-        })
-        for (const f of countries.features) {
-          if (!f.properties.name || !f.geometry) continue
-          // A country is named in the middle of its largest piece, once
-          // that piece is wide enough on screen to hold the name.
-          const rings = (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates) as number[][][][]
-          let best = { w: 0, h: 0, lat: 0, lon: 0 }
-          for (const polygon of rings) {
-            let west = 180, east = -180, south = 90, north = -90 // prettier-ignore
-            for (const [lon, lat] of polygon[0]) {
-              west = Math.min(west, lon)
-              east = Math.max(east, lon)
-              south = Math.min(south, lat)
-              north = Math.max(north, lat)
-            }
-            if ((east - west) * (north - south) > best.w * best.h)
-              best = { w: east - west, h: north - south, lat: (south + north) / 2, lon: (west + east) / 2 }
-          }
-          if (best.w === 0) continue
-          const local = mapCountries[f.properties.name]
-          const label = local && canDraw(local) ? local : f.properties.name
-          // Letters are spaced out only in scripts that are written apart:
-          // spacing would pull the joined letters of Arabic to pieces.
-          const spaced = /^[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Georgian}\s\p{P}]+$/u.test(
-            label
-          )
-          named.push({
-            marker: name(label, [best.lat, best.lon], spaced ? "portunus-map-country portunus-map-country-spaced" : "portunus-map-country"),
-            shown: (zoom) => {
-              const px = (256 * 2 ** zoom) / 360
-              return best.w * px > label.length * 9 + 24 && best.h * px > 28
-            },
-          })
-        }
-        refresh()
-      })
-      stopNames = () => m.off("zoomend", refresh)
+      )
+      stopNames = () => {
+        m.off("zoomend", refresh)
+        land?.remove()
+      }
     }
     return () => {
       alive = false
@@ -555,17 +825,20 @@ export function NodeMap({
       fitted.current = key
       const bounds = L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon]))
       m.fitBounds(bounds.pad(0.4), { maxZoom: detail ? 10 : 5, animate: false })
+      if (tiles || m.getZoom() > DRAWN_MAX_ZOOM) m.setZoom(Math.floor(m.getZoom()), { animate: false })
     }
     place()
     m.on("zoomend", place)
     return () => {
       m.off("zoomend", place)
     }
-  }, [L, points, t, detail])
+  }, [L, points, t, detail, tiles])
 
   const fit = () => {
     if (!L || !map.current || points.length === 0) return
-    map.current.fitBounds(L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon])).pad(0.4), { maxZoom: detail ? 10 : 5 })
+    const m = map.current
+    m.fitBounds(L.latLngBounds(points.map((p) => [p.location.lat, p.location.lon])).pad(0.4), { maxZoom: detail ? 10 : 5, animate: false })
+    if (tiles || m.getZoom() > DRAWN_MAX_ZOOM) m.setZoom(Math.floor(m.getZoom()), { animate: false })
   }
 
   return (
@@ -583,11 +856,11 @@ export function NodeMap({
         data-vaul-no-drag
       />
       <ButtonGroup orientation="vertical" className="absolute top-2 right-2 z-[500] rounded-lg shadow-xs">
-        <Button variant="outline" size="icon-sm" className="bg-background" onClick={() => map.current?.zoomIn()}>
+        <Button variant="outline" size="icon-sm" className="bg-background" onClick={() => zoomBy.current?.(1)}>
           <PlusIcon />
           <span className="sr-only">{t("nodes.map.zoomIn")}</span>
         </Button>
-        <Button variant="outline" size="icon-sm" className="bg-background" onClick={() => map.current?.zoomOut()}>
+        <Button variant="outline" size="icon-sm" className="bg-background" onClick={() => zoomBy.current?.(-1)}>
           <MinusIcon />
           <span className="sr-only">{t("nodes.map.zoomOut")}</span>
         </Button>

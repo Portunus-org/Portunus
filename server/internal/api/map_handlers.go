@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,9 +40,14 @@ type tileCache struct {
 	dir string
 	mu  sync.Mutex
 	n   int
-	// detail is the resolved tile address of the detailed map.
-	detail   string
-	detailAt time.Time
+	// detail is the resolved tile address of the detailed map and
+	// detailFrom the source it belongs to; detailFailed is when no source
+	// could be reached. pickMu lets one request at a time do the choosing.
+	detail       string
+	detailFrom   string
+	detailAt     time.Time
+	detailFailed time.Time
+	pickMu       sync.Mutex
 	// complained is when a failure to fetch tiles was last logged.
 	complained time.Time
 	sem        chan struct{}
@@ -89,18 +95,27 @@ func (s *Server) handleMapDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	template, err := s.tiles.detailTemplate(r.Context(), s.cfg.MapDetail)
+	source, template, err := s.tiles.detailSource(r.Context(), s.cfg.MapDetailSources())
 	var data []byte
 	if err == nil {
 		// Cached under the tile set's address, not the dated template it
 		// resolves to: a new weekly build is not a new map.
-		data, err = s.tiles.fetch(r.Context(), s.tiles.path(s.cfg.MapDetail, "vector", z, x, y), tileURL(template, "", z, x, y), false)
+		data, err = s.tiles.fetch(r.Context(), s.tiles.path(source, "vector", z, x, y), tileURL(template, "", z, x, y), false)
+		if err != nil && r.Context().Err() == nil {
+			// The source may have stopped answering: look again next time.
+			s.tiles.forgetDetail(source)
+		}
+	}
+	if r.Context().Err() != nil {
+		// The browser no longer wants this tile (the map was moved on):
+		// nothing failed and there is nobody to answer.
+		return
 	}
 	if err != nil {
 		// Said once in a while and not for every tile: a server that cannot
 		// reach the tile provider fails all of them.
 		if s.tiles.complain() {
-			s.log.Warn("the detailed map is unavailable: tiles cannot be fetched; the built-in map is shown instead", "source", s.cfg.MapDetail, "err", err)
+			s.log.Warn("the detailed map is unavailable: tiles cannot be fetched; the built-in map is shown instead", "sources", s.cfg.MapDetail, "err", err)
 		}
 		http.Error(w, "tile unavailable", http.StatusBadGateway)
 		return
@@ -112,15 +127,69 @@ func (s *Server) handleMapDetail(w http.ResponseWriter, r *http.Request) {
 	w.Write(data) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- binary vector tile with a protobuf content type and nosniff
 }
 
-// detailTemplate resolves the tile set's TileJSON to its tile address, and
-// remembers it for a few hours: providers move it with every new build.
-func (c *tileCache) detailTemplate(ctx context.Context, tileJSON string) (string, error) {
+// detailSource picks where the detailed map comes from: the first of the
+// given tile sets that this server can actually get tiles from, tried in
+// order. A provider that works from one country may be out of reach from
+// another (OpenFreeMap sits behind Cloudflare, which Russian networks
+// throttle to a standstill), and only trying tells. The choice is kept for
+// some hours; when nothing works, that is remembered for a minute, so that
+// every tile asked for meanwhile does not try them all again.
+func (c *tileCache) detailSource(ctx context.Context, sources []string) (source, template string, err error) {
+	c.pickMu.Lock()
+	defer c.pickMu.Unlock()
 	c.mu.Lock()
 	if c.detail != "" && time.Since(c.detailAt) < 6*time.Hour {
 		defer c.mu.Unlock()
-		return c.detail, nil
+		return c.detailFrom, c.detail, nil
+	}
+	if time.Since(c.detailFailed) < time.Minute {
+		defer c.mu.Unlock()
+		return "", "", errors.New("map detail: no tile source can be reached from this server")
 	}
 	c.mu.Unlock()
+	// Not cut short by the browser going away: a choice half made would be
+	// remembered as "nothing works".
+	ctx = context.WithoutCancel(ctx)
+	var last error
+	for _, src := range sources {
+		tctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		template, err := c.detailTemplate(tctx, src)
+		if err == nil {
+			// A tile of a few countries: the list of tiles alone is small
+			// enough to slip through where the tiles do not.
+			_, err = c.fetch(tctx, c.path(src, "vector", 4, 9, 4), tileURL(template, "", 4, 9, 4), false)
+		}
+		cancel()
+		if err == nil {
+			c.mu.Lock()
+			c.detail, c.detailFrom, c.detailAt = template, src, time.Now()
+			c.mu.Unlock()
+			return src, template, nil
+		}
+		last = fmt.Errorf("%s: %w", src, err)
+	}
+	c.mu.Lock()
+	c.detailFailed = time.Now()
+	c.mu.Unlock()
+	if last == nil {
+		last = errors.New("map detail: no tile source is set")
+	}
+	return "", "", last
+}
+
+// forgetDetail drops the chosen source after it failed, so that the next
+// tile has the sources tried again.
+func (c *tileCache) forgetDetail(source string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.detailFrom == source {
+		c.detail, c.detailFrom = "", ""
+	}
+}
+
+// detailTemplate resolves a tile set's TileJSON to the address of its
+// tiles (providers move it with every new build).
+func (c *tileCache) detailTemplate(ctx context.Context, tileJSON string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tileJSON, nil)
 	if err != nil {
 		return "", err
@@ -137,14 +206,17 @@ func (c *tileCache) detailTemplate(ctx context.Context, tileJSON string) (string
 	if res.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&doc) != nil || len(doc.Tiles) == 0 {
 		return "", fmt.Errorf("map detail: no tiles named by %s (%s)", tileJSON, res.Status)
 	}
+	// Some providers name their tiles relative to the document.
+	base, _ := url.Parse(tileJSON)
 	u, err := url.Parse(doc.Tiles[0])
+	if err == nil && base != nil {
+		u = base.ResolveReference(u)
+	}
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || !strings.Contains(doc.Tiles[0], "{z}") {
 		return "", fmt.Errorf("map detail: unusable tile address %q", doc.Tiles[0])
 	}
-	c.mu.Lock()
-	c.detail, c.detailAt = doc.Tiles[0], time.Now()
-	c.mu.Unlock()
-	return doc.Tiles[0], nil
+	// Resolving escapes the braces of the placeholders: put them back.
+	return strings.NewReplacer("%7B", "{", "%7D", "}").Replace(u.String()), nil
 }
 
 func tileURL(template, style string, z, x, y int) string {

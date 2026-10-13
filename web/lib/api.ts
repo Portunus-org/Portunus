@@ -286,8 +286,13 @@ export interface InboundSuggestion {
   domainCheck?: DomainCheck
   certificate?: CertificatePlan
   publicHost: string
-  /** The panel's domain, when the connection shares the panel's port and presents it. */
+  /**
+   * The panel's domain, when the connection can share the panel's port and
+   * present it: the first, recommended entry of `reality`. A connection
+   * that presents another site goes on `otherPort` instead.
+   */
   sharedWith?: string
+  otherPort?: number
 }
 
 /** Where a server is, for the map. */
@@ -335,6 +340,12 @@ export interface Node {
     latencyMs?: number
     /** When the node last received a copy of the panel. */
     copyAt?: string
+    /** The node still shows a certificate of an earlier version: its join command should be run again. */
+    rejoin?: boolean
+    /** The node has an updater next to it and follows the panel's version by itself. */
+    updater?: boolean
+    updating?: boolean
+    updateError?: string
   }
   /** Clients bound to this exit. */
   clients: number
@@ -419,6 +430,31 @@ export interface Routing {
   lists: RouteList[]
 }
 
+/** Whether a release newer than the running one is out. */
+export interface UpdateInfo {
+  /** The running version; "dev" for a build that is not a release. */
+  current: string
+  /** The newest release published, once the panel has learnt it. */
+  latest?: string
+  available: boolean
+  checkedAt?: string
+  /** Why the last check failed. */
+  error?: string
+  /** The check is turned off on the server. */
+  off?: boolean
+  /** Releases install themselves, on weekday (0 is Sunday, -1 any day) at minute of the day, both in UTC. */
+  auto: boolean
+  weekday: number
+  minute: number
+  /** The moment chosen for the release that waits. */
+  planned?: string
+  /** The container that installs updates is next to the panel. */
+  updater: boolean
+  /** The release being installed right now. */
+  installing?: string
+  installError?: string
+}
+
 export interface CAInfo {
   subject: string
   notAfter: string
@@ -490,6 +526,15 @@ export const api = {
       newPassword,
     }),
   system: () => request<SystemInfo>("GET", "/api/system"),
+  /** What the panel last learnt about newer releases. */
+  update: () => request<UpdateInfo>("GET", "/api/update"),
+  /** Asks the registry now. */
+  checkUpdate: () => request<UpdateInfo>("POST", "/api/update/check"),
+  saveUpdateSchedule: (body: { auto: boolean; weekday: number; minute: number }) => request<UpdateInfo>("PUT", "/api/update", body),
+  /** Sets the moment the waiting release is installed at (an ISO time); null takes it back. */
+  planUpdate: (at: string | null) => request<UpdateInfo>("PUT", "/api/update/plan", { at }),
+  /** Asks the updater next to the panel to install the newest release. */
+  installUpdate: () => request<UpdateInfo>("POST", "/api/update/install"),
   traffic: () => request<TrafficPoint[]>("GET", "/api/traffic"),
 
   inbounds: () => request<Inbound[]>("GET", "/api/inbounds"),
@@ -509,7 +554,7 @@ export const api = {
   settings: () => request<Settings>("GET", "/api/settings"),
   updateSettings: (input: SettingsInput) => request<Settings>("PUT", "/api/settings", input),
 
-  setupState: () => request<{ completed: boolean }>("GET", "/api/setup"),
+  setupState: () => request<{ completed: boolean; guide?: boolean }>("GET", "/api/setup"),
   setupAddress: () => request<{ detected: PublicAddress; publicHost: string; domain: string; error?: string }>("GET", "/api/setup/address"),
   panelAccess: () => request<PanelAccess>("GET", "/api/panel-access"),
   setPanelAccess: (input: PanelAccessInput) => request<PanelAccess>("PUT", "/api/panel-access", input),
@@ -532,6 +577,8 @@ export const api = {
   },
   setupBasics: (publicHost: string, domain: string) => request<void>("POST", "/api/setup/basics", { publicHost, domain }),
   setupSkip: () => request<void>("POST", "/api/setup/skip"),
+  /** The rest of the first setup (a connection, a client) is over: walked or declined. */
+  guideDone: () => request<void>("POST", "/api/setup/guide/done"),
 
   suggestInbound: (protocol: Protocol, domain = "") => request<InboundSuggestion>("POST", "/api/inbounds/suggest", { protocol, domain }),
   checkDomain: (domain: string) => request<DomainCheck>("POST", "/api/domain/check", { domain }),

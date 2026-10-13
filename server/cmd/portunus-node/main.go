@@ -11,14 +11,24 @@
 //	PORTUNUS_SINGBOX_MEMLIMIT  soft memory limit of sing-box (256MiB)
 //	PORTUNUS_LOG_LEVEL         debug, info (default), warn, error
 //	PORTUNUS_LOG_FORMAT        json (default) or text
+//	PORTUNUS_UPDATE_DIR        directory shared with the updater
+//
+// The same image is also the updater, the container that replaces the panel
+// or a node with a newer release (internal/selfupdate):
+//
+//	portunus-node updater <container>
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/PaulichP/Portunus/server/internal/agent"
+	"github.com/PaulichP/Portunus/server/internal/selfupdate"
 	"github.com/PaulichP/Portunus/server/internal/version"
 )
 
@@ -46,11 +56,30 @@ func main() {
 		log = slog.New(slog.NewJSONHandler(os.Stderr, opts))
 	}
 	slog.SetDefault(log)
+	if len(os.Args) > 1 && os.Args[1] == "updater" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		target := ""
+		if len(os.Args) > 2 {
+			target = os.Args[2]
+		}
+		if err := selfupdate.Run(ctx, selfupdate.Options{
+			Target: target,
+			Dir:    env("PORTUNUS_UPDATE_DIR", selfupdate.DefaultDir),
+			Socket: env("PORTUNUS_DOCKER_SOCKET", "/run/docker.sock"),
+			Log:    log,
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, "portunus-node updater:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	err := agent.Run(agent.RunOptions{
 		Join:          os.Getenv("PORTUNUS_JOIN"),
 		DataDir:       env("PORTUNUS_DATA_DIR", "./data"),
 		SingBoxBin:    env("PORTUNUS_SINGBOX_BIN", "sing-box"),
 		SingBoxMemory: env("PORTUNUS_SINGBOX_MEMLIMIT", "256MiB"),
+		UpdateDir:     env("PORTUNUS_UPDATE_DIR", selfupdate.DefaultDir),
 		Log:           log,
 	})
 	if err != nil {

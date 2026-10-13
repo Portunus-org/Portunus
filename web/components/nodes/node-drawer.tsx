@@ -132,6 +132,16 @@ export function NodeDrawer({
                   <span className="text-destructive">{node.status.error}</span>
                 </Value>
               )}
+              {node.status.updating && <Value label={t("nodes.drawer.update")}>{t("nodes.drawer.updating")}</Value>}
+              {node.status.updateError && (
+                <Value label={t("nodes.drawer.update")}>
+                  <span className="text-destructive">{node.status.updateError}</span>
+                </Value>
+              )}
+              {node.status.rejoin && <p className="text-muted-foreground">{t("nodes.drawer.rejoin")}</p>}
+              {agent && node.status.state === "online" && !node.status.updater && !node.status.rejoin && (
+                <p className="text-muted-foreground">{t("nodes.drawer.noUpdater")}</p>
+              )}
             </div>
             <Separator />
 

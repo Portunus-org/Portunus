@@ -430,12 +430,29 @@ of ours has one or both roles: **exit** (traffic leaves through it) and
 - **Join without a callback.** The panel listens on loopback, so a new
   server cannot fetch anything from it. The join command therefore carries
   everything (`PORTUNUS_JOIN`: the CA certificate and the node's own
-  certificate and key, issued by the panel for the node's address) and the
-  panel dials the node, not the other way round.
-- **Channel.** HTTPS with TLS 1.3 and certificates from the installation's
-  CA on both sides. The panel's certificate is for client authentication
-  only and the agent checks its subject, so a node, which holds server keys
-  from the same CA, cannot command another node. This replaces the
+  certificate and key, made by the panel for the node's address) and the
+  panel dials the node, not the other way round. The command starts with a
+  space, which keeps it, and the key in it, out of the shell's history
+  where the shell is set up that way.
+- **Channel.** HTTPS with TLS 1.3, both sides authenticated. The panel
+  shows a certificate of the installation's CA that is for client
+  authentication only, and the agent checks its subject, so a node, which
+  may hold server keys from the same CA, cannot command another node. The
+  node shows a certificate signed by its own key, and the panel accepts
+  exactly that certificate (it made it), not anything a CA vouches for.
+- **Nothing to read on the control port.** The port answers anyone, and a
+  TLS server shows its certificate, and says whose certificate it wants,
+  before it knows who is calling. Both used to carry the CA's name
+  ("Portunus Local CA"), which told a scanner what runs here while the
+  connections next to it pass for an ordinary site. So the node's
+  certificate names only its address, the agent checks the panel's
+  certificate itself instead of handing the CA to the TLS layer (which
+  would list it in the request), and a new installation's CA is called
+  "Local CA" with no organisation. An installation made earlier keeps its
+  CA, as renaming it would mean installing it on every device again; its
+  nodes get a new certificate at the first start of the new panel, the old
+  one stays accepted until the join command is run on the node again, and
+  the node's page says so until then. This replaces the
   WebSocket hub proposed in D-14: the panel pushes when something changed
   and polls every 30 s, which needs no long-lived connection.
 - **Configuration.** The panel renders the node's whole sing-box config and
@@ -716,7 +733,10 @@ Closer than that (to where towns a few kilometres apart stand clear, zoom
 water, borders of countries and regions, and names of cities, towns and
 villages as written locally, painted on a canvas by `protomaps-leaflet` in
 the theme's colours at the screen's pixel density. The panel fetches them
-(`PORTUNUS_MAP_DETAIL`, by default OpenFreeMap, which needs no key and sets
+(`PORTUNUS_MAP_DETAIL`; several sources are tried in order, since v0.2.5, because
+the first choice, OpenFreeMap, is behind Cloudflare and cannot be reached from
+Russian hosting, while VersaTiles and OpenStreetMap's own tiles can; the two
+layouts they come in are drawn alike. OpenFreeMap needs no key and sets
 no limits) and caches them; `off` keeps the map at the scale of countries.
 Roads, buildings and land use are deliberately not drawn.
 
@@ -838,3 +858,80 @@ point is not to stand out.
    NekoBox. Is a Clash/mihomo YAML format needed too?
 3. **Tenancy:** the plan is a single admin circuit with admin / operator / viewer
    roles, without multi-organization tenancy. Is that sufficient?
+
+## D-42 The panel says when a newer release is out — Accepted
+
+An installation is updated by its operator (`docker compose pull && docker
+compose up -d`), who had no way to learn that there was something to pull.
+
+- **Where it looks.** The tags of the panel's own image repository
+  (`ghcr.io/paulichp/portunus`), read the way any container client reads
+  them, with the anonymous token the registry hands out. This is the very
+  place the update comes from, so the panel never announces a release that
+  cannot be pulled yet, and it needs neither an account nor access to the
+  source repository. Tags that are not three numbers (`latest`, anything
+  else) are ignored; the newest is found by comparing numbers, not letters.
+- **When.** Shortly after the start and every 6 hours, from the server. A
+  failed check keeps what was found before it and reports the reason.
+  `PORTUNUS_UPDATE_CHECK=off` turns it off; another repository can be named
+  for a registry of one's own.
+- **What the operator sees.** Settings are marked in the menu on every
+  page, and the Settings page opens with the card: the two versions, the
+  command to copy and what to do about the nodes. With nothing to install
+  the card stays where it is and says which version runs and when that was
+  last checked.
+- **It tells, it does not install.** The panel runs inside the container an
+  update replaces, without access to Docker; giving it that access (the
+  Docker socket) would hand the whole host to anyone who breaks into the
+  panel.
+
+## D-43 Updates are installed from the panel, by a container that only updates — Accepted
+
+Updating took a console on every server: `docker compose pull` on the main
+one and the join command on each node. The operator asked for a button and
+a schedule.
+
+- **Rejected: the panel logs in to the nodes over SSH.** The panel would
+  hold a key that is root on every node, and the nodes would keep SSH open
+  to it. Breaking into the panel would then be breaking into every server,
+  where today it reaches a node's sing-box configuration and nothing else.
+- **Rejected: the Docker socket in the panel or the agent.** Both listen
+  to the internet. A hole in either would be root on the host.
+- **Chosen: an updater next to each container** (`internal/selfupdate`):
+  the node image run as `updater <container>`, on the main server (a
+  service of `docker-compose.yml`) and on every node (started by the join
+  command). It holds the Docker socket, and for that reason has no network,
+  no ports, no capabilities, a read-only file system, and one input: a file
+  with a version number in a directory it shares with its container.
+- **What can be asked of it.** A release (`vX.Y.Z`), newer than what runs.
+  The image is the one the container already runs, with that tag; the
+  command, volumes, environment and restrictions are copied from the
+  container, less what the old image itself had set. So the panel, even
+  taken over, can make a server run a genuine newer release and nothing
+  else. On a node the number travels over the control channel, where the
+  agent applies the same rule before writing the file.
+- **It puts things back.** The old container is kept, stopped, until the
+  new one is healthy (or, without a health check, up for ten seconds
+  without restarting); otherwise the new one is removed and the old one
+  started again, and the reason is shown in the panel. A release that
+  failed is not tried again until another is asked for. The database is
+  part of this: migrations are forward-only and a binary refuses a
+  database from a newer one, so the panel copies the database before it
+  asks, and a binary that finds a newer database next to a copy less than
+  a day old takes the copy back (`db.PutBack`), keeping the newer file
+  aside.
+- **The updater updates itself**, or it would be the one thing that still
+  takes a console: after its container it starts its own successor beside
+  it, which removes it and takes its name. If the successor does not come
+  up, the old updater simply stays.
+- **When** (Settings, Updates): now, by a button; at a day and an hour
+  picked for the release that waits; or by itself, a switch with an hour
+  and optionally a day of the week. Three modes in a list were tried first
+  and read as a form to fill in; a button, a time picker and one switch say
+  the same with less. The schedule is kept in UTC and shown in the viewer's
+  time. Nodes follow the panel's version: a node older than the panel, with
+  an updater, is asked to move to the panel's release at the next sync.
+  They are never ahead of the panel.
+- **Kept working without it.** An installation without updaters (made
+  before this, or by choice) is updated by the same commands as before, and
+  the panel shows them.

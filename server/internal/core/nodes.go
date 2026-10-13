@@ -19,6 +19,7 @@ import (
 
 	"github.com/PaulichP/Portunus/server/internal/agent"
 	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/PaulichP/Portunus/server/internal/selfupdate"
 	"github.com/PaulichP/Portunus/server/internal/store"
 )
 
@@ -67,9 +68,13 @@ type NodeSecret struct {
 	HopUUID   string       `json:"hopUuid,omitempty"`
 	// AgentCert and AgentKey are the node's control-channel certificate,
 	// kept so the join command can be shown again.
-	AgentCert string            `json:"agentCert,omitempty"`
-	AgentKey  string            `json:"agentKey,omitempty"`
-	EntryKeys map[string]string `json:"entryKeys,omitempty"`
+	AgentCert string `json:"agentCert,omitempty"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	// PrevAgentCert is the certificate the node was joined with before it
+	// was given AgentCert. The node shows it until the join command is run
+	// there again, so the panel goes on accepting it until then.
+	PrevAgentCert string            `json:"prevAgentCert,omitempty"`
+	EntryKeys     map[string]string `json:"entryKeys,omitempty"`
 	// Outbound is the sing-box outbound of an imported link.
 	Outbound map[string]any `json:"outbound,omitempty"`
 }
@@ -276,10 +281,6 @@ func (c *Core) CreateNode(ctx context.Context, in NodeInput) (Node, error) {
 		return Node{}, err
 	}
 	if in.Kind == NodeAgent {
-		ca, err := c.CA(ctx)
-		if err != nil {
-			return Node{}, err
-		}
 		hop, err := proxy.NewHop(in.HopPort, c.hopCamouflage(ctx))
 		if err != nil {
 			return Node{}, err
@@ -287,7 +288,7 @@ func (c *Core) CreateNode(ctx context.Context, in NodeInput) (Node, error) {
 		set.AgentPort, set.HopPort, set.Hop = in.AgentPort, in.HopPort, hop.Settings
 		set.Standby = in.Standby
 		sec.HopSecret, sec.HopUUID = hop.Secret, hop.UUID
-		if sec.AgentCert, sec.AgentKey, err = ca.IssueNode(in.Address); err != nil {
+		if sec.AgentCert, sec.AgentKey, err = proxy.NodeCertificate(in.Address); err != nil {
 			return Node{}, err
 		}
 	}
@@ -472,10 +473,20 @@ func (c *Core) NodeJoin(ctx context.Context, id int64) (NodeJoin, error) {
 		// a node container left from an earlier attempt, so it can simply be
 		// run again. Host networking: the node listens on the ports of the
 		// connections, which are not known in advance.
-		Run: "sudo docker rm -f portunus-node 2>/dev/null; sudo docker run -d" + pull +
+		// It starts with a space: the command carries the node's key, and
+		// that keeps it out of the shell's history (bash on Debian and
+		// Ubuntu, zsh with HIST_IGNORE_SPACE).
+		Run: " sudo docker rm -f portunus-node portunus-updater 2>/dev/null; sudo docker run -d" + pull +
 			" --name portunus-node --restart unless-stopped --network host" +
 			" --read-only --cap-drop ALL --cap-add NET_BIND_SERVICE" +
-			" -v portunus-node:/var/lib/portunus -e PORTUNUS_JOIN=" + token + " " + c.nodeImage,
+			" -v portunus-node:/var/lib/portunus -v portunus-update:" + selfupdate.DefaultDir +
+			" -e PORTUNUS_JOIN=" + token + " " + c.nodeImage +
+			// And the updater next to it, which moves the node to the
+			// panel's release when the panel asks (internal/selfupdate). It
+			// may talk to Docker and to nothing else: no network, no ports.
+			" && sudo docker run -d --name portunus-updater --restart unless-stopped --network none" +
+			" --read-only --cap-drop ALL --user 0 -v /var/run/docker.sock:/run/docker.sock" +
+			" -v portunus-update:" + selfupdate.DefaultDir + " " + c.nodeImage + " updater portunus-node",
 		InstallDocker: "curl -fsSL https://get.docker.com | sudo sh",
 	}
 	if n.IsExit {
@@ -601,6 +612,16 @@ type NodeStatus struct {
 	LatencyMs *int `json:"latencyMs,omitempty"`
 	// CopyAt is when the node last received a copy of the panel.
 	CopyAt *time.Time `json:"copyAt,omitempty"`
+	// Rejoin: the node still answers with the certificate of an earlier
+	// version, which names the panel's CA to whoever connects to its
+	// control port. Running the join command there again replaces it.
+	Rejoin bool `json:"rejoin,omitempty"`
+	// Updater: the node has the container that installs updates next to
+	// it, so it follows the panel's version by itself. Updating: it is on
+	// its way there. UpdateError: why it could not.
+	Updater     bool   `json:"updater,omitempty"`
+	Updating    bool   `json:"updating,omitempty"`
+	UpdateError string `json:"updateError,omitempty"`
 }
 
 type nodeRuntime struct {
@@ -699,7 +720,11 @@ func (c *Core) nodeClient(ctx context.Context, n Node) (*agent.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	cl, err = agent.NewClient(n.Address, n.Settings.AgentPort, ca, certPEM, keyPEM)
+	known := []string{n.Secret.AgentCert}
+	if n.Secret.PrevAgentCert != "" {
+		known = append(known, n.Secret.PrevAgentCert)
+	}
+	cl, err = agent.NewClient(n.Address, n.Settings.AgentPort, known, certPEM, keyPEM)
 	if err != nil {
 		return nil, err
 	}
@@ -707,6 +732,37 @@ func (c *Core) nodeClient(ctx context.Context, n Node) (*agent.Client, error) {
 	c.nodeClients[n.ID] = cl
 	c.nodeMu.Unlock()
 	return cl, nil
+}
+
+// renewNodeCertificates gives a new control-channel certificate to nodes
+// that were joined by a version whose certificates were issued by the CA
+// and so carried its name (see proxy.NodeCertificate). The old one stays
+// accepted: the node goes on working untouched and takes the new one when
+// the join command is run on it again.
+func (c *Core) renewNodeCertificates(ctx context.Context) {
+	nodes, err := c.Nodes(ctx)
+	if err != nil {
+		return
+	}
+	for _, n := range nodes {
+		if n.Kind != NodeAgent || n.Secret.AgentCert == "" || proxy.SelfIssued(n.Secret.AgentCert) {
+			continue
+		}
+		cert, key, err := proxy.NodeCertificate(n.Address)
+		if err != nil {
+			c.log.Error("renew node certificate", "node", n.Name, "err", err)
+			continue
+		}
+		// The key is not kept with the old certificate: only the node needs
+		// it, and the node has it.
+		n.Secret.PrevAgentCert, n.Secret.AgentCert, n.Secret.AgentKey = n.Secret.AgentCert, cert, key
+		if err := c.saveNode(ctx, n); err != nil {
+			c.log.Error("save node", "node", n.Name, "err", err)
+			continue
+		}
+		c.dropNodeClient(n.ID)
+		c.log.Info("node has a new certificate: run its join command again to put it in place", "node", n.Name)
+	}
 }
 
 // nodeConfig renders what node n should run.
@@ -794,6 +850,18 @@ func (c *Core) syncNode(ctx context.Context, n *Node, inbounds []proxy.Inbound, 
 		fail(NodeOffline, err)
 		return
 	}
+	// The node answered with its new certificate: the old one is no longer
+	// a way in.
+	rejoin := cl.Shown() == 1
+	if n.Secret.PrevAgentCert != "" && cl.Shown() == 0 {
+		n.Secret.PrevAgentCert = ""
+		if err := c.saveNode(ctx, *n); err != nil {
+			c.log.Error("save node", "node", n.Name, "err", err)
+		} else {
+			c.dropNodeClient(n.ID)
+			c.log.Info("node answers with its new certificate", "node", n.Name)
+		}
+	}
 	if n.Settings.JoinedAt == nil {
 		now := c.now()
 		n.Settings.JoinedAt = &now
@@ -830,9 +898,15 @@ func (c *Core) syncNode(ctx context.Context, n *Node, inbounds []proxy.Inbound, 
 			}
 		}
 	}
+	updating := c.followPanel(ctx, n, cl, st)
+	updateError := ""
+	if st.Updater != nil && st.Updater.State == selfupdate.StateFailed && selfupdate.Newer(st.Updater.Version, st.Version) {
+		updateError = st.Updater.Error
+	}
 	copyAt := c.syncPanelCopy(ctx, n, cl, st.PanelCopy)
 	c.setNodeStatus(n.ID, func(s *NodeStatus) {
-		s.CopyAt = copyAt
+		s.CopyAt, s.Rejoin = copyAt, rejoin
+		s.Updater, s.Updating, s.UpdateError = st.Updater != nil, updating, updateError
 		s.State, s.Error, s.CheckedAt, s.Version = NodeOnline, "", c.now(), st.Version
 		s.SingBox = string(st.SingBox.State)
 		if st.SingBox.LastError != "" && st.SingBox.State != "running" {
@@ -934,6 +1008,7 @@ func (c *Core) KickNodes() {
 // RunNodes keeps nodes in sync until ctx ends: at once when something
 // changed, and every interval to notice nodes that went away or came back.
 func (c *Core) RunNodes(ctx context.Context, interval time.Duration) {
+	c.renewNodeCertificates(ctx)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {

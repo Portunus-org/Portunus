@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/PaulichP/Portunus/server/internal/selfupdate"
 	"github.com/PaulichP/Portunus/server/internal/version"
 	"log/slog"
 	"net"
@@ -63,6 +64,12 @@ type Config struct {
 	// name without a registry is a local build, and the panel then also
 	// shows how to copy it to the server.
 	NodeImage string
+	// UpdateCheck is the image repository whose tags tell the panel that a
+	// newer release is out; "off" turns the check off.
+	UpdateCheck string
+	// UpdateDir is the directory shared with the updater, the container
+	// that installs updates (internal/selfupdate).
+	UpdateDir string
 	// GeoLookup is the service that tells where a server is, for the map of
 	// nodes: the panel requests GeoLookup + IP for its own public address
 	// and for each node's. "off" disables it; servers can still be placed
@@ -77,9 +84,11 @@ type Config struct {
 	MapTiles string
 	// MapDetail is where the drawn map gets what it shows when zoomed in
 	// past the scale of countries (coasts, borders of regions, names of
-	// towns): the TileJSON address of a vector tile set in the OpenMapTiles
-	// layout. The panel fetches and caches the tiles itself; "off" keeps
-	// the map at the scale of countries.
+	// towns): TileJSON addresses of vector tile sets, separated by commas,
+	// in the OpenMapTiles or the Shortbread layout. The first one that the
+	// server can reach is used (see MapDetailSources); the panel fetches
+	// and caches the tiles itself. "off" keeps the map at the scale of
+	// countries.
 	MapDetail string
 	// MapLabels is an optional second layer drawn over the tiles: place
 	// names, for a provider that keeps them apart from the base map. Same
@@ -108,6 +117,9 @@ const (
 	// in a light and a dark version, with place names as a separate layer.
 	EsriMapTiles  = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{style}_Gray_Base/MapServer/tile/{z}/{y}/{x}"
 	EsriMapLabels = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{style}_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+	// PanelImageRepository is where releases publish the panel's image: the
+	// panel reads its tags to learn that a newer version is out.
+	PanelImageRepository = "ghcr.io/paulichp/portunus"
 	// NodeImageRepository is where releases publish the node image.
 	NodeImageRepository = "ghcr.io/paulichp/portunus-node"
 )
@@ -136,8 +148,10 @@ func Load() (*Config, error) {
 		SingBoxMemory: env("PORTUNUS_SINGBOX_MEMLIMIT", "256MiB"),
 		NodeImage:     env("PORTUNUS_NODE_IMAGE", DefaultNodeImage()),
 		GeoLookup:     env("PORTUNUS_GEO_LOOKUP", "auto"),
+		UpdateCheck:   env("PORTUNUS_UPDATE_CHECK", PanelImageRepository),
+		UpdateDir:     env("PORTUNUS_UPDATE_DIR", selfupdate.DefaultDir),
 		MapTiles:      env("PORTUNUS_MAP_TILES", "off"),
-		MapDetail:     env("PORTUNUS_MAP_DETAIL", "https://tiles.openfreemap.org/planet"),
+		MapDetail:     env("PORTUNUS_MAP_DETAIL", DefaultMapDetail),
 		MapLabels:     os.Getenv("PORTUNUS_MAP_LABELS"),
 		MapCredit:     os.Getenv("PORTUNUS_MAP_CREDIT"),
 		SubListen:     env("PORTUNUS_SUB_LISTEN", ""),
@@ -159,8 +173,11 @@ func Load() (*Config, error) {
 	}
 	if strings.EqualFold(c.MapDetail, "off") {
 		c.MapDetail = ""
-	} else if u, err := url.Parse(c.MapDetail); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return nil, fmt.Errorf("PORTUNUS_MAP_DETAIL: must be the address of a TileJSON document or \"off\", got %q", c.MapDetail)
+	}
+	for _, src := range c.MapDetailSources() {
+		if u, err := url.Parse(src); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return nil, fmt.Errorf("PORTUNUS_MAP_DETAIL: must be addresses of TileJSON documents, separated by commas, or \"off\"; got %q", src)
+		}
 	}
 	// "esri" is short for Esri's gray canvas, which comes with its own
 	// layer of names and its own credit; another provider brings neither
@@ -233,6 +250,10 @@ func (c *Config) InitialLoginPath() string { return filepath.Join(c.DataDir, "in
 
 func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "portunus.db") }
 
+// BeforeUpdatePath is where the copy of the database made just before an
+// update is kept, for the previous version to return to (db.PutBack).
+func (c *Config) BeforeUpdatePath() string { return filepath.Join(c.DataDir, "before-update.db") }
+
 // MasterKeyPath is where the database encryption key is read from.
 func (c *Config) MasterKeyPath() string {
 	if c.SecretKeyFile != "" {
@@ -259,4 +280,22 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// DefaultMapDetail are the tile sets the detailed map is taken from, in the
+// order they are tried. All three are free to use and made from
+// OpenStreetMap. They live with different hosts on purpose: the first is
+// behind Cloudflare, which some networks cannot reach (Russian hosting,
+// notably), the other two are not.
+const DefaultMapDetail = "https://tiles.openfreemap.org/planet," +
+	"https://tiles.versatiles.org/tiles/osm/tiles.json," +
+	"https://vector.openstreetmap.org/shortbread_v1/tilejson.json"
+
+// MapDetailSources are the addresses in MapDetail, in the order to try them.
+func (c *Config) MapDetailSources() []string {
+	var out []string
+	for _, src := range strings.FieldsFunc(c.MapDetail, func(r rune) bool { return r == ',' || r == ' ' }) {
+		out = append(out, src)
+	}
+	return out
 }

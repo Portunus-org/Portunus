@@ -210,11 +210,13 @@
   stroke-dasharray: 4 5;
   stroke-opacity: 0.3;
 }
-.portunus-map-land {
-  fill: color-mix(in oklab, var(--foreground) 9%, var(--card));
-  fill-opacity: 1;
-  stroke: color-mix(in oklab, var(--foreground) 20%, var(--card));
-  stroke-width: 0.6;
+/* The land of the built-in map: one canvas under everything Leaflet draws. */
+.portunus-map-world {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 /* Names on the built-in map: text at a point, centred on it. */
 .portunus-map-country,

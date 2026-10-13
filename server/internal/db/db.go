@@ -125,7 +125,7 @@ func migrate(ctx context.Context, db *sql.DB, log *slog.Logger) error {
 		return err
 	}
 	if n := len(ms); n > 0 && current > ms[n-1].version {
-		return fmt.Errorf("database schema version %d is newer than this binary supports (%d); refusing to start", current, ms[n-1].version)
+		return fmt.Errorf("database schema version %d is newer than this binary supports (%d); refusing to start: %w", current, ms[n-1].version, ErrNewer)
 	}
 
 	for _, m := range ms {

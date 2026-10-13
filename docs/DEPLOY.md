@@ -9,8 +9,9 @@
 
 ## Quick start
 
-Only `docker-compose.yml` is needed: eleven lines that start the published
-image (`ghcr.io/paulichp/portunus`), with nothing to fill in.
+Only `docker-compose.yml` is needed: it starts the published image
+(`ghcr.io/paulichp/portunus`) and, next to it, the updater that installs
+new releases when the panel asks. There is nothing to fill in.
 
 ```sh
 mkdir portunus && cd portunus
@@ -75,8 +76,9 @@ unprivileged user.
 | `PORTUNUS_SECRET_KEY_FILE` | `$DATA_DIR/master.key` | Master key for encrypting keys in the database; generated on first start. |
 | `PORTUNUS_SINGBOX_CTL` | `127.0.0.1:2055` | Loopback address of sing-box's control API; the panel measures exits through it. |
 | `PORTUNUS_NODE_IMAGE` | `ghcr.io/paulichp/portunus-node:<version>` | Image the join command for new nodes uses: by default the published node image of the panel's version (`latest` for a build that is not a release). Without a registry in the name it is a local build, and the panel also shows how to copy it to the server. |
+| `PORTUNUS_UPDATE_CHECK` | `ghcr.io/paulichp/portunus` | Image repository whose tags tell the panel that a newer release is out (asked shortly after the start and every 6 hours, without an account); `off` turns the check off. |
 | `PORTUNUS_GEO_LOOKUP` | `https://ipwho.is/` | Service asked where servers are, for the map of nodes (`<URL><IP>`); `off` disables it. |
-| `PORTUNUS_MAP_DETAIL` | `https://tiles.openfreemap.org/planet` | Where the drawn map of nodes gets what it shows when zoomed in past the scale of countries (coasts, borders of regions, names of towns): the TileJSON address of a vector tile set in the OpenMapTiles layout. The panel fetches the tiles itself and caches them in the data volume; the browser talks to the panel only. `off`: the map stops at the scale of countries and nothing is fetched. |
+| `PORTUNUS_MAP_DETAIL` | OpenFreeMap, then VersaTiles, then OpenStreetMap's own vector tiles | Where the drawn map of nodes gets what it shows when zoomed in past the scale of countries (coasts, borders of regions, names of towns): TileJSON addresses of vector tile sets, separated by commas, in the OpenMapTiles or the Shortbread layout. The panel uses the first one this server can actually get tiles from, and looks again every few hours: a provider that works in one country may be out of reach in another (OpenFreeMap is behind Cloudflare, which Russian hosting cannot reach). The panel fetches and caches the tiles itself; the browser talks to the panel only. `off` keeps the built-in map, which needs nothing from outside and goes down to the scale of countries. |
 | `PORTUNUS_MAP_TILES` | `off` | By default the panel draws the map of nodes itself (country shapes it carries; nothing is fetched). Set a tile server to use map images instead: a template with `{z}`, `{x}`, `{y}`, optional `{style}` = `light`/`dark`, or `esri` for Esri's gray canvas. Images are cached in the data volume and served to the browser by the panel. |
 | `PORTUNUS_MAP_LABELS` | none | Optional second layer drawn over the tiles (place names), same format. `esri` brings its own. |
 | `PORTUNUS_MAP_CREDIT` | none | Attribution shown on the map when tiles are used. `esri` brings its own. |
@@ -92,9 +94,16 @@ After the first sign-in the panel greets you, asks for a new password and
 for the basics: it shows the detected public address and asks whether the
 server has a domain (checked against DNS as you type).
 
+With a domain the panel then sets itself up to be opened by it (a
+certificate, a check that the domain leads here) and hands over its address.
+The setup goes on from there, also after you have signed in anew at that
+address: a first connection, made by the same wizard as any later one, and
+a first client. Every step can be skipped; the overview then shows what is
+left to do.
+
 The panel has its own user guide under **Documentation** in the sidebar.
 
-Connections are then created in **Connections → Add connection**, a
+Connections are created in **Connections → Add connection**, a
 step-by-step wizard for the chosen protocol (Hysteria2 is preselected). It picks a free port, measures
 REALITY camouflage sites from the server, and for Hysteria2, TUIC and Trojan
 asks where the certificate comes from:
@@ -195,6 +204,10 @@ For a registry of your own, or a local build, set `PORTUNUS_NODE_IMAGE`.
 A name without a registry (`portunus-node:local`) is taken to be a local
 build; the panel then also shows how to copy it over
 (`docker save portunus-node:local | ssh <server> sudo docker load`).
+
+The control port is safe to leave open to everyone: only the panel of this
+installation gets an answer, and the port does not say what runs behind it.
+Opening it to the main server's address alone hides even that it is there.
 
 On the node, open the control port (TCP 2056) to the main server, the port
 for traffic between servers (TCP 443, or 8443 on a backup entry) and, for a
@@ -313,9 +326,76 @@ after you have moved, do not start its panel again.
 
 ## Upgrading
 
+The panel says when a newer release is out: Settings come marked in the
+menu, and the page opens with the version and three ways to install it:
+
+- **Install now.** The panel is replaced by the new release; the nodes
+  follow by themselves.
+- **Pick a time.** A day and an hour for this release, a quiet one by your
+  traffic for example. It can be taken back until then.
+- **Install new versions automatically.** A switch: releases are installed
+  by themselves at the chosen hour, on any day or on one day of the week.
+
+By hand it always works as well:
+
 ```sh
 docker compose pull && docker compose up -d
 ```
+
+on the main server, and the join command again on each node.
+
+### The updater
+
+The panel cannot replace its own container, so a second one does it: the
+`updater` service of `docker-compose.yml` on the main server, and
+`portunus-updater` on a node (the join command starts it). It is the node
+image run with another command, so there is nothing more to publish or to
+pull.
+
+What it does: stops the container, starts the same one (same volumes,
+ports, environment, restrictions) from the image of the new release, waits
+until it is seen to work, and removes the old one. If the new one does not
+come up, the old one is put back and the panel shows why. Then it moves
+itself to the same release.
+
+A new release may change the database, which the previous one could not
+read afterwards. So the panel copies the database (`before-update.db` in
+its data directory) before it asks for an update, and a previous version
+that is started again takes that copy back; what the failed release wrote
+is kept next to it as `portunus.db.newer`. Traffic counted in the minute
+between the copy and the restart is the only thing lost.
+
+What it may do is narrow on purpose, because it is the one part that talks
+to Docker, which is as good as being root on that server:
+
+- It has no network (`network_mode: none`), no ports, a read-only file
+  system and no capabilities. Nothing can connect to it.
+- Its only input is a file with a version number, left by the panel (on a
+  node: by the agent, which takes it from the panel over the control
+  channel). It turns that into "the same image, this release".
+- It cannot be told to run another image, another command or another
+  container, and it never goes back to an older release, so a panel that
+  was broken into cannot plant its own image on your servers through it:
+  the most it can do is install a real, newer release early.
+- An image that is not there to pull is not installed.
+
+What it does not protect against is someone who already has root on that
+server, or a release that is itself bad: updates are taken from the image
+registry, and whoever can publish there can publish a bad release, by any
+way of updating. To keep Docker out of reach altogether, remove the
+`updater` service (and `portunus-updater` on nodes): the panel then only
+tells, and shows the commands.
+
+**A server set up before v0.2.5** has no updater. Bring it once:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml
+docker compose pull && docker compose up -d
+```
+
+(with a `docker-compose.yml` of your own, add the `updater` service and the
+`portunus-update` volume to it instead), and run the join command on each
+node again.
 
 `latest` follows releases; put a version instead (`image:
 ghcr.io/paulichp/portunus:v1.2.3`) to stay on one. Nodes are updated by

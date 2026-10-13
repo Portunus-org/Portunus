@@ -47,8 +47,11 @@ func NewCA() (certPEM, keyPEM string, err error) {
 	}
 	now := time.Now()
 	tmpl := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Portunus Local CA " + randomHex(6), Organization: []string{"Portunus"}},
+		SerialNumber: serial,
+		// Every server certificate carries this name as its issuer, and a
+		// server shows its certificate to whoever connects: the name must
+		// not tell a stranger what software runs here.
+		Subject:               pkix.Name{CommonName: "Local CA " + randomHex(6)},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(caValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
@@ -132,10 +135,14 @@ func (ca *CA) Issue(name string) (certPEM, keyPEM, sum string, notAfter time.Tim
 		hex.EncodeToString(h[:]), notAfter, nil
 }
 
-// IssueNode creates the certificate a node's agent serves its control
-// channel with. It lives as long as the CA: nothing but the panel ever
-// sees it, and replacing it would mean joining the node again.
-func (ca *CA) IssueNode(address string) (certPEM, keyPEM string, err error) {
+// NodeCertificate creates the certificate a node's agent serves its control
+// channel with. The control port answers anyone, and a server shows its
+// certificate before it learns who is calling, so the certificate must say
+// nothing about what runs here: it is signed by its own key, names only the
+// address, and the panel recognises it by its exact bytes (it made it), not
+// by who issued it. It lives as long as the CA: replacing it means joining
+// the node again.
+func NodeCertificate(address string) (certPEM, keyPEM string, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return "", "", err
@@ -159,9 +166,9 @@ func (ca *CA) IssueNode(address string) (certPEM, keyPEM string, err error) {
 	} else {
 		tmpl.DNSNames = []string{address}
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.Key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return "", "", fmt.Errorf("issue node certificate: %w", err)
+		return "", "", fmt.Errorf("make node certificate: %w", err)
 	}
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
@@ -169,6 +176,17 @@ func (ca *CA) IssueNode(address string) (certPEM, keyPEM string, err error) {
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
 		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})), nil
+}
+
+// SelfIssued reports whether a PEM certificate is signed by its own key,
+// as NodeCertificate makes them; false for one issued by a CA.
+func SelfIssued(certPEM string) bool {
+	b, _ := pem.Decode([]byte(certPEM))
+	if b == nil {
+		return false
+	}
+	c, err := x509.ParseCertificate(b.Bytes)
+	return err == nil && c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature) == nil
 }
 
 // PanelCommonName is the subject of the certificate the panel presents to

@@ -89,6 +89,51 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 
 	mux.Handle("GET /api/system", s.requireSession(s.handleSystem))
 	mux.Handle("GET /api/traffic", s.requireSession(s.handleTraffic))
+	mux.Handle("GET /api/update", s.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, s.core.UpdateState(r.Context()))
+	}))
+	mux.Handle("PUT /api/update", s.requireSession(requireRole(store.RoleAdmin, func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Auto    bool `json:"auto"`
+			Weekday int  `json:"weekday"`
+			Minute  int  `json:"minute"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if err := s.core.SetUpdateSchedule(r.Context(), core.UpdateSchedule{Auto: req.Auto, Weekday: req.Weekday, Minute: req.Minute}); err != nil {
+			s.writeCoreError(w, r, err)
+			return
+		}
+		s.auditAction(r, "settings.updates", "", map[string]any{"auto": req.Auto, "weekday": req.Weekday, "minute": req.Minute})
+		writeJSON(w, http.StatusOK, s.core.UpdateState(r.Context()))
+	})))
+	// The moment the release that waits is installed at; null takes it back.
+	mux.Handle("PUT /api/update/plan", s.requireSession(requireRole(store.RoleAdmin, func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			At *time.Time `json:"at"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if err := s.core.PlanUpdate(r.Context(), req.At); err != nil {
+			s.writeCoreError(w, r, err)
+			return
+		}
+		s.auditAction(r, "update.plan", "", map[string]any{"at": req.At})
+		writeJSON(w, http.StatusOK, s.core.UpdateState(r.Context()))
+	})))
+	mux.Handle("POST /api/update/install", s.requireSession(requireRole(store.RoleAdmin, func(w http.ResponseWriter, r *http.Request) {
+		if err := s.core.InstallUpdate(r.Context()); err != nil {
+			s.writeCoreError(w, r, err)
+			return
+		}
+		s.auditAction(r, "update.install", "", nil)
+		writeJSON(w, http.StatusOK, s.core.UpdateState(r.Context()))
+	})))
+	mux.Handle("POST /api/update/check", s.requireSession(requireRole(store.RoleAdmin, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, s.core.CheckUpdate(r.Context()))
+	})))
 	s.routesProxy(mux)
 	s.routesSetup(mux)
 	s.routesRouting(mux)

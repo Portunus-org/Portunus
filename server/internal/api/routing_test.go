@@ -56,8 +56,8 @@ func TestNodesAndRouting(t *testing.T) {
 	nodeID := int64(node["id"].(float64))
 	resp, join := e.do(t, "GET", "/api/nodes/"+strconv.FormatInt(nodeID, 10)+"/join", nil, nil)
 	run, _ := join["run"].(string)
-	if resp.StatusCode != 200 || !strings.Contains(run, "PORTUNUS_JOIN=") || !strings.HasSuffix(run, " portunus:local") ||
-		!strings.HasPrefix(run, "sudo ") || strings.Contains(run, "--pull") ||
+	if resp.StatusCode != 200 || !strings.Contains(run, "PORTUNUS_JOIN=") || !strings.HasSuffix(run, " portunus:local updater portunus-node") || !strings.Contains(run, "--network none") ||
+		!strings.HasPrefix(run, " sudo ") || strings.Contains(run, "--pull") ||
 		!strings.Contains(join["copyImage"].(string), "ssh 203.0.113.20") {
 		t.Fatalf("join: %d %v", resp.StatusCode, join)
 	}

@@ -77,7 +77,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus ./cmd/portunus \
- && install -d -m 0700 /out/data
+ && install -d -m 0700 /out/data && install -d -m 0777 /out/run/portunus-update
 # The panel listens on 443 itself when it is opened by its domain, and runs
 # as an unprivileged user as well: the same single capability as sing-box.
 RUN apk add --no-cache libcap-setcap && setcap cap_net_bind_service=+ep /out/portunus
@@ -99,7 +99,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus-node ./cmd/portunus-node \
- && install -d -m 0700 /out/data
+ && install -d -m 0700 /out/data && install -d -m 0777 /out/run/portunus-update
 
 # The image is the two binaries and the CA roots: no shell, no package
 # manager, nothing to log in to. (sing-box got its file capability in the
@@ -109,6 +109,10 @@ COPY --from=build-node /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-cert
 COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
 COPY --from=build-node /out/portunus-node /usr/local/bin/portunus-node
 COPY --from=build-node --chown=10001:10001 --chmod=700 /out/data /var/lib/portunus
+# Shared with the updater, which runs as another user: a version number goes
+# one way and a status the other, nothing else is kept here. Under /run and
+# open to everyone, so that both can reach it whatever user they run as.
+COPY --from=build-node /out/run /run
 USER 10001:10001
 ENV PATH=/usr/local/bin \
     PORTUNUS_DATA_DIR=/var/lib/portunus \
@@ -125,6 +129,8 @@ FROM ${RUNTIME_IMAGE} AS panel
 COPY --from=singbox /out/sing-box /usr/local/bin/sing-box
 COPY --from=build /out/portunus /usr/local/bin/portunus
 COPY --from=build --chown=10001:10001 --chmod=700 /out/data /var/lib/portunus
+# Shared with the updater (see the node image).
+COPY --from=build /out/run /run
 
 USER 10001:10001
 ENV PORTUNUS_DATA_DIR=/var/lib/portunus \

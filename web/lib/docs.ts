@@ -176,7 +176,7 @@ export const docs: DocTopic[] = [
         { ol: [
           "Open the downloaded file and allow the profile to be downloaded.",
           "Go to Settings, tap **Profile Downloaded** and install it.",
-          "Go to Settings, General, About, Certificate Trust Settings and turn on full trust for the Portunus certificate.",
+          "Go to Settings, General, About, Certificate Trust Settings and turn on full trust for the certificate, by the name the panel shows in Settings.",
         ] },
         { h: "Android" },
         { ol: [
@@ -205,7 +205,7 @@ export const docs: DocTopic[] = [
         { ol: [
           "Откройте скачанный файл и разрешите загрузку профиля.",
           "Откройте Настройки, нажмите **Профиль загружен** и установите его.",
-          "Откройте Настройки, Основные, Об этом устройстве, Доверие сертификатам и включите полное доверие для сертификата Portunus.",
+          "Откройте Настройки, Основные, Об этом устройстве, Доверие сертификатам и включите полное доверие для сертификата, по имени, которое панель показывает в Настройках.",
         ] },
         { h: "Android" },
         { ol: [

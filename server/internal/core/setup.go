@@ -98,7 +98,7 @@ func (c *Core) EffectiveSubscriptionBase(ctx context.Context) string {
 	if port == 0 {
 		return ""
 	}
-	if domain, _ := c.Domain(ctx); domain != "" && c.Certificate(domain) != nil {
+	if domain, _ := c.Domain(ctx); domain != "" && (c.Certificate(domain) != nil || c.sharedCertificate(domain) != nil) {
 		return "https://" + net.JoinHostPort(domain, strconv.Itoa(port))
 	}
 	host, _ := c.PublicHost(ctx)
@@ -108,18 +108,32 @@ func (c *Core) EffectiveSubscriptionBase(ctx context.Context) string {
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-// SubscriptionCertificate returns the ACME certificate for the domain from
-// sing-box's storage, for serving subscriptions over HTTPS; nil until issued.
+// SubscriptionCertificate returns the certificate for the domain to serve
+// subscriptions over HTTPS with; nil until there is one. It is looked for
+// in both places a certificate for the domain can be: sing-box's storage
+// (an inbound that asked Let's Encrypt itself) and the panel's own, which
+// the inbounds on the panel's domain serve instead of asking. The one that
+// lasts longest is taken.
 func (c *Core) SubscriptionCertificate(ctx context.Context) *tls.Certificate {
 	domain, _ := c.Domain(ctx)
-	if domain == "" || c.acme.StorageDir == "" {
+	if domain == "" {
 		return nil
 	}
-	matches, _ := filepath.Glob(filepath.Join(c.acme.StorageDir, "certificates", "*", domain, domain+".crt"))
+	pairs := [][2]string{}
+	if c.acme.StorageDir != "" && !strings.ContainsAny(domain, `/\`) {
+		matches, _ := filepath.Glob(filepath.Join(c.acme.StorageDir, "certificates", "*", domain, domain+".crt"))
+		for _, crt := range matches {
+			pairs = append(pairs, [2]string{crt, strings.TrimSuffix(crt, ".crt") + ".key"})
+		}
+	}
+	if c.sharedCertificate(domain) != nil {
+		crt, key := c.PanelCertFiles()
+		pairs = append(pairs, [2]string{crt, key})
+	}
 	var best *tls.Certificate
-	for _, crt := range matches {
-		cert, err := tls.LoadX509KeyPair(crt, strings.TrimSuffix(crt, ".crt")+".key")
-		if err != nil || cert.Leaf == nil {
+	for _, pair := range pairs {
+		cert, err := tls.LoadX509KeyPair(pair[0], pair[1])
+		if err != nil || cert.Leaf == nil || !c.now().Before(cert.Leaf.NotAfter) {
 			continue
 		}
 		if best == nil || cert.Leaf.NotAfter.After(best.Leaf.NotAfter) {
@@ -143,6 +157,35 @@ func (c *Core) SetupCompleted(ctx context.Context) bool {
 
 func (c *Core) MarkSetupCompleted(ctx context.Context) error {
 	return c.store.SetSetting(ctx, settingSetupDone, "1")
+}
+
+// The first setup does not end with the server's address: a server is of
+// use once it has a connection and a client. The guide is the rest of the
+// way, offered after the address is saved and until it is walked or
+// declined. It is remembered here and not in the browser, because the
+// operator usually changes browsers' idea of where the panel is in the
+// middle of it: from the tunnel to the panel's own domain.
+const settingSetupGuide = "setup_guide"
+
+// GuidePending reports whether the guide should be offered now: it was
+// started and neither finished nor declined, and something is still
+// missing. With both a connection and a client in place it is over.
+func (c *Core) GuidePending(ctx context.Context) bool {
+	if v, _ := c.store.Setting(ctx, settingSetupGuide); v != "pending" {
+		return false
+	}
+	ins, _ := c.store.ListInbounds(ctx)
+	clients, _ := c.store.ListClients(ctx)
+	if len(ins) > 0 && len(clients) > 0 {
+		c.store.SetSetting(ctx, settingSetupGuide, "done")
+		return false
+	}
+	return true
+}
+
+// EndGuide closes the guide, walked to the end or declined.
+func (c *Core) EndGuide(ctx context.Context) error {
+	return c.store.SetSetting(ctx, settingSetupGuide, "done")
 }
 
 // DetectAddress returns the host's public address (cached for a while:
@@ -203,6 +246,12 @@ func (c *Core) SaveBasics(ctx context.Context, b Basics) error {
 			}
 		}
 	}
+	// The first time the address is saved the rest of the setup is offered.
+	if !c.SetupCompleted(ctx) {
+		if err := c.store.SetSetting(ctx, settingSetupGuide, "pending"); err != nil {
+			return err
+		}
+	}
 	return c.MarkSetupCompleted(ctx)
 }
 
@@ -241,8 +290,12 @@ type InboundSuggestion struct {
 	Certificate       *CertificatePlan     `json:"certificate,omitempty"`
 	PublicHost        string               `json:"publicHost"`
 	// SharedWith is the panel's domain when the suggested port is the one
-	// the panel is opened on: the connection then presents that domain.
+	// the panel is opened on: the connection then presents that domain. It
+	// is the first and recommended entry of Reality; the other sites remain
+	// to choose from, and a connection that presents one of them takes
+	// OtherPort instead, since the panel's port goes with the panel's name.
 	SharedWith string `json:"sharedWith,omitempty"`
+	OtherPort  int    `json:"otherPort,omitempty"`
 }
 
 // SuggestInbound inspects the host for creating an inbound of protocol p.
@@ -287,6 +340,7 @@ func (c *Core) SuggestInbound(ctx context.Context, p proxy.Protocol, domain stri
 	// VLESS can share the panel's port, which is the best one to have.
 	pa, _ := c.PanelAccess(ctx)
 	if p == proxy.VLESS && pa.Enabled && !pa.Shared {
+		out.OtherPort = out.Port
 		out.Port, out.PreferredPortBusy, out.SharedWith = pa.Port, false, pa.Domain
 	}
 
@@ -301,7 +355,9 @@ func (c *Core) SuggestInbound(ctx context.Context, p proxy.Protocol, domain stri
 		}
 	}
 	if out.SharedWith != "" {
-		out.Reality = []setup.RealityProbe{{Host: out.SharedWith, OK: true}}
+		// The panel's own domain first: nothing looks more like a visit to
+		// this server than its own site with its own certificate.
+		out.Reality = append([]setup.RealityProbe{{Host: out.SharedWith, OK: true}}, out.Reality...)
 	}
 	if p == proxy.Hysteria2 {
 		// The probes only served to pick a masquerade site.

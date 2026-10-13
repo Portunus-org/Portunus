@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { ClientStatus } from "@/components/clients/client-status"
 import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
+import { DateField } from "@/components/date-field"
 import { FormField, SwitchField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
@@ -87,7 +88,12 @@ function Usage({ client }: { client: Client }) {
   )
 }
 
-function Access({ clientId, version }: { clientId: number; version: number }) {
+/**
+ * How a client connects: the QR code, and the subscription and the links of
+ * every connection to copy or to show as a code. Also used by the first
+ * setup, right after its client is made.
+ */
+export function Access({ clientId, version = 0 }: { clientId: number; version?: number }) {
   const { t } = useI18n()
   const [access, setAccess] = React.useState<ClientAccess | null>(null)
   const [qr, setQr] = React.useState<{ svg: string; label: string } | null>(null)
@@ -270,7 +276,13 @@ function ClientForm({
             />
           </FormField>
           <FormField id="expires" label={t("clients.form.expires")}>
-            <Input id="expires" name="expires" type="date" defaultValue={toDateInput(client?.expiresAt ?? null)} />
+            <DateField
+              id="expires"
+              name="expires"
+              defaultValue={toDateInput(client?.expiresAt ?? null)}
+              placeholder={t("common.never")}
+              clearLabel={t("clients.form.noExpiry")}
+            />
           </FormField>
         </div>
         {exits.length > 0 && (

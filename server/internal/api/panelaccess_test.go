@@ -244,6 +244,18 @@ func TestPanelAccessGate(t *testing.T) {
 	if info, _ := hy["certificate"].(map[string]any); info == nil || info["issuer"] == "" {
 		t.Fatalf("the connection does not report the panel's certificate: %v", hy["certificate"])
 	}
+	// Subscriptions are served over HTTPS with that same certificate: there
+	// is no other for the domain once the connections stopped asking for
+	// their own.
+	if cert := e.core.SubscriptionCertificate(ctx); cert == nil || cert.Leaf == nil || cert.Leaf.Subject.CommonName == "" {
+		t.Fatalf("no certificate for the subscriptions: %v", cert)
+	}
+	if err := e.core.SetSubscriptionPort(ctx, freeTCPPort(t)); err != nil {
+		t.Fatal(err)
+	}
+	if base := e.core.EffectiveSubscriptionBase(ctx); !strings.HasPrefix(base, "https://"+domain+":") {
+		t.Fatalf("subscriptions are not on HTTPS: %q", base)
+	}
 	// Another domain is not covered by it and keeps its own way.
 	_, otherIn := e.do(t, "POST", "/api/inbounds", map[string]any{"protocol": "tuic", "port": freeTCPPort(t), "serverName": "other.example.com", "tlsMode": "acme"}, h)
 	if otherIn["certificate"] != nil {
