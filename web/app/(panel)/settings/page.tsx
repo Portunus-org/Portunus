@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
 import { PanelAccessCard } from "@/components/panel-access-card"
+import { SingboxLogs } from "@/components/singbox-logs"
 import { UpdateCard } from "@/components/update-card"
 import { StatusBadge } from "@/components/status"
 import { FormField, FormError } from "@/components/form-field"
@@ -286,13 +287,6 @@ function SingBoxCard() {
   const { data: cfg, reload: reloadCfg } = useResource(() => (isAdmin ? api.singboxConfig() : Promise.resolve({ config: null })))
   const { data: system } = useResource(api.system)
   const [restarting, setRestarting] = React.useState(false)
-  const logRef = React.useRef<HTMLDivElement>(null)
-
-  React.useEffect(() => {
-    // The newest lines are at the bottom: keep them in view.
-    const el = logRef.current?.querySelector<HTMLElement>("[data-slot=scroll-area-viewport]")
-    if (el) el.scrollTop = el.scrollHeight
-  }, [logs])
 
   const s = data?.status
   const problem = data?.applyError || (s?.state === "failed" ? s.lastError : "")
@@ -392,12 +386,7 @@ function SingBoxCard() {
               <TabsTrigger value="config">{t("settings.singbox.config")}</TabsTrigger>
             </TabsList>
             <TabsContent value="logs">
-              <ScrollArea ref={logRef} className="h-72 rounded-lg bg-muted">
-                <pre className="p-4 font-mono text-xs leading-relaxed">
-                  {logs?.lines?.length ? logs.lines.join("\n") : t("settings.singbox.noOutput")}
-                </pre>
-                <ScrollBar orientation="horizontal" />
-              </ScrollArea>
+              <SingboxLogs lines={logs?.lines ?? []} empty={t("settings.singbox.noOutput")} />
             </TabsContent>
             <TabsContent value="config">
               <ScrollArea className="h-72 rounded-lg bg-muted">

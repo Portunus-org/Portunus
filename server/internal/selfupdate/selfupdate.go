@@ -125,6 +125,14 @@ func Ask(dir, version string, now time.Time) error {
 	return writeFile(dir, "request.json", Request{Version: version, At: now.UTC()})
 }
 
+// Stale is how long a request stands. It is an order for now, not a
+// standing one: left lying, it would undo whatever is done to the container
+// later by hand, such as a newer release pulled from the console.
+const Stale = 30 * time.Minute
+
+// Done removes the request from dir: it was carried out, or cannot be.
+func Done(dir string) { os.Remove(filepath.Join(dir, "request.json")) }
+
 // ReadRequest returns the request waiting in dir, if any.
 func ReadRequest(dir string) (Request, bool) {
 	var r Request

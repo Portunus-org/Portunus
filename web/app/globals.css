@@ -290,3 +290,10 @@ html[data-rendering="software"] [data-slot$="-overlay"] {
   opacity: 1;
   transition-duration: 0.1s;
 }
+
+/* The serif is for headings that title a page or a card. The line inside
+   an empty state is small and sits in the middle of a body of sans text,
+   where a serif reads as another typeface by mistake. */
+[data-slot="empty-title"] {
+  font-family: var(--font-sans);
+}

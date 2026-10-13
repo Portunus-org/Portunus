@@ -66,6 +66,12 @@ func (u *updater) say(state, version, problem string) {
 
 func (u *updater) look(ctx context.Context) {
 	req, ok := ReadRequest(u.Dir)
+	if ok && (time.Since(req.At) > Stale || req.At.After(time.Now().Add(Stale))) {
+		// An order from long ago (the updater was away, or the file was
+		// left behind): not something to act on now.
+		Done(u.Dir)
+		ok = false
+	}
 	if !ok || req == u.failed {
 		// Nothing new: show a sign of life, keeping a failure on display.
 		if u.status.State == "" {
@@ -82,9 +88,11 @@ func (u *updater) look(ctx context.Context) {
 	}
 	current := Tag(target.image())
 	if current == req.Version {
-		// Done, now or by an earlier run. The updater follows.
+		// Done, now or by an earlier run. The updater follows, and the
+		// order is taken off the table.
 		u.say(StateIdle, "", "")
 		u.follow(ctx, req.Version)
+		Done(u.Dir)
 		return
 	}
 	if err := Allowed(req.Version, current); err != nil {
@@ -103,6 +111,7 @@ func (u *updater) look(ctx context.Context) {
 	u.Log.Info("updated", "target", u.Target, "version", req.Version)
 	u.say(StateIdle, "", "")
 	u.follow(ctx, req.Version)
+	Done(u.Dir)
 }
 
 // replace puts a container made from release version in the place of old.
