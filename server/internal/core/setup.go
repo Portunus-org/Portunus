@@ -232,6 +232,10 @@ type Basics struct {
 // With a domain, subscriptions are turned on (HTTPS once the domain has a
 // certificate).
 func (c *Core) SaveBasics(ctx context.Context, b Basics) error {
+	return c.AllOrNothing(ctx, func() error { return c.saveBasics(ctx, b) })
+}
+
+func (c *Core) saveBasics(ctx context.Context, b Basics) error {
 	if err := c.SetPublicHost(ctx, b.PublicHost); err != nil {
 		return err
 	}

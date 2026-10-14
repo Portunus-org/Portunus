@@ -372,9 +372,11 @@ storage once it exists, so URLs imported before issuance keep working.
 ## D-25 Interface languages — Accepted
 
 English and Russian, chosen from the browser and switchable in the user
-menu. The dictionaries (`web/lib/messages.ts`) are typed from the English
-keys, so a missing translation is a type error. Russian plural forms are
-handled.
+menu. The dictionaries are `web/locales/<code>.json`, one per language;
+`web/lib/messages.ts` lists them and types them from the English keys, so
+a missing translation is a type error. Plural forms follow each language's
+own rules (Intl.PluralRules). A new language is a new file and one line in
+the list.
 
 ---
 
@@ -935,3 +937,123 @@ a schedule.
 - **Kept working without it.** An installation without updaters (made
   before this, or by choice) is updated by the same commands as before, and
   the panel shows them.
+
+## D-44 Single sign-on and roles — Accepted
+
+Stage 7 of the specification: sign-in through an OIDC provider (tested
+against Pocket ID), and the three roles, which existed in the checks but
+had no accounts to give them to.
+
+- **One provider, generic.** Nothing in the flow is specific to Pocket ID:
+  discovery from the issuer, authorization code with PKCE, `state`,
+  `nonce`, the ID token verified. The parts where providers differ are
+  settings: the scopes and where groups are listed (a claim name or a path).
+- **go-oidc and oauth2** rather than our own JWT and JWKS code. Verifying
+  tokens is where a home-made implementation goes wrong quietly, and these
+  two are what most Go software uses for it.
+- **Identity is issuer and subject.** Names and addresses can be changed
+  at a provider, or be claimed there by someone else, so an identity is
+  never matched to an account by them, and never joined to an account
+  that already exists. Joining would let whoever controls a name at the
+  provider take over a local account.
+- **The name is the provider's.** An account of the provider is shown
+  under the login name the provider gives, as it gives it, and takes a new
+  one when it changes there. So that such a name can be anything,
+  including one taken here, the unique `username` of these accounts is a
+  handle derived from the identity (`sso:…`), which no person can type as
+  a login name; the provider's name is kept next to it. Two accounts may
+  then read `admin`, one with a password and one from the provider, and
+  the list says which is which.
+- **Roles come from groups, at every sign-in.** One place decides what a
+  person may do, the provider; the panel only maps group names to its
+  three roles. Group names are compared exactly. With no mapped group a
+  person is refused, unless a default role is set; settings under which
+  nobody could get in are not saved.
+- **Roles are read at each request**, not stored in the session, so a
+  change (by an administrator, or by the next sign-in) applies to sessions
+  already open. A session itself is not ended by what happens at the
+  provider: there is no back-channel, and disabling the account is the way
+  to end it now.
+- **A password administrator is always kept.** A provider can fail, be
+  misconfigured, or move everyone out of a group; the panel must still
+  have a way in that depends on none of it. So the last enabled
+  administrator with a password cannot be demoted, disabled or deleted,
+  and administrators from the provider are not counted as one.
+- **The attempt lives in a cookie, sealed.** `state`, `nonce`, the PKCE
+  verifier and the callback address are encrypted with the master key into
+  a cookie scoped to the two sign-in paths, `SameSite=Lax` (it must return
+  with a navigation from another site), good for ten minutes and cleared
+  by the first callback. No table of pending attempts to fill up.
+- **The session cookie stays `SameSite=Strict`.** The callback is reached
+  by a navigation from the provider, and a redirect from it would still be
+  part of that cross-site trip, without the new cookie. So the callback
+  answers with a page that goes to the panel by itself (`meta refresh`,
+  which the content security policy allows), starting a trip of its own.
+- **Set up by a wizard, like connections and nodes.** A form with every
+  field at once, and a switch on top to turn it on, was tried first and
+  read as a wall: it asked for the client before saying where the callback
+  address goes, and let itself be turned on half filled. Three steps in
+  the order the work is done (the provider, checked before going on; the
+  client, next to the callback address to give it; the groups), and
+  finishing turns it on. The card afterwards is a summary with *Change*
+  and *Turn off*.
+- **Switch settings are choice cards.** Per shadcn's Field: a switch with
+  an explanation is a Field inside its FieldLabel, one outlined object
+  that takes the click, instead of a switch at the far edge of a wide
+  form, apart from its words.
+- **Accounts page.** Administrators add accounts with a password (generated,
+  shown once, replaced at the first sign-in), change roles, disable, reset
+  passwords and delete. An account that comes to an already set-up panel
+  is asked for its password and nothing else, not led through the first
+  setup.
+
+## D-45 Input is refused where it is nonsense, and saved whole or not at all — Accepted
+
+A sweep of every field of every request that changes something, with SQL,
+shell, paths, markup, control characters, over-long text, numbers out of
+any range and values of the wrong kind (about 5,400 requests), found no
+server error and no way for typed text to become anything but text: all
+SQL used placeholders already, and the panel runs no shell. It found three
+things that were wrong in another way, now fixed and held by tests:
+
+- **A refused request could leave something behind.** A client created
+  with an exit that does not exist was refused, and created all the same:
+  the exit was checked after the row was written. It is checked first.
+- **A form could be half saved.** Settings were stored field by field, so
+  one wrong field refused the request after the fields before it had been
+  kept. A change of several settings now goes back to what was there
+  before if any part of it is refused (`Core.AllOrNothing`), for the
+  settings page and the first setup.
+- **Names took characters that are never part of a name.** A line break or
+  a NUL in the name of a connection, node or list, and the invisible marks
+  that reverse the direction of text (used to make one name read as
+  another), were stored as given. They did no harm where they went (every
+  output encodes them), but they are refused now, in one place
+  (`oddText`), and stripped from the label of an imported link.
+
+Also tightened: the ACME port is checked whichever check is chosen, a
+subscription address may not carry a login (it goes into every client's
+link), the fields of the sign-in provider have lengths, and the check of a
+provider's address no longer repeats what that address answered.
+
+## D-46 Settings are a window, opened from the gear by the user — Accepted
+
+The settings were a page, a column of cards, in the menu next to the
+pages people work in. They are now a window over whatever page is open
+(shadcn's Dialog): the sections on the left with a search over them, the
+chosen one on the right, a setting to a row, its name and what it does on
+the left and its control on the right. The window is opened by the gear
+next to the user at the foot of the menu, or from the user's own menu
+(account, theme, language, settings, sign out), and closed by its cross or
+Esc, leaving the page as it was. The section is in the address
+(`#settings/updates`), so links and the old `/settings/` and `/users/`
+addresses open the window where they mean to; accounts and single sign-on
+are sections of it rather than a page of their own. A wizard started from
+the window, as setting up single sign-on, runs inside it in place of its
+section and returns there; the old `/users/sso/` address opens the section. A newer release is
+marked on the gear. Inside the window, FormField and SwitchField lay
+themselves out as rows; elsewhere they stay as they were.
+
+What is on its way is shown in its shape (shadcn's Skeleton) instead of a
+word: table rows, the map, a client's code and links, a node's command,
+and the sections of the settings.

@@ -2,13 +2,11 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { BookOpenIcon, LayoutDashboardIcon, RadioTowerIcon, ServerIcon, Settings2Icon, SplitIcon, UsersIcon } from "lucide-react"
+import { LayoutDashboardIcon, RadioTowerIcon, ServerIcon, SplitIcon, UsersIcon } from "lucide-react"
 
 import { LogoMark } from "@/components/brand/logo"
 import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
-import { updateChecked } from "@/components/update-card"
 import {
   Sidebar,
   SidebarContent,
@@ -18,9 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import { useResource } from "@/lib/use-resource"
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { t } = useI18n()
@@ -31,21 +27,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     { title: t("nav.inbounds"), url: "/inbounds/", icon: <RadioTowerIcon /> },
     { title: t("nav.nodes"), url: "/nodes/", icon: <ServerIcon /> },
     { title: t("nav.routing"), url: "/routing/", icon: <SplitIcon /> },
-  ]
-  // A newer release is marked on the way to where it is installed from.
-  const { data: update, reload: reloadUpdate } = useResource(api.update, 30 * 60 * 1000)
-  React.useEffect(() => {
-    window.addEventListener(updateChecked, reloadUpdate)
-    return () => window.removeEventListener(updateChecked, reloadUpdate)
-  }, [reloadUpdate])
-  const navSecondary = [
-    {
-      title: t("nav.settings"),
-      url: "/settings/",
-      icon: <Settings2Icon />,
-      mark: update?.available ? t("update.tooltip") : undefined,
-    },
-    { title: t("nav.docs"), url: "/docs/", icon: <BookOpenIcon /> },
   ]
 
   return (
@@ -64,7 +45,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMain} />
-        <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />

@@ -3,14 +3,14 @@
 import * as React from "react"
 import { CalendarClockIcon, DownloadIcon, LoaderCircleIcon, RefreshCwIcon } from "lucide-react"
 import { enUS, ru } from "react-day-picker/locale"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
 import { SwitchField } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Pane, PaneAction, PaneContent, PaneDescription, PaneFooter, PaneHeader, PaneTitle } from "@/components/settings-pane"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { api, errorText, type UpdateInfo } from "@/lib/api"
@@ -87,7 +87,7 @@ function PlanButton({ onPlan }: { onPlan: (at: Date) => Promise<void> }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" data-setting="update-plan">
           <CalendarClockIcon />
           {t("update.plan")}
         </Button>
@@ -200,21 +200,21 @@ export function UpdateCard({ update, reload, canEdit }: { update: UpdateInfo; re
           : t("update.notRelease", { current: update.current, latest: update.latest })
 
   return (
-    <Card>
+    <Pane>
       {confirmDialog}
-      <CardHeader>
-        <CardTitle>{t(update.available ? "update.titleAvailable" : "update.title")}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+      <PaneHeader>
+        <PaneTitle>{t(update.available ? "update.titleAvailable" : "update.title")}</PaneTitle>
+        <PaneDescription>{description}</PaneDescription>
         {!update.off && canEdit && !installing && (
-          <CardAction>
+          <PaneAction>
             <Button variant="outline" size="sm" onClick={check} disabled={checking}>
               <RefreshCwIcon className={checking ? "animate-spin" : undefined} />
               {t("update.check")}
             </Button>
-          </CardAction>
+          </PaneAction>
         )}
-      </CardHeader>
-      <CardContent className="grid max-w-xl gap-6 text-sm">
+      </PaneHeader>
+      <PaneContent className="grid gap-7 text-sm">
         {installing && (
           <p className="flex items-center gap-2">
             <LoaderCircleIcon className="size-4 shrink-0 animate-spin text-muted-foreground" />
@@ -227,7 +227,7 @@ export function UpdateCard({ update, reload, canEdit }: { update: UpdateInfo; re
             {update.installError && <p className="text-destructive">{t("update.installFailed", { error: update.installError })}</p>}
             {canEdit && (
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={install}>
+                <Button data-setting="update-install" onClick={install}>
                   <DownloadIcon />
                   {t("update.installNow")}
                 </Button>
@@ -290,9 +290,9 @@ export function UpdateCard({ update, reload, canEdit }: { update: UpdateInfo; re
             {t(update.error && update.latest ? "update.checkedFailed" : "update.checked", { at: formatDateTime(update.checkedAt, locale) })}
           </p>
         )}
-      </CardContent>
+      </PaneContent>
       {canEdit && update.updater && (
-        <CardFooter className="border-t">
+        <PaneFooter className="border-t">
           <Button
             size="sm"
             disabled={!changed || saving || !!installing}
@@ -304,8 +304,8 @@ export function UpdateCard({ update, reload, canEdit }: { update: UpdateInfo; re
           >
             {t("common.save")}
           </Button>
-        </CardFooter>
+        </PaneFooter>
       )}
-    </Card>
+    </Pane>
   )
 }

@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { api } from "@/lib/api"
 import { formatBytes, formatDuration } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
+import { useSettingsWindow } from "@/lib/settings-dialog"
 import { protocols } from "@/lib/protocols"
 import { useCanEdit } from "@/lib/session"
 import { useResource } from "@/lib/use-resource"
@@ -157,6 +158,7 @@ function FirstSteps({ hasInbound, hasClient }: { hasInbound: boolean; hasClient:
 
 export default function OverviewPage() {
   const { t, tp, locale } = useI18n()
+  const { openSettings } = useSettingsWindow()
   const { data: system } = useResource(api.system, REFRESH_MS)
   const { data: sb } = useResource(api.singbox, REFRESH_MS)
   const { data: clients } = useResource(api.clients, REFRESH_MS)
@@ -182,10 +184,8 @@ export default function OverviewPage() {
               <CircleAlertIcon />
               <AlertTitle>{t("overview.alert.noHost")}</AlertTitle>
               <AlertDescription>
-                <Button asChild variant="link" className="h-auto p-0">
-                  <Link href="/settings/">
-                    {t("nav.settings")} <ArrowRightIcon />
-                  </Link>
+                <Button variant="link" className="h-auto p-0" onClick={() => openSettings("server")}>
+                  {t("nav.settings")} <ArrowRightIcon />
                 </Button>
               </AlertDescription>
             </Alert>
@@ -250,7 +250,7 @@ export default function OverviewPage() {
         <TrafficHistory points={history} />
       </div>
 
-      <ClientsOverview clients={cs} />
+      <ClientsOverview clients={cs} loading={!clients} />
     </>
   )
 }

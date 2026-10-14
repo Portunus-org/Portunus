@@ -12,6 +12,7 @@ import { ChoiceCard, Note, StepFrame, Task, type TaskState } from "@/components/
 import { FormField, SwitchField, FormError } from "@/components/form-field"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { RadioGroup } from "@/components/ui/radio-group"
@@ -27,6 +28,7 @@ import {
   type TLSMode,
 } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { FormErrorsContext, useFormErrors } from "@/lib/form-errors"
 import type { MessageKey } from "@/lib/messages"
 import { protocolOrder, protocols } from "@/lib/protocols"
 import { useCanEdit, useSession } from "@/lib/session"
@@ -41,6 +43,20 @@ const protocolTags: Record<Protocol, MessageKey[]> = {
   tuic: ["wizard.tag.cert"],
   trojan: ["wizard.tag.cert"],
   shadowsocks: [],
+}
+
+// The step each field of the wizard is asked on, by its id.
+const stepOfField: Record<string, Step> = {
+  realityCustom: "camouflage",
+  domain: "certificate",
+  fileDomain: "certificate",
+  serverName: "certificate",
+  certPath: "certificate",
+  keyPath: "certificate",
+  cfToken: "certificate",
+  masquerade: "protect",
+  name: "review",
+  port: "review",
 }
 
 function stepsFor(p: Protocol): Step[] {
@@ -145,6 +161,7 @@ function ProtocolStep({ value, onChange }: { value: Protocol; onChange: (p: Prot
 
 function CamouflageStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>) => void; sug: InboundSuggestion | null }) {
   const { t } = useI18n()
+  const errors = React.useContext(FormErrorsContext)
   if (!sug) return <Note tone="pending">{t("wizard.reality.measuring")}</Note>
   // With the panel opened by its own domain, that domain comes first and
   // is the one to take: the connection then shares the panel's port, and a
@@ -180,6 +197,8 @@ function CamouflageStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Dr
       <ChoiceCard value="custom" id="r-custom" title={t("wizard.reality.custom")} description={t("wizard.reality.customHint")}>
         {draft.reality === "custom" && (
           <Input
+            id="realityCustom"
+            aria-invalid={!!errors.realityCustom}
             className="mt-1"
             value={draft.realityCustom}
             onChange={(e) => set({ realityCustom: e.target.value })}
@@ -189,6 +208,7 @@ function CamouflageStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Dr
             autoFocus
           />
         )}
+        {draft.reality === "custom" && <FormError>{errors.realityCustom}</FormError>}
       </ChoiceCard>
     </RadioGroup>
   )
@@ -303,7 +323,13 @@ function CertificateStep({
 }) {
   const { t } = useI18n()
   const dns = useDomainCheck(draft.tlsMode === "acme" ? draft.domain : "", sug?.domainCheck)
-  if (!sug) return <Note tone="pending">{t("common.loading")}</Note>
+  if (!sug)
+    return (
+      <div className="grid gap-3">
+        <Skeleton className="h-16 w-full rounded-lg" />
+        <Skeleton className="h-16 w-full rounded-lg" />
+      </div>
+    )
   const recommended = (
     <Badge variant="secondary" className="px-1.5">
       {t("wizard.cert.recommended")}
@@ -613,7 +639,7 @@ export function InboundWizard({ guide }: { guide?: WizardGuide }) {
   const [suggestions, setSuggestions] = React.useState<Partial<Record<Protocol, InboundSuggestion>>>({})
   const [settings, setSettings] = React.useState<Settings | null>(null)
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
   const [created, setCreated] = React.useState<Inbound | null>(null)
 
   const set = React.useCallback((p: Partial<Draft>) => setDraft((d) => ({ ...d, ...p })), [])
@@ -639,12 +665,12 @@ export function InboundWizard({ guide }: { guide?: WizardGuide }) {
         setSuggestions((all) => ({ ...all, [p]: s }))
         setDraft((d) => (d.protocol === p ? applySuggestion(d, s) : d))
       },
-      (err) => alive && setError(errorText(err, t))
+      (err) => alive && fail(err)
     )
     return () => {
       alive = false
     }
-  }, [draft.protocol, suggestions, t])
+  }, [draft.protocol, suggestions, fail])
 
   const steps = stepsFor(draft.protocol)
   const index = steps.indexOf(step)
@@ -683,7 +709,7 @@ export function InboundWizard({ guide }: { guide?: WizardGuide }) {
 
   async function create() {
     setPending(true)
-    setError(null)
+    clear()
     const d = draft
     const tls = usesTLS(d.protocol)
     try {
@@ -732,7 +758,17 @@ export function InboundWizard({ guide }: { guide?: WizardGuide }) {
       if (guide) guide.onCreated(inbound, steps.length)
       else setCreated(inbound)
     } catch (err) {
-      setError(errorText(err, t))
+      // Everything is sent from the last step; what the server refuses is
+      // shown at its field, on the step that asked for it.
+      const field = fail(err, Object.keys(stepOfField), {
+        realityServer: d.reality === "custom" ? "realityCustom" : "-",
+        serverName: d.tlsMode === "self-signed" ? "serverName" : d.tlsMode === "file" ? "fileDomain" : "domain",
+        certificatePath: "certPath",
+        certificate: "certPath",
+        masqueradeUrl: "masquerade",
+        cloudflareToken: "cfToken",
+      })
+      if (field in stepOfField) setStep(stepOfField[field])
     } finally {
       setPending(false)
     }
@@ -779,7 +815,7 @@ export function InboundWizard({ guide }: { guide?: WizardGuide }) {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setError(null)
+                    clear()
                     setStep(steps[index - 1])
                   }}
                 >
@@ -807,12 +843,16 @@ export function InboundWizard({ guide }: { guide?: WizardGuide }) {
             </>
           }
         >
-          {step === "protocol" && <ProtocolStep value={draft.protocol} onChange={chooseProtocol} />}
-          {step === "camouflage" && <CamouflageStep draft={draft} set={set} sug={sug} />}
-          {step === "certificate" && <CertificateStep draft={draft} set={set} sug={sug} isAdmin={isAdmin} />}
-          {step === "protect" && <ProtectStep draft={draft} set={set} />}
-          {step === "review" && <ReviewStep draft={draft} set={set} sug={sug} />}
-          <FormError>{error}</FormError>
+          <FormErrorsContext.Provider value={errors}>
+            <div className="contents" onInput={clear}>
+              {step === "protocol" && <ProtocolStep value={draft.protocol} onChange={chooseProtocol} />}
+              {step === "camouflage" && <CamouflageStep draft={draft} set={set} sug={sug} />}
+              {step === "certificate" && <CertificateStep draft={draft} set={set} sug={sug} isAdmin={isAdmin} />}
+              {step === "protect" && <ProtectStep draft={draft} set={set} />}
+              {step === "review" && <ReviewStep draft={draft} set={set} sug={sug} />}
+            </div>
+          </FormErrorsContext.Provider>
+          <FormError>{errors.form}</FormError>
         </StepFrame>
       )}
     </div>

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { EllipsisVerticalIcon, PencilIcon, PlusIcon, PowerIcon, RotateCcwIcon, SearchIcon, Trash2Icon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { ClientDrawer, NEW_CLIENT_EVENT } from "@/components/clients/client-drawer"
 import { ClientStatus } from "@/components/clients/client-status"
@@ -53,11 +53,20 @@ export default function ClientsPage() {
     })
   }, [])
 
+  // A client named on the overview comes here as #client-<id>: the table
+  // turns to its row and lights it up.
+  const [found, setFound] = React.useState<string | null>(null)
+
   // The sidebar's "New client" button links here with #new.
   React.useEffect(() => {
     const onHash = () => {
-      if (window.location.hash === "#new" && canEdit) {
+      const hash = window.location.hash
+      if (hash === "#new" && canEdit) {
         open(null)
+        history.replaceState(null, "", window.location.pathname)
+      }
+      if (hash.startsWith("#client-")) {
+        setFound(hash.slice("#client-".length))
         history.replaceState(null, "", window.location.pathname)
       }
     }
@@ -212,6 +221,7 @@ export default function ClientsPage() {
         data={rows}
         columns={columns}
         getRowId={(r) => String(r.id)}
+        found={found}
         views={clientViews(clients, t)}
         view={view}
         onViewChange={setView}
@@ -243,10 +253,11 @@ export default function ClientsPage() {
             )}
           </>
         }
-        empty={!data ? t("common.loading") : clients.length === 0 ? t("clients.empty") : t("common.nothingMatches")}
+        loading={!data}
+        empty={clients.length === 0 ? t("clients.empty") : t("common.nothingMatches")}
       />
     )
-  }, [data, view, query, columns, t, canEdit, open])
+  }, [data, view, query, columns, t, canEdit, open, found])
 
   return (
     <>

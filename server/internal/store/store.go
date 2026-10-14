@@ -5,7 +5,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -54,16 +56,27 @@ type User struct {
 	Disabled           bool
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	// OIDCIssuer and OIDCSubject identify an account that signs in through
+	// an OIDC provider; both empty for a local one.
+	OIDCIssuer  string
+	OIDCSubject string
+	// DisplayName is the person's name as the provider gives it.
+	DisplayName string
+	// LastLoginAt is zero for an account that never signed in.
+	LastLoginAt time.Time
 }
 
-const userColumns = `id, username, COALESCE(password_hash, ''), role, must_change_password, disabled, created_at, updated_at`
+const userColumns = `id, username, COALESCE(password_hash, ''), role, must_change_password, disabled, created_at, updated_at,
+	COALESCE(oidc_issuer, ''), COALESCE(oidc_subject, ''), display_name, COALESCE(last_login_at, 0), oidc_username`
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var (
-		u                User
-		created, updated int64
+		u                       User
+		created, updated, login int64
+		providerName            string
 	)
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.Disabled, &created, &updated); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.MustChangePassword, &u.Disabled, &created, &updated,
+		&u.OIDCIssuer, &u.OIDCSubject, &u.DisplayName, &login, &providerName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -71,6 +84,14 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	}
 	u.CreatedAt = time.Unix(created, 0)
 	u.UpdatedAt = time.Unix(updated, 0)
+	if login > 0 {
+		u.LastLoginAt = time.Unix(login, 0)
+	}
+	// An account of a provider is called what the provider calls it; what
+	// the username column holds for it is a handle (see CreateUser).
+	if u.OIDCSubject != "" && providerName != "" {
+		u.Username = providerName
+	}
 	return &u, nil
 }
 
@@ -80,12 +101,27 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// ssoHandle is what the unique username column holds for an account of a
+// provider: something no person can type as a login name (a local name has
+// no colon), derived from the identity, so the name the provider uses can
+// be anything, including a name taken here.
+func ssoHandle(issuer, subject string) string {
+	sum := sha256.Sum256([]byte(issuer + "\x00" + subject))
+	return "sso:" + hex.EncodeToString(sum[:12])
+}
+
 func (s *Store) CreateUser(ctx context.Context, u *User) error {
 	now := s.now().Unix()
+	name, providerName := u.Username, ""
+	if u.OIDCSubject != "" {
+		name, providerName = ssoHandle(u.OIDCIssuer, u.OIDCSubject), u.Username
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (username, password_hash, role, must_change_password, disabled, created_at, updated_at)
-		 VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?)`,
-		u.Username, u.PasswordHash, u.Role, u.MustChangePassword, u.Disabled, now, now)
+		`INSERT INTO users (username, password_hash, role, must_change_password, disabled, created_at, updated_at,
+		                    oidc_issuer, oidc_subject, display_name, oidc_username)
+		 VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
+		name, u.PasswordHash, u.Role, u.MustChangePassword, u.Disabled, now, now,
+		u.OIDCIssuer, u.OIDCSubject, u.DisplayName, providerName)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrConflict
@@ -100,6 +136,72 @@ func (s *Store) CreateUser(ctx context.Context, u *User) error {
 
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
 	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE id = ?`, id))
+}
+
+// UserByIdentity finds the account of an OIDC identity.
+func (s *Store) UserByIdentity(ctx context.Context, issuer, subject string) (*User, error) {
+	if issuer == "" || subject == "" {
+		return nil, ErrNotFound
+	}
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE oidc_issuer = ? AND oidc_subject = ?`, issuer, subject))
+}
+
+func (s *Store) Users(ctx context.Context) ([]*User, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+userColumns+` FROM users ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// SetUserAccess changes what an account may do: its role and whether it may
+// sign in at all.
+func (s *Store) SetUserAccess(ctx context.Context, id int64, role Role, disabled bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, disabled = ?, updated_at = ? WHERE id = ?`, role, disabled, s.now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	return expectOne(res)
+}
+
+// NoteLogin records a sign-in, and for an account of a provider what the
+// provider says about it now: its login name, the person's name and the
+// role its groups give it. providerName is "" for a local account.
+func (s *Store) NoteLogin(ctx context.Context, id int64, role Role, displayName, providerName string) error {
+	now := s.now().Unix()
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, display_name = ?, oidc_username = ?, last_login_at = ?, updated_at = ? WHERE id = ?`, role, displayName, providerName, now, now, id)
+	if err != nil {
+		return err
+	}
+	return expectOne(res)
+}
+
+func (s *Store) DeleteUser(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	return expectOne(res)
+}
+
+// ActiveAdmins is how many accounts can administer the panel whatever
+// happens at the provider: administrators with a password of their own. An
+// administrator who signs in through the provider is one only as long as
+// their group there says so, and stops being one, or being reachable, the
+// moment it or the provider changes.
+func (s *Store) ActiveAdmins(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0 AND oidc_subject IS NULL`).Scan(&n)
+	return n, err
 }
 
 func (s *Store) UserByUsername(ctx context.Context, username string) (*User, error) {
@@ -232,6 +334,32 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// IntegrityCheck asks SQLite whether the database file is sound.
+func (s *Store) IntegrityCheck(ctx context.Context) (bool, error) {
+	var verdict string
+	err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&verdict)
+	return verdict == "ok", err
+}
+
+// tables are the ones CountRows may be asked about: a table name cannot be
+// a placeholder, so it is only ever one of these.
+var tables = map[string]string{
+	"users": `SELECT COUNT(*) FROM users`, "sessions": `SELECT COUNT(*) FROM sessions`, "clients": `SELECT COUNT(*) FROM clients`,
+	"inbounds": `SELECT COUNT(*) FROM inbounds`, "nodes": `SELECT COUNT(*) FROM nodes`, "route_lists": `SELECT COUNT(*) FROM route_lists`,
+	"route_rules": `SELECT COUNT(*) FROM route_rules`, "settings": `SELECT COUNT(*) FROM settings`, "audit_log": `SELECT COUNT(*) FROM audit_log`,
+}
+
+// CountRows is how many rows a table holds.
+func (s *Store) CountRows(ctx context.Context, table string) (int, error) {
+	q, ok := tables[table]
+	if !ok {
+		return 0, ErrNotFound
+	}
+	var n int
+	err := s.db.QueryRowContext(ctx, q).Scan(&n)
+	return n, err
 }
 
 // Snapshot copies the whole database, as of one moment, into a new file

@@ -69,6 +69,7 @@ type Core struct {
 	nodeRuntime
 	online  online
 	updates updates
+	sso     ssoRuntime
 	// beforeApply runs before a configuration is handed to sing-box.
 	beforeApply  func(context.Context)
 	offline      bool
@@ -268,6 +269,9 @@ func (c *Core) validateInbound(ctx context.Context, id int64, in *InboundInput) 
 	}
 	if len(in.Name) > 64 {
 		return invalid("name", "too_long")
+	}
+	if oddText(in.Name, false) {
+		return invalid("name", "bad_characters")
 	}
 	if in.Port < 1 || in.Port > 65535 {
 		return invalid("port", "out_of_range")
@@ -654,8 +658,11 @@ func validateClient(in *ClientInput) error {
 	if len(in.Name) > 64 {
 		return invalid("name", "too_long")
 	}
-	if strings.ContainsAny(in.Name, "\r\n\t") {
-		return invalid("name", "invalid")
+	if oddText(in.Name, false) {
+		return invalid("name", "bad_characters")
+	}
+	if oddText(in.Note, true) {
+		return invalid("note", "bad_characters")
 	}
 	if in.TrafficLimit < 0 {
 		return invalid("trafficLimit", "negative")
@@ -686,6 +693,13 @@ func (c *Core) CreateClient(ctx context.Context, in ClientInput) (*store.ClientR
 		TrafficLimit: in.TrafficLimit,
 		ExpiresAt:    in.ExpiresAt,
 		Note:         in.Note,
+	}
+	// Checked before anything is created: a request that is refused leaves
+	// nothing behind.
+	if in.Exit != nil && *in.Exit != 0 {
+		if n, err := c.store.NodeByID(ctx, *in.Exit); err != nil || !n.IsExit || !n.Enabled {
+			return nil, invalid("exitId", "not_an_exit")
+		}
 	}
 	if err := c.store.CreateClient(ctx, cl); err != nil {
 		if errors.Is(err, store.ErrConflict) {
@@ -791,7 +805,10 @@ func (c *Core) SetSubscriptionBaseURL(ctx context.Context, raw string) error {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
 	if raw != "" {
 		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
+		// No login in it either: this address goes into every client's
+		// subscription link, and a password written there would go to all
+		// of them.
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || oddText(raw, false) {
 			return invalid("subscriptionBaseUrl", "invalid_url")
 		}
 	}
@@ -879,6 +896,11 @@ func (c *Core) SetACME(ctx context.Context, s ACMESettings) error {
 	}
 	if s.HTTPPort == 0 {
 		s.HTTPPort = DefaultACMEHTTPPort
+	}
+	// Whether or not the chosen check uses the port: a number that is not
+	// a port is never stored.
+	if s.HTTPPort < 1 || s.HTTPPort > 65535 {
+		return invalid("acmeHttpPort", "out_of_range")
 	}
 	switch s.Challenge {
 	case ChallengeHTTP:
@@ -1212,3 +1234,21 @@ func (c *Core) Run(ctx context.Context, interval time.Duration) {
 // OnBeforeApply registers what has to happen before sing-box gets a new
 // configuration.
 func (c *Core) OnBeforeApply(fn func(context.Context)) { c.beforeApply = fn }
+
+// AllOrNothing runs a change of several settings so that it is saved whole
+// or not at all: when save fails part of the way, the settings go back to
+// what they were before it began. A form with one wrong field is refused as
+// a form, without its right fields being quietly kept.
+func (c *Core) AllOrNothing(ctx context.Context, save func() error) error {
+	was, err := c.store.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	if err := save(); err != nil {
+		if rerr := c.store.RestoreSettings(ctx, was); rerr != nil {
+			c.log.Error("restore settings after a refused change", "err", rerr)
+		}
+		return err
+	}
+	return nil
+}

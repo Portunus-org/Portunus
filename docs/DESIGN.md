@@ -37,8 +37,12 @@ npx shadcn@latest add dashboard-01
   content scrolls under the header.
 - Formatting is Prettier with `web/.prettierrc.json`; `components/ui` is
   excluded, registry components stay as installed.
-- Text lives in `web/lib/messages.ts` (English and Russian); no strings in
-  components.
+- An error that is about one field is shown at that field: the control is
+  outlined in red (aria-invalid) and the words are right under it
+  (`useFormErrors`, which places the server's refusals by the field they
+  name). Only what belongs to no field is said at the foot of the form.
+- Text lives in `web/locales/<code>.json` (English and Russian), one file per
+  language with the same keys; no strings in components.
 
 ## Tone
 

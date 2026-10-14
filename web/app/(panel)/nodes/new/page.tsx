@@ -17,8 +17,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
-import { api, errorText, type Node, type NodeKind } from "@/lib/api"
+import { api, type Node, type NodeKind } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { useFormErrors } from "@/lib/form-errors"
 import { useSession } from "@/lib/session"
 
 type Step = "type" | "details"
@@ -171,7 +172,7 @@ export default function NewNodePage() {
   const [standby, setStandby] = React.useState(false)
   const [link, setLink] = React.useState("")
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
   const [created, setCreated] = React.useState<Node | null>(null)
 
   React.useEffect(() => {
@@ -182,7 +183,7 @@ export default function NewNodePage() {
 
   async function create() {
     setPending(true)
-    setError(null)
+    clear()
     try {
       setCreated(
         await api.createNode(
@@ -199,7 +200,7 @@ export default function NewNodePage() {
         )
       )
     } catch (err) {
-      setError(errorText(err, t))
+      fail(err, ["name", "address", "link"])
     } finally {
       setPending(false)
     }
@@ -216,7 +217,7 @@ export default function NewNodePage() {
   }
 
   return (
-    <div className="flex justify-center px-4 lg:px-6">
+    <div className="flex justify-center px-4 lg:px-6" onInput={clear}>
       <StepFrame
         step={step === "type" ? 1 : 2}
         total={2}
@@ -232,7 +233,7 @@ export default function NewNodePage() {
               <Button
                 variant="ghost"
                 onClick={() => {
-                  setError(null)
+                  clear()
                   setStep("type")
                 }}
               >
@@ -263,7 +264,7 @@ export default function NewNodePage() {
 
         {step === "details" && kind === "agent" && (
           <>
-            <FormField id="name" label={t("nodes.form.name")}>
+            <FormField id="name" error={errors.name} label={t("nodes.form.name")}>
               <Input
                 id="name"
                 value={name}
@@ -273,7 +274,7 @@ export default function NewNodePage() {
                 autoFocus
               />
             </FormField>
-            <FormField id="address" label={t("nodes.form.address")} hint={t("nodes.form.addressHint")}>
+            <FormField id="address" error={errors.address} label={t("nodes.form.address")} hint={t("nodes.form.addressHint")}>
               <Input
                 id="address"
                 value={address}
@@ -314,7 +315,7 @@ export default function NewNodePage() {
 
         {step === "details" && kind === "link" && (
           <>
-            <FormField id="link" label={t("nodeWizard.link.link")}>
+            <FormField id="link" error={errors.link} label={t("nodeWizard.link.link")}>
               <Textarea
                 id="link"
                 value={link}
@@ -327,13 +328,13 @@ export default function NewNodePage() {
                 autoFocus
               />
             </FormField>
-            <FormField id="name" label={t("nodes.form.name")} hint={t("nodeWizard.link.nameHint")}>
+            <FormField id="name" error={errors.name} label={t("nodes.form.name")} hint={t("nodeWizard.link.nameHint")}>
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} />
             </FormField>
           </>
         )}
 
-        <FormError>{error}</FormError>
+        <FormError>{errors.form}</FormError>
       </StepFrame>
     </div>
   )

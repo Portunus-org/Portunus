@@ -4,12 +4,14 @@ import * as React from "react"
 import { usePathname } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { SettingsDialog } from "@/components/settings-dialog"
 import { SiteHeader } from "@/components/site-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar"
 import { useI18n } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/messages"
 import { SessionGate } from "@/lib/session"
+import { SettingsWindowProvider } from "@/lib/settings-dialog"
 
 const titles: [string, MessageKey][] = [
   ["/clients/", "clients.title"],
@@ -18,7 +20,6 @@ const titles: [string, MessageKey][] = [
   ["/nodes/new/", "nodeWizard.title"],
   ["/nodes/", "nodes.title"],
   ["/routing/", "routing.title"],
-  ["/settings/", "settings.title"],
   ["/docs/", "docs.title"],
   ["/account/", "account.title"],
 ]
@@ -69,7 +70,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default function PanelLayout({ children }: LayoutProps<"/">) {
   return (
     <SessionGate>
-      <Shell>{children}</Shell>
+      <SettingsWindowProvider>
+        <Shell>{children}</Shell>
+        <SettingsDialog />
+      </SettingsWindowProvider>
     </SessionGate>
   )
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { messages, type Locale, type MessageKey } from "@/lib/messages"
+import { localeCodes, messages, type Locale, type MessageKey } from "@/lib/messages"
 
 type Params = Record<string, string | number>
 export type Translate = (key: MessageKey, params?: Params) => string
@@ -20,22 +20,27 @@ const STORAGE_KEY = "portunus.locale"
 function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved === "ru" || saved === "en") return saved
+    if (saved && (localeCodes as string[]).includes(saved)) return saved as Locale
   } catch {
     // storage unavailable
   }
-  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ru") ? "ru" : "en"
+  // The first of the browser's languages there is a file for.
+  const wanted = typeof navigator === "undefined" ? [] : (navigator.languages ?? [navigator.language])
+  for (const tag of wanted) {
+    const code = tag.toLowerCase().split("-")[0]
+    if ((localeCodes as string[]).includes(code)) return code as Locale
+  }
+  return "en"
 }
 
+// Which of a text's plural forms n takes, by the language's own rules
+// (Intl.PluralRules): the forms are written in the order of CLDR's
+// categories, as many as the language uses.
+const categoryOrder = ["zero", "one", "two", "few", "many", "other"]
 function pluralIndex(locale: Locale, n: number): number {
-  if (locale === "ru") {
-    const m10 = n % 10
-    const m100 = n % 100
-    if (m10 === 1 && m100 !== 11) return 0
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 1
-    return 2
-  }
-  return n === 1 ? 0 : 1
+  const rules = new Intl.PluralRules(locale)
+  const used = categoryOrder.filter((c) => rules.resolvedOptions().pluralCategories.includes(c as Intl.LDMLPluralRule))
+  return Math.max(0, used.indexOf(rules.select(n)))
 }
 
 function fill(s: string, params?: Params) {

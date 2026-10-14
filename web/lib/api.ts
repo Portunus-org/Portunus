@@ -14,6 +14,56 @@ export interface User {
   username: string
   role: Role
   mustChangePassword: boolean
+  /** Signs in through the provider: there is no password here to change. */
+  sso?: boolean
+  displayName?: string
+}
+
+/** What of the provider's settings is sent back when saving: all of it but what the server only reports. */
+export function ssoInput(s: SSOSettings): Omit<SSOSettings, "hasSecret"> {
+  return {
+    enabled: s.enabled,
+    name: s.name,
+    issuer: s.issuer,
+    clientId: s.clientId,
+    scopes: s.scopes,
+    groupsClaim: s.groupsClaim,
+    adminGroup: s.adminGroup,
+    operatorGroup: s.operatorGroup,
+    viewerGroup: s.viewerGroup,
+    defaultRole: s.defaultRole,
+  }
+}
+
+/** An account of the panel, as an administrator sees it. */
+export interface Account {
+  id: number
+  username: string
+  displayName?: string
+  role: Role
+  disabled: boolean
+  sso: boolean
+  createdAt: string
+  lastLoginAt?: string
+  /** The account that asks. */
+  self: boolean
+}
+
+/** Sign-in through an OIDC provider. */
+export interface SSOSettings {
+  enabled: boolean
+  /** What the button on the sign-in page says. */
+  name: string
+  issuer: string
+  clientId: string
+  hasSecret: boolean
+  scopes: string
+  groupsClaim: string
+  adminGroup: string
+  operatorGroup: string
+  viewerGroup: string
+  /** Given to someone whose groups give no role; "": such a person is not let in. */
+  defaultRole: "" | Role
 }
 
 export interface SessionInfo {
@@ -525,6 +575,19 @@ export const api = {
       currentPassword,
       newPassword,
     }),
+  /** What the sign-in page offers besides a password. */
+  authMethods: () => request<{ sso?: { name: string } }>("GET", "/api/auth/methods"),
+  sso: () => request<{ settings: SSOSettings; callback: string }>("GET", "/api/sso"),
+  /** clientSecret: left out keeps the stored one, "" removes it. */
+  saveSSO: (body: Omit<SSOSettings, "hasSecret"> & { clientSecret?: string }) =>
+    request<{ settings: SSOSettings; callback: string }>("PUT", "/api/sso", body),
+  testSSO: (issuer: string) => request<{ ok: boolean; error?: string }>("POST", "/api/sso/test", { issuer }),
+  accounts: () => request<Account[]>("GET", "/api/users"),
+  /** The password comes back once, here. */
+  createAccount: (username: string, role: Role) => request<{ user: Account; password: string }>("POST", "/api/users", { username, role }),
+  updateAccount: (id: number, body: { role: Role; disabled: boolean }) => request<Account>("PUT", `/api/users/${id}`, body),
+  resetAccountPassword: (id: number) => request<{ password: string }>("POST", `/api/users/${id}/reset-password`, {}),
+  deleteAccount: (id: number) => request<void>("DELETE", `/api/users/${id}`),
   system: () => request<SystemInfo>("GET", "/api/system"),
   /** What the panel last learnt about newer releases. */
   update: () => request<UpdateInfo>("GET", "/api/update"),

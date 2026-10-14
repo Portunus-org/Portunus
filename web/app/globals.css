@@ -297,3 +297,49 @@ html[data-rendering="software"] [data-slot$="-overlay"] {
 [data-slot="empty-title"] {
   font-family: var(--font-sans);
 }
+
+/* A setting found by the search of the settings: lit up for a moment, then
+   back to normal. The light reaches a little beyond the row, so the row's
+   own edges stay where they are. */
+@keyframes setting-found {
+  0%,
+  35% {
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+    box-shadow: 0 0 0 10px color-mix(in oklab, var(--primary) 10%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+.setting-found {
+  border-radius: calc(var(--radius) - 2px);
+  animation: setting-found 1.8s ease-out;
+}
+/* The same light on a table row: on its cells, as a row cannot be rounded or shadowed. */
+@keyframes row-found {
+  0%,
+  35% {
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.row-found > td {
+  animation: row-found 1.8s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-found > td {
+    animation-duration: 0.01s;
+  }
+  .row-found {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+  .setting-found {
+    animation-duration: 0.01s;
+    outline: 2px solid var(--ring);
+    outline-offset: 6px;
+  }
+}

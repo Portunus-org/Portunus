@@ -18,7 +18,7 @@ project spec.
 │                                                              │
 │  portunus (Go, one static binary)          CONTROL PLANE     │
 │   ├─ HTTP API + embedded web UI  [built]                     │
-│   ├─ auth: local accounts, sessions  [built] · OIDC [st. 7]  │
+│   ├─ auth: local accounts, sessions, OIDC  [built]           │
 │   ├─ SQLite (WAL) on volume  [built]                         │
 │   ├─ config generator → sing-box JSON  [built]               │
 │   ├─ route list updater  [built]                             │
@@ -76,7 +76,9 @@ docs/                       this document, DECISIONS, DEPLOY, SECURITY, DESIGN
 
 Nodes and routing live in `internal/agent` (both ends of the control
 channel), `internal/proxy` (routing rules, hops, link import) and
-`internal/core` (nodes, lists, rules, sync). Planned: `internal/oidc`.
+`internal/core` (nodes, lists, rules, sync). Sign-in through a provider is
+`internal/oidc` (the flow) and `internal/core` (its settings, groups to
+roles).
 
 ## 4. HTTP surface [built]
 
@@ -105,8 +107,8 @@ everything else returns the decoy site.
 
 ## 5. Data model [built: users, sessions, audit_log, settings]
 
-- `users`: local and (later) OIDC-linked accounts, role
-  `admin|operator|viewer`.
+- `users`: accounts with a password of their own and accounts of an OIDC
+  provider (known by issuer and subject), role `admin|operator|viewer`.
 - `sessions`: SHA-256 of the cookie token, CSRF token, sliding expiry.
 - `audit_log`: security-relevant actions (login, failed login, password
   change or reset); later all config mutations.
@@ -115,7 +117,8 @@ everything else returns the decoy site.
 Stage 2: `inbounds` (public settings JSON + encrypted secret) and `clients`
 (credentials, subscription token, limit, expiry, traffic counters).
 Nodes and routing: `nodes` (roles, public settings, encrypted keys),
-`route_lists`, `route_rules`. Planned: `oidc_providers`.
+`route_lists`, `route_rules`. The one OIDC provider is a setting, its client
+secret encrypted like the other secrets.
 
 ## 6. Nodes, routing and failover [built]
 

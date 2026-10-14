@@ -33,6 +33,10 @@ type userDTO struct {
 	Username           string     `json:"username"`
 	Role               store.Role `json:"role"`
 	MustChangePassword bool       `json:"mustChangePassword"`
+	// SSO: the account signs in through the provider and has no password
+	// here to change.
+	SSO         bool   `json:"sso"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 type sessionDTO struct {
@@ -49,6 +53,8 @@ func toSessionDTO(sess *auth.Session) sessionDTO {
 			Username:           u.Username,
 			Role:               u.Role,
 			MustChangePassword: u.MustChangePassword,
+			SSO:                u.OIDCSubject != "",
+			DisplayName:        u.DisplayName,
 		},
 		CSRFToken: sess.CSRFToken,
 		ExpiresAt: sess.ExpiresAt.UTC(),

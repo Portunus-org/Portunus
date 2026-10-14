@@ -534,35 +534,40 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.ACMEChallenge != nil {
-		email := ""
-		if req.ACMEEmail != nil {
-			email = *req.ACMEEmail
+	ctx := r.Context()
+	// The page saves these together, so they are saved together: one field
+	// that is refused refuses the request, and none of the others is kept.
+	err := s.core.AllOrNothing(ctx, func() error {
+		if req.ACMEChallenge != nil {
+			email := ""
+			if req.ACMEEmail != nil {
+				email = *req.ACMEEmail
+			}
+			if err := s.core.SetACME(ctx, core.ACMESettings{Email: email, Challenge: *req.ACMEChallenge, HTTPPort: req.ACMEHTTPPort, CloudflareToken: req.CloudflareToken}); err != nil {
+				return err
+			}
 		}
-		if err := s.core.SetACME(r.Context(), core.ACMESettings{Email: email, Challenge: *req.ACMEChallenge, HTTPPort: req.ACMEHTTPPort, CloudflareToken: req.CloudflareToken}); err != nil {
-			s.writeCoreError(w, r, err)
-			return
+		if err := s.core.SetPublicHost(ctx, req.PublicHost); err != nil {
+			return err
 		}
-	}
-	if err := s.core.SetPublicHost(r.Context(), req.PublicHost); err != nil {
+		if err := s.core.SetSubscriptionBaseURL(ctx, req.SubscriptionBaseURL); err != nil {
+			return err
+		}
+		if req.Domain != nil {
+			if err := s.core.SetDomain(ctx, *req.Domain); err != nil {
+				return err
+			}
+		}
+		if req.SubscriptionPort != nil {
+			return s.core.SetSubscriptionPort(ctx, *req.SubscriptionPort)
+		}
+		return nil
+	})
+	if err != nil {
 		s.writeCoreError(w, r, err)
 		return
-	}
-	if err := s.core.SetSubscriptionBaseURL(r.Context(), req.SubscriptionBaseURL); err != nil {
-		s.writeCoreError(w, r, err)
-		return
-	}
-	if req.Domain != nil {
-		if err := s.core.SetDomain(r.Context(), *req.Domain); err != nil {
-			s.writeCoreError(w, r, err)
-			return
-		}
 	}
 	if req.SubscriptionPort != nil {
-		if err := s.core.SetSubscriptionPort(r.Context(), *req.SubscriptionPort); err != nil {
-			s.writeCoreError(w, r, err)
-			return
-		}
 		s.kickSubscriptions()
 	}
 	s.auditAction(r, "settings.update", "", nil)

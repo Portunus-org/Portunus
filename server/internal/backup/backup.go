@@ -136,6 +136,7 @@ func Unpack(r io.Reader, dir string) error {
 			if err != nil {
 				return err
 			}
+			// nosemgrep: go.lang.security.decompression_bomb.potential-dos-via-decompression-bomb -- bounded: at most maxFile bytes are read for a file
 			_, err = io.Copy(f, io.LimitReader(tr, maxFile))
 			if cerr := f.Close(); err == nil {
 				err = cerr

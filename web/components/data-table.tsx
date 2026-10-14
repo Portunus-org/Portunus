@@ -33,6 +33,7 @@ import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMe
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -72,11 +73,13 @@ export function DataTable<T extends RowData>({
   onViewChange,
   toolbar,
   empty,
+  loading = false,
   columnLabels = {},
   initialSorting = [],
   initialHidden = [],
   pageSize = 20,
   pager = "auto",
+  found,
 }: {
   data: T[]
   columns: ColumnDef<TableFeatures, T, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -86,6 +89,8 @@ export function DataTable<T extends RowData>({
   onViewChange?: (v: string) => void
   toolbar?: React.ReactNode
   empty?: React.ReactNode
+  /** The rows are still on their way: their shapes are shown instead of "nothing here". */
+  loading?: boolean
   /** Human names for the column visibility menu, by column id. */
   columnLabels?: Record<string, string>
   initialSorting?: SortingState
@@ -95,6 +100,8 @@ export function DataTable<T extends RowData>({
   pageSize?: number
   /** The page controls under the table: only when there is a second page, or always. */
   pager?: "auto" | "always"
+  /** A row to show: its page is turned to, it is scrolled to and lights up once, as a setting found in the settings does. */
+  found?: string | null
 }) {
   const { t, tp } = useI18n()
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>(() =>
@@ -116,6 +123,28 @@ export function DataTable<T extends RowData>({
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: setPagination,
   })
+
+  // The row asked for, once it is among the data: the page it falls on in
+  // the present order, then the row itself, lit up for a moment.
+  const [lit, setLit] = React.useState<string | null>(null)
+  const shown = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (!found || shown.current === found) return
+    const at = table.getPrePaginatedRowModel().rows.findIndex((r) => r.id === found)
+    if (at < 0) return
+    shown.current = found
+    const frame = requestAnimationFrame(() => {
+      setPagination((p) => ({ ...p, pageIndex: Math.floor(at / p.pageSize) }))
+      setLit(found)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [found, data, table])
+  React.useEffect(() => {
+    if (!lit) return
+    document.querySelector(`[data-row-id="${CSS.escape(lit)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" })
+    const off = setTimeout(() => setLit(null), 1800)
+    return () => clearTimeout(off)
+  }, [lit])
 
   // Back to the first page when the view changes the data underneath.
   const changeView = (v: string) => {
@@ -216,9 +245,21 @@ export function DataTable<T extends RowData>({
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.length ? (
+              {loading ? (
+                // shadcn's Skeleton, in the shape of the rows to come: the
+                // table keeps its height and nothing jumps when they arrive.
+                Array.from({ length: 4 }, (_, i) => (
+                  <TableRow key={i} className="hover:bg-transparent">
+                    {table.getVisibleLeafColumns().map((column, j) => (
+                      <TableCell key={column.id}>
+                        {column.id !== "actions" && <Skeleton className="h-4" style={{ width: `${[70, 45, 55, 35][(i + j) % 4]}%` }} />}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : table.getRowModel().rows.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} data-row-id={row.id} className={cn(lit === row.id && "row-found")}>
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className={cn(cell.column.id === "actions" && "w-10 text-right")}>
                         <FlexRender cell={cell} />

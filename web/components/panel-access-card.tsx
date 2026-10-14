@@ -2,13 +2,13 @@
 
 import * as React from "react"
 import { RefreshCwIcon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
 import { FormError, FormField, SwitchField } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Pane, PaneContent, PaneDescription, PaneFooter, PaneHeader, PaneTitle } from "@/components/settings-pane"
 import { Input } from "@/components/ui/input"
 import { RadioGroup } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
@@ -16,13 +16,14 @@ import { ChoiceCard, Note } from "@/components/wizard"
 import { api, errorText, type PanelAccess, type PanelAccessCheck } from "@/lib/api"
 import { formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
+import { useFormErrors } from "@/lib/form-errors"
 
 /** The secret address the panel is opened by, with a way to replace it. */
 export function PanelAddress({ access, onChanged }: { access: PanelAccess; onChanged?: (a: PanelAccess) => void }) {
   const { t } = useI18n()
   const [confirm, confirmDialog] = useConfirm()
   return (
-    <div className="grid gap-2 text-sm">
+    <div className="grid gap-2 text-sm" data-setting="access-address">
       <span className="font-medium">{t("access.address")}</span>
       <div className="relative">
         <pre className="rounded-lg bg-muted p-4 pr-12 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{access.url}</pre>
@@ -194,7 +195,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
   const [mode, setMode] = React.useState<"acme" | "own">("acme")
   const [port, setPort] = React.useState(443)
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
   const { check, reached, retry, waiting } = usePanelAccessChecks(!!access?.enabled)
 
   const show = React.useCallback((a: PanelAccess) => {
@@ -216,7 +217,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
     const certificate = String(f.get("certificate") ?? "").trim()
     const key = String(f.get("key") ?? "").trim()
     setPending(true)
-    setError(null)
+    clear()
     try {
       show(
         await api.setPanelAccess({
@@ -232,21 +233,21 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
       retry()
       toast.success(t("settings.saved"))
     } catch (err) {
-      setError(errorText(err, t))
+      fail(err, ["access-port", "certificate", "key", "decoy"], { port: "access-port" })
     } finally {
       setPending(false)
     }
   }
 
   return (
-    <Card>
-      <form className="contents" noValidate onSubmit={onSubmit}>
-        <CardHeader>
-          <CardTitle>{t("access.title")}</CardTitle>
-          <CardDescription>{t("access.description")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <fieldset disabled={!canEdit} className="grid max-w-xl gap-6">
+    <Pane>
+      <form className="contents" noValidate onSubmit={onSubmit} onInput={clear}>
+        <PaneHeader>
+          <PaneTitle>{t("access.title")}</PaneTitle>
+          <PaneDescription>{t("access.description")}</PaneDescription>
+        </PaneHeader>
+        <PaneContent>
+          <fieldset disabled={!canEdit} className="grid gap-7">
             {!access.domain ? (
               <Note tone="warn">{t("access.needsDomain")}</Note>
             ) : (
@@ -266,7 +267,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                     </RadioGroup>
                     {mode === "own" && (
                       <>
-                        <FormField id="access-port" label={t("access.port")} hint={t("access.portHint")}>
+                        <FormField id="access-port" error={errors["access-port"]} label={t("access.port")} hint={t("access.portHint")}>
                           <Input
                             id="access-port"
                             type="number"
@@ -279,6 +280,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                         </FormField>
                         <FormField
                           id="certificate"
+                          error={errors.certificate}
                           label={t("access.certificate")}
                           hint={t(access.hasCertificate ? "access.certificateKeep" : "access.certificateHint")}
                         >
@@ -291,7 +293,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                             placeholder="-----BEGIN CERTIFICATE-----"
                           />
                         </FormField>
-                        <FormField id="key" label={t("access.key")}>
+                        <FormField id="key" error={errors.key} label={t("access.key")}>
                           <Textarea
                             id="key"
                             name="key"
@@ -306,7 +308,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                   </>
                 )}
                 {enabled && (
-                  <FormField id="decoy" label={t("access.decoy")} hint={t("access.decoyHint")}>
+                  <FormField id="decoy" error={errors.decoy} label={t("access.decoy")} hint={t("access.decoyHint")}>
                     <Input id="decoy" name="decoy" defaultValue={access.decoy} placeholder={t("access.decoyAuto")} spellCheck={false} />
                   </FormField>
                 )}
@@ -324,16 +326,16 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
               </>
             )}
           </fieldset>
-          <FormError>{error}</FormError>
-        </CardContent>
+          <FormError>{errors.form}</FormError>
+        </PaneContent>
         {canEdit && access.domain && (
-          <CardFooter className="border-t">
+          <PaneFooter className="border-t">
             <Button type="submit" size="sm" disabled={pending}>
               {pending ? t("common.saving") : t("common.save")}
             </Button>
-          </CardFooter>
+          </PaneFooter>
         )}
       </form>
-    </Card>
+    </Pane>
   )
 }

@@ -41,7 +41,7 @@ export function CAInstall({ compact = false }: { compact?: boolean }) {
           </div>
         )}
         <div className="grid min-w-0 flex-1 gap-4">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" data-setting="ca-download">
             <Button asChild variant="outline" size="sm">
               <a href={api.caCertificateUrl("pem")} download>
                 <DownloadIcon />
@@ -62,7 +62,9 @@ export function CAInstall({ compact = false }: { compact?: boolean }) {
             <div className="grid gap-1">
               <span>{ca.subject}</span>
               <span className="text-muted-foreground">{t("ca.expires", { date: formatDate(ca.notAfter, locale) })}</span>
-              <span className="text-muted-foreground">{t("ca.fingerprint")}</span>
+              <span className="text-muted-foreground" data-setting="ca-fingerprint">
+                {t("ca.fingerprint")}
+              </span>
               <span className="flex items-start gap-1">
                 <code className="min-w-0 font-mono text-xs break-all">{ca.fingerprint.match(/.{2}/g)?.join(":")}</code>
                 <CopyButton value={ca.fingerprint} />

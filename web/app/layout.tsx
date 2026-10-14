@@ -51,8 +51,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <I18nProvider>
             <TooltipProvider>
               {children}
-              {/* On the left: the forms open on the right, and a note there would lie over their buttons. */}
-              <Toaster position="bottom-left" />
+              {/* On the right unless a panel is open there: each note picks its side as it appears (lib/toast). */}
+              <Toaster position="bottom-right" />
             </TooltipProvider>
           </I18nProvider>
         </ThemeProvider>

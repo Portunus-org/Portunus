@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CircleAlertIcon, CircleCheckIcon, LoaderIcon } from "lucide-react"
+import { CircleAlertIcon, CircleCheckIcon, LoaderIcon, InfoIcon } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field"
@@ -115,9 +115,11 @@ export function Task({ state, label, note }: { state: TaskState; label: string; 
 }
 
 /** A short status line: ok (green), warn (amber), or in progress. */
-export function Note({ tone, children }: { tone: "ok" | "warn" | "pending" | "error"; children: React.ReactNode }) {
+export function Note({ tone, children }: { tone: "ok" | "warn" | "pending" | "error" | "info"; children: React.ReactNode }) {
   return (
     <p className="flex items-start gap-2 text-sm">
+      {/* Something to know, not something that went well or badly. */}
+      {tone === "info" && <InfoIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
       {tone === "ok" && <CircleCheckIcon className="mt-0.5 size-4 shrink-0 fill-green-500 text-background dark:fill-green-400" />}
       {tone === "warn" && <CircleAlertIcon className="mt-0.5 size-4 shrink-0 fill-amber-500 text-background dark:fill-amber-400" />}
       {tone === "error" && <CircleAlertIcon className="mt-0.5 size-4 shrink-0 fill-red-500 text-background" />}

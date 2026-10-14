@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { EllipsisVerticalIcon, PencilIcon, PlusIcon, PowerIcon, RefreshCwIcon, ServerIcon, TerminalIcon, Trash2Icon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { useConfirm } from "@/components/confirm"
 import { columnHelper, DataTable } from "@/components/data-table"
@@ -12,6 +12,7 @@ import { NodeStatus } from "@/components/nodes/node-status"
 import { NodesMapCard } from "@/components/nodes/nodes-map-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -127,18 +128,21 @@ export default function NodesPage() {
         }),
         col.accessor((n) => n.clients, {
           id: "clients",
-          header: () => <div className="w-full text-right">{t("nodes.col.clients")}</div>,
+          // Under the first letter of its heading, like every other column:
+          // a number set against the far edge of a wide column reads as
+          // belonging to the next one.
+          header: t("nodes.col.clients"),
           cell: ({ row }) => (
-            <div className="text-right tabular-nums" title={t("nodes.clientsHint")}>
+            <div className="tabular-nums" title={t("nodes.clientsHint")}>
               {row.original.isExit && row.original.clients}
             </div>
           ),
         }),
         col.accessor((n) => n.status.latencyMs ?? Infinity, {
           id: "latency",
-          header: () => <div className="w-full text-right">{t("nodes.col.latency")}</div>,
+          header: t("nodes.col.latency"),
           cell: ({ row }) => (
-            <div className="text-right tabular-nums" title={t("nodes.latencyHint")}>
+            <div className="tabular-nums" title={t("nodes.latencyHint")}>
               {row.original.status.latencyMs !== undefined && t("nodes.latency", { ms: row.original.status.latencyMs })}
             </div>
           ),
@@ -247,6 +251,11 @@ export default function NodesPage() {
         </div>
       ) : (
         <>
+          {!data && (
+            <div className="px-4 lg:px-6">
+              <Skeleton className="h-96 w-full rounded-xl" />
+            </div>
+          )}
           {data && (
             <div className="px-4 lg:px-6">
               <NodesMapCard
@@ -281,7 +290,7 @@ export default function NodesPage() {
                 {add}
               </>
             }
-            empty={t("common.loading")}
+            loading={!data}
           />
         </>
       )}

@@ -192,6 +192,9 @@ func (c *Core) validateNode(ctx context.Context, id int64, in *NodeInput) error 
 	if len(in.Name) > 64 {
 		return invalid("name", "too_long")
 	}
+	if oddText(in.Name, false) {
+		return invalid("name", "bad_characters")
+	}
 	if in.Kind == NodeLink {
 		in.IsExit, in.IsEntry = true, false
 		return nil
@@ -268,7 +271,11 @@ func (c *Core) CreateNode(ctx context.Context, in NodeInput) (Node, error) {
 			return Node{}, invalid("link", "unsupported_link")
 		}
 		if strings.TrimSpace(in.Name) == "" {
-			in.Name = imp.Name
+			// The label of the link is somebody else's text.
+			in.Name = plainText(imp.Name)
+			if len(in.Name) > 64 {
+				in.Name = strings.ToValidUTF8(in.Name[:64], "")
+			}
 		}
 		if strings.TrimSpace(in.Name) == "" {
 			in.Name = net.JoinHostPort(imp.Address, strconv.Itoa(imp.Port))

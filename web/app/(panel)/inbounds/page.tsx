@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { EllipsisVerticalIcon, KeyRoundIcon, PencilIcon, PlusIcon, PowerIcon, Trash2Icon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { useConfirm } from "@/components/confirm"
 import { columnHelper, DataTable } from "@/components/data-table"
@@ -118,9 +118,9 @@ export default function InboundsPage() {
           },
         }),
         col.accessor("port", {
-          header: () => <div className="w-full text-right">{t("inbounds.col.port")}</div>,
+          header: t("inbounds.col.port"),
           cell: ({ row }) => (
-            <div className="text-right tabular-nums">
+            <div className="tabular-nums">
               <span className="text-muted-foreground">{protocols[row.original.protocol].transport}</span> {row.original.port}
             </div>
           ),
@@ -245,7 +245,8 @@ export default function InboundsPage() {
             </Button>
           )
         }
-        empty={data ? t("inbounds.empty") : t("common.loading")}
+        loading={!data}
+        empty={t("inbounds.empty")}
       />
 
       {editing && <InboundDrawer key={editing.id} open={drawerOpen} onOpenChange={setDrawerOpen} inbound={editing} onSaved={reload} />}

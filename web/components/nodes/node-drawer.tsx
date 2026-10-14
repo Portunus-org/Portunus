@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { JoinCommand } from "@/components/nodes/join-command"
 import { RecoveryKey } from "@/components/nodes/recovery-key"
@@ -19,9 +19,10 @@ import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { useDeferredMount } from "@/lib/use-resource"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { api, errorText, type GeoLocation, type MapStyle, type Node } from "@/lib/api"
+import { api, type GeoLocation, type MapStyle, type Node } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
+import { useFormErrors } from "@/lib/form-errors"
 import { useSession } from "@/lib/session"
 
 function Value({ label, children }: { label: string; children: React.ReactNode }) {
@@ -67,7 +68,7 @@ export function NodeDrawer({
   const [standby, setStandby] = React.useState(node.standby)
   const [enabled, setEnabled] = React.useState(node.enabled)
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
   const agent = node.kind === "agent"
   // The place on the map is one more field of this form: a click on the
   // map changes what will be saved, and nothing is saved before "Save".
@@ -79,7 +80,7 @@ export function NodeDrawer({
     e.preventDefault()
     const f = new FormData(e.currentTarget)
     setPending(true)
-    setError(null)
+    clear()
     try {
       await api.updateNode(node.id, {
         name: String(f.get("name") ?? ""),
@@ -95,7 +96,7 @@ export function NodeDrawer({
       onSaved()
       onOpenChange(false)
     } catch (err) {
-      setError(errorText(err, t))
+      fail(err, ["name", "hopPort", "agentPort"])
     } finally {
       setPending(false)
     }
@@ -145,9 +146,9 @@ export function NodeDrawer({
             </div>
             <Separator />
 
-            <form id="node-form" onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+            <form id="node-form" onSubmit={onSubmit} onInput={clear} className="flex flex-col gap-4" noValidate>
               <fieldset disabled={!isAdmin} className="contents">
-                <FormField id="name" label={t("nodes.form.name")}>
+                <FormField id="name" error={errors.name} label={t("nodes.form.name")}>
                   <Input id="name" name="name" defaultValue={node.name} maxLength={64} required />
                 </FormField>
                 {agent && (
@@ -175,8 +176,8 @@ export function NodeDrawer({
                         </FieldContent>
                       </Field>
                     </FieldGroup>
-                    <div className="grid grid-cols-2 items-end gap-4">
-                      <FormField id="hopPort" label={t("nodes.form.hopPort")}>
+                    <div className="grid grid-cols-2 items-start gap-4">
+                      <FormField id="hopPort" error={errors.hopPort} label={t("nodes.form.hopPort")}>
                         <Input
                           id="hopPort"
                           name="hopPort"
@@ -187,7 +188,7 @@ export function NodeDrawer({
                           defaultValue={node.hopPort}
                         />
                       </FormField>
-                      <FormField id="agentPort" label={t("nodes.form.agentPort")}>
+                      <FormField id="agentPort" error={errors.agentPort} label={t("nodes.form.agentPort")}>
                         <Input
                           id="agentPort"
                           name="agentPort"
@@ -203,7 +204,7 @@ export function NodeDrawer({
                 )}
                 <SwitchField id="node-enabled" label={t("nodes.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
               </fieldset>
-              <FormError>{error}</FormError>
+              <FormError>{errors.form}</FormError>
             </form>
 
             <Separator />

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { MapPinIcon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { NodeMap, NodeMapLegend, nodeMapState, type MapPoint, type MapState } from "@/components/nodes/node-map"
 import { Button } from "@/components/ui/button"

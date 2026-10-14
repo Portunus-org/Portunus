@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { emptySource, SourceFields, sourceReady, sourceToList, type Source } from "@/components/routing/source-fields"
 import { TargetSelect } from "@/components/routing/target-select"
@@ -13,8 +13,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { api, errorText, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
+import { api, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { FormErrorsContext, useFormErrors } from "@/lib/form-errors"
 
 /**
  * Create or edit a rule: what it applies to and where that traffic goes.
@@ -54,11 +55,11 @@ export function RuleDrawer({
     rule ? { action: rule.action, nodeId: rule.nodeId } : exits.length ? { action: "auto" } : { action: "direct" }
   )
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
 
   async function save() {
     setPending(true)
-    setError(null)
+    clear()
     try {
       if (rule && list) {
         await api.updateRouteList(list.id, sourceToList(source))
@@ -81,7 +82,15 @@ export function RuleDrawer({
       onSaved()
       onOpenChange(false)
     } catch (err) {
-      setError(errorText(err, t))
+      // The list and the rule are saved one after the other; either one's
+      // refusal names the field of this form it is about.
+      fail(err, ["source-name", "source-content", "source-url", "rule-target"], {
+        name: "source-name",
+        content: "source-content",
+        url: "source-url",
+        node: "rule-target",
+        action: "rule-target",
+      })
     } finally {
       setPending(false)
     }
@@ -96,20 +105,24 @@ export function RuleDrawer({
         </DrawerHeader>
 
         <ScrollArea className={drawerScroll}>
-          <div className="flex flex-col gap-4 px-4 text-sm">
-            <div className="flex flex-col gap-3">
-              <Label>{t("routing.rule.what")}</Label>
-              <SourceFields value={source} onChange={setSource} fixed={!!rule} />
-            </div>
-            <Separator />
-            <FormField id="rule-target" label={t("routing.rule.target")}>
-              <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} allowBlock />
-              {(target.action === "node" || target.action === "auto") && <p className="text-muted-foreground">{t("routing.failClosed")}</p>}
-              {target.action === "direct" && nodes.some((n) => n.isEntry && n.enabled) && (
-                <p className="text-muted-foreground">{t("routing.directNote")}</p>
-              )}
-            </FormField>
-            <FormError>{error}</FormError>
+          <div className="flex flex-col gap-4 px-4 text-sm" onInput={clear}>
+            <FormErrorsContext.Provider value={errors}>
+              <div className="flex flex-col gap-3">
+                <Label>{t("routing.rule.what")}</Label>
+                <SourceFields value={source} onChange={setSource} fixed={!!rule} />
+              </div>
+              <Separator />
+              <FormField id="rule-target" label={t("routing.rule.target")}>
+                <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} allowBlock />
+                {(target.action === "node" || target.action === "auto") && (
+                  <p className="text-muted-foreground">{t("routing.failClosed")}</p>
+                )}
+                {target.action === "direct" && nodes.some((n) => n.isEntry && n.enabled) && (
+                  <p className="text-muted-foreground">{t("routing.directNote")}</p>
+                )}
+              </FormField>
+            </FormErrorsContext.Provider>
+            <FormError>{errors.form}</FormError>
           </div>
         </ScrollArea>
 

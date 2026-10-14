@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 
 import { CopyButton } from "@/components/copy-button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Note } from "@/components/wizard"
 import { api, errorText, type Node } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
@@ -31,9 +32,11 @@ export function RecoveryKey({ node }: { node: Node }) {
       <span className="font-medium">{t("nodes.recovery.title")}</span>
       <span className="text-muted-foreground">{t("nodes.recovery.hint")}</span>
       <div className="relative">
-        <pre className="rounded-lg bg-muted p-4 pr-12 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
-          {key ?? t("common.loading")}
-        </pre>
+        {key ? (
+          <pre className="rounded-lg bg-muted p-4 pr-12 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{key}</pre>
+        ) : (
+          <Skeleton className="h-12 w-full rounded-lg" />
+        )}
         {key && <CopyButton value={key} className="absolute top-2 right-2 text-muted-foreground" />}
       </div>
       <span className="text-muted-foreground">

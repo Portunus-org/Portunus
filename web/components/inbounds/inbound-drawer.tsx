@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { CopyButton } from "@/components/copy-button"
 import { StatusBadge } from "@/components/status"
@@ -14,9 +14,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { api, errorText, type Inbound, type TLSMode } from "@/lib/api"
+import { api, type Inbound, type TLSMode } from "@/lib/api"
 import { formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
+import { useFormErrors } from "@/lib/form-errors"
 import type { MessageKey } from "@/lib/messages"
 import { protocols } from "@/lib/protocols"
 
@@ -62,7 +63,7 @@ export function InboundDrawer({
   const [strictTls, setStrictTls] = React.useState(inbound.strictTls ?? false)
   const [tlsMode, setTlsMode] = React.useState<TLSMode>(inbound.tlsMode ?? "self-signed")
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
 
   const info = protocols[protocol]
   const usesTLS = protocol === "hysteria2" || protocol === "tuic" || protocol === "trojan"
@@ -87,14 +88,18 @@ export function InboundDrawer({
       strictTls: usesTLS && tlsMode === "self-signed" ? strictTls : undefined,
     }
     setPending(true)
-    setError(null)
+    clear()
     try {
       await api.updateInbound(inbound.id, input)
       toast.success(t("inbounds.toast.saved"))
       onSaved()
       onOpenChange(false)
     } catch (err) {
-      setError(errorText(err, t))
+      fail(
+        err,
+        ["name", "port", "realityServer", "realityServerPort", "tlsMode", "serverName", "certificatePath", "keyPath", "masqueradeUrl"],
+        { certificate: "certificatePath" }
+      )
     } finally {
       setPending(false)
     }
@@ -114,12 +119,12 @@ export function InboundDrawer({
         </DrawerHeader>
 
         <ScrollArea className={drawerScroll}>
-          <form id="inbound-form" onSubmit={onSubmit} className="flex flex-col gap-4 px-4 text-sm" noValidate>
+          <form id="inbound-form" onSubmit={onSubmit} onInput={clear} className="flex flex-col gap-4 px-4 text-sm" noValidate>
             <div className="grid grid-cols-[1fr_7rem] gap-4">
-              <FormField id="name" label={t("inbounds.form.name")}>
+              <FormField id="name" error={errors.name} label={t("inbounds.form.name")}>
                 <Input id="name" name="name" defaultValue={inbound.name} placeholder={protocols[protocol].label} maxLength={64} />
               </FormField>
-              <FormField id="port" label={t("inbounds.form.port", { transport: info.transport })}>
+              <FormField id="port" error={errors.port} label={t("inbounds.form.port", { transport: info.transport })}>
                 <Input
                   id="port"
                   name="port"
@@ -135,7 +140,12 @@ export function InboundDrawer({
 
             {protocol === "vless" && (
               <div className="grid grid-cols-[1fr_7rem] gap-4">
-                <FormField id="realityServer" label={t("inbounds.form.realityTarget")} hint={t("inbounds.form.realityTargetHint")}>
+                <FormField
+                  id="realityServer"
+                  error={errors.realityServer}
+                  label={t("inbounds.form.realityTarget")}
+                  hint={t("inbounds.form.realityTargetHint")}
+                >
                   <Input
                     id="realityServer"
                     name="realityServer"
@@ -144,7 +154,7 @@ export function InboundDrawer({
                     spellCheck={false}
                   />
                 </FormField>
-                <FormField id="realityServerPort" label={t("inbounds.form.targetPort")}>
+                <FormField id="realityServerPort" error={errors.realityServerPort} label={t("inbounds.form.targetPort")}>
                   <Input
                     id="realityServerPort"
                     name="realityServerPort"
@@ -160,7 +170,7 @@ export function InboundDrawer({
 
             {usesTLS && (
               <>
-                <FormField id="tlsMode" label={t("inbounds.form.certificate")} hint={t(tlsHint[tlsMode])}>
+                <FormField id="tlsMode" error={errors.tlsMode} label={t("inbounds.form.certificate")} hint={t(tlsHint[tlsMode])}>
                   <Select value={tlsMode} onValueChange={(v) => setTlsMode(v as TLSMode)}>
                     <SelectTrigger id="tlsMode" className="w-full">
                       <SelectValue />
@@ -176,6 +186,7 @@ export function InboundDrawer({
                 </FormField>
                 <FormField
                   id="serverName"
+                  error={errors.serverName}
                   label={t(tlsMode === "self-signed" ? "inbounds.form.serverName" : "inbounds.form.domain")}
                   hint={t(tlsMode === "self-signed" ? "inbounds.form.serverNameHint" : "inbounds.form.domainHint")}
                 >
@@ -203,7 +214,7 @@ export function InboundDrawer({
                 )}
                 {tlsMode === "file" && (
                   <>
-                    <FormField id="certificatePath" label={t("inbounds.form.certPath")}>
+                    <FormField id="certificatePath" error={errors.certificatePath} label={t("inbounds.form.certPath")}>
                       <Input
                         id="certificatePath"
                         name="certificatePath"
@@ -212,7 +223,7 @@ export function InboundDrawer({
                         spellCheck={false}
                       />
                     </FormField>
-                    <FormField id="keyPath" label={t("inbounds.form.keyPath")} hint={t("inbounds.form.pathsHint")}>
+                    <FormField id="keyPath" error={errors.keyPath} label={t("inbounds.form.keyPath")} hint={t("inbounds.form.pathsHint")}>
                       <Input
                         id="keyPath"
                         name="keyPath"
@@ -228,7 +239,12 @@ export function InboundDrawer({
 
             {protocol === "hysteria2" && (
               <>
-                <FormField id="masqueradeUrl" label={t("inbounds.form.masquerade")} hint={t("inbounds.form.masqueradeHint")}>
+                <FormField
+                  id="masqueradeUrl"
+                  error={errors.masqueradeUrl}
+                  label={t("inbounds.form.masquerade")}
+                  hint={t("inbounds.form.masqueradeHint")}
+                >
                   <Input
                     id="masqueradeUrl"
                     name="masqueradeUrl"
@@ -289,7 +305,7 @@ export function InboundDrawer({
                 </div>
               )}
             </div>
-            <FormError>{error}</FormError>
+            <FormError>{errors.form}</FormError>
           </form>
         </ScrollArea>
 

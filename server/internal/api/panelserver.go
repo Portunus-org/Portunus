@@ -169,6 +169,7 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 		}
 		s.shareCertificate(pair)
 		tlsCfg = &tls.Config{
+			MinVersion: tls.VersionTLS12,
 			NextProtos: []string{"h2", "http/1.1"},
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 				if !strings.EqualFold(hello.ServerName, pa.Domain) {
@@ -262,6 +263,8 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 			return cert, err
 		}
 	}
+	// The floor, not the version used: a browser that has TLS 1.3, as all
+	// current ones do, gets 1.3. Nothing older than 1.2 is spoken at all.
 	tlsCfg.MinVersion = tls.VersionTLS12
 	// With Let's Encrypt the certificate is asked for now and not at the
 	// first visit (the connections that serve the same certificate should
@@ -424,7 +427,7 @@ func (s *Server) warmUp(domain string) {
 	defer cancel()
 	dialer := &tls.Dialer{
 		NetDialer: &net.Dialer{Timeout: 5 * time.Second},
-		Config:    &tls.Config{ServerName: domain, InsecureSkipVerify: true}, // nosemgrep: go.lang.security.audit.net.use-tls.use-tls, problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- a handshake with ourselves, only to have the certificate obtained; nothing is sent
+		Config:    &tls.Config{MinVersion: tls.VersionTLS12, ServerName: domain, InsecureSkipVerify: true}, // nosemgrep: go.lang.security.audit.net.use-tls.use-tls, problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- a handshake with ourselves, only to have the certificate obtained; nothing is sent
 	}
 	if conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(core.PanelInnerPort))); err == nil {
 		conn.Close()
@@ -525,6 +528,7 @@ func (s *Server) gated(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			// nosemgrep: go.lang.security.audit.xss.no-io-writestring-to-responsewriter.no-io-writestring-to-responsewriter -- plain text, and only the one address the panel itself made up a moment ago gets here
 			io.WriteString(w, strings.TrimPrefix(r.URL.Path, "/"))
 			return
 		}
@@ -742,7 +746,7 @@ func (s *Server) handleCheckPanelAccess(w http.ResponseWriter, r *http.Request) 
 		NetDialer: &net.Dialer{Timeout: 5 * time.Second},
 		// The chain is verified below, against the domain: the connection
 		// itself goes to this very machine by its loopback address.
-		Config: &tls.Config{ServerName: pa.Domain, InsecureSkipVerify: true}, // nosemgrep: go.lang.security.audit.net.use-tls.use-tls, problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- a handshake with ourselves; the certificate is verified explicitly below
+		Config: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: pa.Domain, InsecureSkipVerify: true}, // nosemgrep: go.lang.security.audit.net.use-tls.use-tls, problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- a handshake with ourselves; the certificate is verified explicitly below
 	}
 	// Short, so that the page hears how things stand every few seconds
 	// and can show it. Within that time the handshake is tried again and

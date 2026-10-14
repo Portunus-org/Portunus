@@ -4,6 +4,7 @@ import * as React from "react"
 
 import { CopyButton } from "@/components/copy-button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Note } from "@/components/wizard"
 import { api, errorText, type Node, type NodeJoin } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -37,7 +38,13 @@ export function JoinCommand({ node }: { node: Node }) {
   }, [node.id, t])
 
   if (error) return <Note tone="error">{error}</Note>
-  if (!join) return <Note tone="pending">{t("common.loading")}</Note>
+  if (!join)
+    return (
+      <div className="grid gap-3">
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+      </div>
+    )
 
   const ports = [join.agentPort, ...(join.hopPort ? [join.hopPort] : [])].join(", ")
   return (

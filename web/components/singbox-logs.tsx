@@ -26,14 +26,24 @@ interface Line {
 // "+0000 2026-10-13 11:34:14 ERROR [2663089431 5.0s] connection: open …"
 const shape = /^([+-]\d{4}) (\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d) (TRACE|DEBUG|INFO|WARN|ERROR|FATAL|PANIC) (?:\[\d+ [^\]]*\] )?(.*)$/
 
+// What sing-box prints before its log is set up, and when it stops:
+// "ERROR[29286] sing-box did not closed properly: …"
+const early = /^(TRACE|DEBUG|INFO|WARN|ERROR|FATAL|PANIC)\[\d+\] (.*)$/
+
+const levelOf = (word: string): Level =>
+  word === "ERROR" || word === "FATAL" || word === "PANIC" ? "error" : word === "WARN" ? "warn" : "info"
+
 function parse(raw: string): Line {
   const m = shape.exec(raw)
-  if (!m) return { time: "", level: "plain", text: raw }
+  if (!m) {
+    const e = early.exec(raw)
+    return e ? { time: "", level: levelOf(e[1]), text: e[2] } : { time: "", level: "plain", text: raw }
+  }
   const [, zone, day, clock, level, text] = m
   const at = new Date(`${day}T${clock}${zone.slice(0, 3)}:${zone.slice(3)}`)
   return {
     time: Number.isNaN(at.getTime()) ? clock : at.toLocaleTimeString([], { hour12: false }),
-    level: level === "ERROR" || level === "FATAL" || level === "PANIC" ? "error" : level === "WARN" ? "warn" : "info",
+    level: levelOf(level),
     text,
   }
 }
@@ -53,6 +63,7 @@ function keyOf(text: string) {
 }
 
 const hints: [RegExp, MessageKey][] = [
+  [/did not closed properly/, "logs.hint.stopped"],
   [/lookup (?:failed for )?(\S+?): .*NXDOMAIN/, "logs.hint.noName"],
   [/using outbound\/direct\[[^\]]*\]: dial (?:tcp|udp) (\S+): i\/o timeout/, "logs.hint.timeout"],
   [/dial (?:tcp|udp) (\S+): connect: connection refused/, "logs.hint.refused"],
@@ -86,12 +97,16 @@ function Mark({ level }: { level: Level }) {
   )
 }
 
-function Row({ line, children }: { line: Line; children?: React.ReactNode }) {
-  const problem = line.level === "error" || line.level === "warn"
+const isProblem = (l: Line) => l.level === "error" || l.level === "warn"
+
+// The columns for the time and for the mark are there only when some line
+// on the screen has one: a log of lines without either starts at the edge.
+function Row({ line, time, mark, children }: { line: Line; time: boolean; mark: boolean; children?: React.ReactNode }) {
+  const problem = isProblem(line)
   return (
     <div className="flex gap-2.5">
-      <span className="w-[8ch] shrink-0 text-muted-foreground tabular-nums">{line.time}</span>
-      <Mark level={line.level} />
+      {time && <span className="w-[8ch] shrink-0 text-muted-foreground tabular-nums">{line.time}</span>}
+      {mark && <Mark level={line.level} />}
       <span className={`min-w-0 break-words whitespace-pre-wrap ${problem ? "" : "text-muted-foreground"}`}>{line.text}</span>
       {children}
     </div>
@@ -159,6 +174,7 @@ export function SingboxLogs({ lines, empty }: { lines: string[]; empty: string }
   // With nothing hidden there is nothing to show "as well".
   const showHidden = wantHidden && closed > 0
   const shown = showHidden ? groups : open
+  const timed = shown.some((g) => g.line.time)
 
   // In the full log the newest lines are at the bottom: keep them in view.
   // The problems are few and read from the top; they stay where they are.
@@ -207,7 +223,7 @@ export function SingboxLogs({ lines, empty }: { lines: string[]; empty: string }
         <div className="p-4 font-mono text-xs leading-relaxed">
           {view === "all"
             ? parsed.length
-              ? parsed.map((l, i) => <Row key={i} line={l} />)
+              ? parsed.map((l, i) => <Row key={i} line={l} time={parsed.some((x) => x.time)} mark={parsed.some(isProblem)} />)
               : empty
             : shown.length
               ? shown.map(({ key, line, count }) => {
@@ -219,7 +235,7 @@ export function SingboxLogs({ lines, empty }: { lines: string[]; empty: string }
                       data-away={isAway}
                       className="grid gap-1.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0 data-[away=true]:opacity-60"
                     >
-                      <Row line={line}>
+                      <Row line={line} time={timed} mark>
                         <span className="ml-auto flex shrink-0 items-start gap-1 font-sans">
                           {count > 1 && (
                             <Badge variant="outline" className="text-muted-foreground tabular-nums">
@@ -247,7 +263,7 @@ export function SingboxLogs({ lines, empty }: { lines: string[]; empty: string }
                         </span>
                       </Row>
                       {hint && (
-                        <div className="pr-8 pl-[calc(8ch+2.125rem)]">
+                        <div className={timed ? "pr-8 pl-[calc(8ch+2.125rem)]" : "pr-8 pl-6"}>
                           <p className="font-sans text-sm text-muted-foreground">{hint}</p>
                         </div>
                       )}

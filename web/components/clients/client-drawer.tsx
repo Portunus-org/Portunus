@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { ClientStatus } from "@/components/clients/client-status"
 import { useConfirm } from "@/components/confirm"
@@ -11,6 +11,7 @@ import { CopyButton } from "@/components/copy-button"
 import { DateField } from "@/components/date-field"
 import { FormField, SwitchField, FormError } from "@/components/form-field"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import {
   DropdownMenu,
@@ -27,9 +28,11 @@ import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useFormErrors } from "@/lib/form-errors"
 import { api, errorText, type Client, type ClientAccess, type Node } from "@/lib/api"
 import { daysUntil, formatBytes, formatDate, fromDateInput, GiB, toDateInput } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
+import { useSettingsWindow } from "@/lib/settings-dialog"
 import { protocols } from "@/lib/protocols"
 import { useCanEdit } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -94,6 +97,7 @@ function Usage({ client }: { client: Client }) {
  * setup, right after its client is made.
  */
 export function Access({ clientId, version = 0 }: { clientId: number; version?: number }) {
+  const { openSettings } = useSettingsWindow()
   const { t } = useI18n()
   const [access, setAccess] = React.useState<ClientAccess | null>(null)
   const [qr, setQr] = React.useState<{ svg: string; label: string } | null>(null)
@@ -121,13 +125,20 @@ export function Access({ clientId, version = 0 }: { clientId: number; version?: 
     }
   }, [clientId, version, t])
 
-  if (!access) return <p className="text-muted-foreground">{t("common.loading")}</p>
+  // In the shape of what is coming: the code, then a line per connection.
+  if (!access)
+    return (
+      <div className="grid justify-items-center gap-4">
+        <Skeleton className="size-44 rounded-xl" />
+        <Skeleton className="h-14 w-full rounded-lg" />
+      </div>
+    )
   if (!access.publicHost) {
     return (
       <p className="text-muted-foreground">
-        <Link href="/settings/" className="text-foreground underline underline-offset-4">
+        <button type="button" onClick={() => openSettings("server")} className="text-foreground underline underline-offset-4">
           {t("clients.drawer.noHost")}
-        </Link>
+        </button>
       </p>
     )
   }
@@ -214,7 +225,7 @@ function ClientForm({
   const { t } = useI18n()
   const canEdit = useCanEdit()
   const [enabled, setEnabled] = React.useState(client?.enabled ?? true)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, wrong, clear, fail } = useFormErrors()
   // "0" has the panel choose an exit.
   const bound = String(client?.exitId ?? 0)
   const [exit, setExit] = React.useState(bound)
@@ -232,7 +243,7 @@ function ClientForm({
     const f = new FormData(e.currentTarget)
     const gb = Number(f.get("limit") || 0)
     if (!Number.isFinite(gb) || gb < 0) {
-      setError(t("clients.form.limitInvalid"))
+      wrong("limit", t("clients.form.limitInvalid"))
       return
     }
     const input = {
@@ -243,27 +254,31 @@ function ClientForm({
       note: String(f.get("note") ?? ""),
       ...(exit !== bound ? { exitId: Number(exit) } : {}),
     }
+    if (!input.name.trim()) {
+      wrong("name", t("error.required"))
+      return
+    }
     setPending(true)
-    setError(null)
+    clear()
     try {
       const saved = client ? await api.updateClient(client.id, input) : await api.createClient(input)
       toast.success(t(client ? "clients.toast.saved" : "clients.toast.created"))
       onSubmitted(saved)
     } catch (err) {
-      setError(errorText(err, t))
+      fail(err, ["name", "limit", "expires", "exit", "note"], { trafficLimit: "limit", expiresAt: "expires", exitId: "exit" })
     } finally {
       setPending(false)
     }
   }
 
   return (
-    <form id={formId} onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+    <form id={formId} onSubmit={onSubmit} onInput={clear} className="flex flex-col gap-4" noValidate>
       <fieldset disabled={!canEdit} className="contents">
-        <FormField id="name" label={t("clients.form.name")}>
+        <FormField id="name" label={t("clients.form.name")} error={errors.name}>
           <Input id="name" name="name" defaultValue={client?.name} required maxLength={64} autoFocus={!client} />
         </FormField>
-        <div className="grid grid-cols-2 items-end gap-4">
-          <FormField id="limit" label={t("clients.form.limit")}>
+        <div className="grid grid-cols-2 items-start gap-4">
+          <FormField id="limit" label={t("clients.form.limit")} error={errors.limit}>
             <Input
               id="limit"
               name="limit"
@@ -275,7 +290,7 @@ function ClientForm({
               defaultValue={client && client.trafficLimit > 0 ? +(client.trafficLimit / GiB).toFixed(2) : ""}
             />
           </FormField>
-          <FormField id="expires" label={t("clients.form.expires")}>
+          <FormField id="expires" label={t("clients.form.expires")} error={errors.expires}>
             <DateField
               id="expires"
               name="expires"
@@ -286,7 +301,7 @@ function ClientForm({
           </FormField>
         </div>
         {exits.length > 0 && (
-          <FormField id="exit" label={t("clients.form.exit")} hint={t("clients.form.exitHint")}>
+          <FormField id="exit" label={t("clients.form.exit")} hint={t("clients.form.exitHint")} error={errors.exit}>
             <Select value={exit} onValueChange={setExit}>
               <SelectTrigger id="exit" className="w-full">
                 <SelectValue />
@@ -304,12 +319,12 @@ function ClientForm({
             </Select>
           </FormField>
         )}
-        <FormField id="note" label={t("clients.form.note")}>
+        <FormField id="note" label={t("clients.form.note")} error={errors.note}>
           <Textarea id="note" name="note" rows={2} maxLength={500} defaultValue={client?.note} />
         </FormField>
         <SwitchField id="client-enabled" label={t("clients.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
       </fieldset>
-      <FormError>{error}</FormError>
+      <FormError>{errors.form}</FormError>
     </form>
   )
 }

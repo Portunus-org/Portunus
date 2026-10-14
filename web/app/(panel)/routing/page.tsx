@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { ArrowDownIcon, ArrowUpIcon, EllipsisVerticalIcon, PencilIcon, PlusIcon, RefreshCwIcon, SplitIcon, Trash2Icon } from "lucide-react"
-import { toast } from "sonner"
+import { toast } from "@/lib/toast"
 
 import { useConfirm } from "@/components/confirm"
 import { RuleDrawer } from "@/components/routing/rule-drawer"

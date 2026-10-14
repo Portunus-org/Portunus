@@ -95,7 +95,35 @@ func (s *Service) Login(ctx context.Context, username, password, ip, userAgent s
 		return nil, ErrInvalidCredentials
 	}
 	s.limiter.Success(key)
+	if err := s.store.NoteLogin(ctx, u.ID, u.Role, u.DisplayName, ""); err != nil {
+		s.log.Warn("note login", "err", err)
+	}
 	return s.openSession(ctx, u, ip, userAgent)
+}
+
+// OpenSession signs in an account whose identity was established some other
+// way than by its password: by an OIDC provider.
+func (s *Service) OpenSession(ctx context.Context, u *store.User, ip, userAgent string) (*Session, error) {
+	if u.Disabled {
+		return nil, ErrInvalidCredentials
+	}
+	return s.openSession(ctx, u, ip, userAgent)
+}
+
+// CreateLocalUser adds an account with a password of its own. The password
+// is generated and returned once; the account has to replace it at its
+// first sign-in.
+func (s *Service) CreateLocalUser(ctx context.Context, username string, role store.Role) (*store.User, string, error) {
+	pw := GeneratePassword()
+	hash, err := HashPassword(pw)
+	if err != nil {
+		return nil, "", err
+	}
+	u := &store.User{Username: username, PasswordHash: hash, Role: role, MustChangePassword: true}
+	if err := s.store.CreateUser(ctx, u); err != nil {
+		return nil, "", err
+	}
+	return u, pw, nil
 }
 
 func (s *Service) openSession(ctx context.Context, u *store.User, ip, userAgent string) (*Session, error) {

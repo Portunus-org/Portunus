@@ -118,6 +118,66 @@ asks where the certificate comes from:
   for iOS, Android, Windows and macOS. It is also in **Settings**;
 - **existing files** from certbot, Nginx Proxy Manager or Caddy.
 
+## Accounts and single sign-on
+
+**Users** in the menu (administrators only) lists who may sign in.
+
+| Role | May |
+|---|---|
+| Administrator | everything, including settings, nodes, routing and accounts |
+| Operator | clients and connections: create, change, give out links; restart sing-box |
+| Viewer | look at everything except keys, links, logs and the generated configuration |
+
+An account added there gets a generated password, shown once; the person
+replaces it at the first sign-in. One administrator with a password is
+always kept: the panel refuses to demote, disable or delete the last one.
+
+### Sign-in through a provider (OIDC)
+
+Any OpenID Connect provider works: Pocket ID, Authentik, Keycloak, Zitadel
+and others. The panel needs its address (the issuer), a client ID and,
+unless the client is public, a secret. *Users*, *Single sign-on*, *Set up*
+asks for them in three steps. With Pocket ID:
+
+1. **The provider.** Enter Pocket ID's own address
+   (`https://id.example.com`). The panel asks it to describe itself before
+   going on, so a wrong address is caught here.
+2. **The panel at the provider.** In Pocket ID, *OIDC Clients*, add a
+   client, and as its **Callback URL** enter the address this step shows,
+   for example `https://panel.example.com/api/auth/sso/callback`. Leave PKCE
+   on. Copy the client ID and the secret back into the panel.
+3. **Who gets in.** Which group at the provider makes someone an
+   administrator, an operator, a viewer. Names are compared exactly.
+   Someone in several gets the highest role; someone in none is not let
+   in, unless you choose a role for everybody else.
+
+*Turn on* finishes it, and the sign-in page gets a second button. The card
+on the Users page then shows the state and turns it off or on again;
+*Change* runs the same steps with what was saved.
+
+What to know:
+
+- The role is taken from the groups **at every sign-in**. Move someone to
+  another group at the provider and their role here follows the next time
+  they sign in; it is not a setting to keep in two places.
+- A session that is already open lasts until it ends (24 h idle, 7 days at
+  most) even if the person is removed at the provider. To cut someone off
+  at once, disable their account on the Users page.
+- Deleting an account of the provider does not keep the person out: a new
+  one is made at their next sign-in. Disable it, or take away their group.
+- An account of the provider is called what the provider calls it, and
+  follows a change of the name there at the next sign-in. It is never
+  joined to an existing account, even one with the same name: the two are
+  told apart by how they sign in.
+- The callback address is the panel's address as the browser reaches it.
+  If the panel is opened at several addresses (a domain and an SSH tunnel),
+  list each callback at the provider.
+- Signing in with a password keeps working, and is the way in if the
+  provider is down.
+- Providers that put groups elsewhere: set *Groups claim* (a path with
+  dots reaches into an object, `realm_access.roles` for Keycloak) and
+  remove `groups` from *Scopes* if the provider rejects that scope.
+
 ## Ports and firewall
 
 sing-box listens on the host directly (`network_mode: host`). Open the inbound

@@ -19,9 +19,9 @@ const col = columnHelper<Client>()
 /**
  * The clients at a glance, for the overview: the same table as on the
  * clients page, tabs and page controls included, to look at and not to
- * edit. Whoever used the most comes first; a name leads to the clients page, where things are changed.
+ * edit. Whoever used the most comes first; a name leads to its row on the clients page, where things are changed.
  */
-export const ClientsOverview = React.memo(function ClientsOverview({ clients }: { clients: Client[] }) {
+export const ClientsOverview = React.memo(function ClientsOverview({ clients, loading = false }: { clients: Client[]; loading?: boolean }) {
   const { t, tp, locale } = useI18n()
   const [query, setQuery] = React.useState("")
   const [view, setView] = React.useState("all")
@@ -33,7 +33,7 @@ export const ClientsOverview = React.memo(function ClientsOverview({ clients }: 
           header: t("clients.col.name"),
           enableHiding: false,
           cell: ({ row }) => (
-            <Link href="/clients/" className="font-medium underline-offset-4 hover:underline">
+            <Link href={`/clients/#client-${row.original.id}`} className="font-medium underline-offset-4 hover:underline">
               {row.original.name}
             </Link>
           ),
@@ -90,6 +90,7 @@ export const ClientsOverview = React.memo(function ClientsOverview({ clients }: 
       onViewChange={setView}
       pager="always"
       data={rows}
+      loading={loading}
       columns={columns}
       getRowId={(r) => String(r.id)}
       initialSorting={[{ id: "traffic", desc: true }]}

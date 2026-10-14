@@ -54,6 +54,9 @@ func validateRouteList(in *RouteListInput) error {
 	if len(in.Name) > 64 {
 		return invalid("name", "too_long")
 	}
+	if oddText(in.Name, false) {
+		return invalid("name", "bad_characters")
+	}
 	switch in.Kind {
 	case ListManual:
 		in.URL = ""

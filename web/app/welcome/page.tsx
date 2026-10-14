@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup } from "@/components/ui/radio-group"
 import { api, ApiError, errorText, type Client, type PanelAccess, type PublicAddress } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { useFormErrors } from "@/lib/form-errors"
 import { SessionGate, takeHandoffPassword, useSession } from "@/lib/session"
 import { useResource } from "@/lib/use-resource"
 import { cn } from "@/lib/utils"
@@ -53,36 +54,38 @@ function Hello({ onNext }: { onNext: () => void }) {
 
 // ------------------------------------------------------------------ password
 
-function PasswordStep({ step, total, onNext }: { step: number; total: number; onNext: () => void }) {
+function PasswordStep({ step, total, invited, onNext }: { step: number; total: number; invited: boolean; onNext: () => void }) {
   const { t } = useI18n()
   const [current] = React.useState(takeHandoffPassword)
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, wrong, clear, fail } = useFormErrors()
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
     const next = String(f.get("next"))
-    if (next.length < 12) return setError(t("welcome.password.short"))
-    if (next !== f.get("repeat")) return setError(t("welcome.password.mismatch"))
+    if (!current && !f.get("current")) return wrong("current", t("error.required"))
+    if (next.length < 12) return wrong("next", t("welcome.password.short"))
+    if (next !== f.get("repeat")) return wrong("repeat", t("welcome.password.mismatch"))
     setPending(true)
-    setError(null)
+    clear()
     try {
       await api.changePassword(current || String(f.get("current")), next)
       onNext()
     } catch (err) {
-      setError(err instanceof ApiError && err.code === "current_password_invalid" ? t("welcome.password.wrongCurrent") : errorText(err, t))
+      if (err instanceof ApiError && err.code === "current_password_invalid") wrong("current", t("welcome.password.wrongCurrent"))
+      else fail(err, ["current", "next", "repeat"])
       setPending(false)
     }
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="contents">
+    <form onSubmit={onSubmit} onInput={clear} noValidate className="contents">
       <StepFrame
         step={step}
         total={total}
         title={t("welcome.password.title")}
-        lead={t("welcome.password.lead")}
+        lead={t(invited ? "welcome.password.leadInvited" : "welcome.password.lead")}
         footer={
           <>
             <span />
@@ -94,17 +97,17 @@ function PasswordStep({ step, total, onNext }: { step: number; total: number; on
         }
       >
         {!current && (
-          <FormField id="current" label={t("welcome.password.current")} hint={t("welcome.password.currentHint")}>
+          <FormField id="current" label={t("welcome.password.current")} hint={t("welcome.password.currentHint")} error={errors.current}>
             <Input id="current" name="current" type="password" autoComplete="current-password" required />
           </FormField>
         )}
-        <FormField id="next" label={t("welcome.password.new")} hint={t("welcome.password.hint")}>
+        <FormField id="next" label={t("welcome.password.new")} hint={t("welcome.password.hint")} error={errors.next}>
           <Input id="next" name="next" type="password" autoComplete="new-password" autoFocus required />
         </FormField>
-        <FormField id="repeat" label={t("welcome.password.repeat")}>
+        <FormField id="repeat" label={t("welcome.password.repeat")} error={errors.repeat}>
           <Input id="repeat" name="repeat" type="password" autoComplete="new-password" required />
         </FormField>
-        <FormError>{error}</FormError>
+        <FormError>{errors.form}</FormError>
       </StepFrame>
     </form>
   )
@@ -134,7 +137,7 @@ function ServerStep({
   const [hasDomain, setHasDomain] = React.useState<"no" | "yes">("no")
   const [domain, setDomain] = React.useState("")
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
   const dns = useDomainCheck(hasDomain === "yes" ? domain : "")
   React.useEffect(() => onChoice(hasDomain === "yes"), [hasDomain, onChoice])
 
@@ -157,14 +160,15 @@ function ServerStep({
 
   async function save() {
     setPending(true)
-    setError(null)
+    clear()
     try {
       const d = hasDomain === "yes" ? domain.trim() : ""
       // With a domain, links use it: they survive a change of IP address.
       await api.setupBasics(d || host.trim(), d)
       onNext(!!d)
     } catch (err) {
-      setError(errorText(err, t))
+      // The domain, or the address typed by hand, is shown red where it was typed.
+      fail(err, ["domain", "host"], { publicHost: "host" })
       setPending(false)
     }
   }
@@ -212,7 +216,14 @@ function ServerStep({
         ) : (
           <div className="grid gap-3">
             <span className="text-sm">{t("welcome.server.addressUnknown")}</span>
-            <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="203.0.113.10" spellCheck={false} />
+            <Input
+              value={host}
+              onChange={(e) => (setHost(e.target.value), clear())}
+              placeholder="203.0.113.10"
+              spellCheck={false}
+              aria-invalid={!!errors.host}
+            />
+            <FormError>{errors.host}</FormError>
           </div>
         )}
       </div>
@@ -227,19 +238,21 @@ function ServerStep({
           <div className="grid gap-3 duration-300 animate-in fade-in">
             <Input
               value={domain}
-              onChange={(e) => setDomain(e.target.value)}
+              onChange={(e) => (setDomain(e.target.value), clear())}
+              aria-invalid={!!errors.domain}
               placeholder={t("welcome.server.domainPlaceholder")}
               aria-label={t("welcome.server.domain")}
               autoCapitalize="none"
               spellCheck={false}
               autoFocus
             />
+            <FormError>{errors.domain}</FormError>
             <DomainStatus domain={domain} status={dns} ip={ip || host} />
           </div>
         )}
       </div>
 
-      <FormError>{error}</FormError>
+      <FormError>{errors.form}</FormError>
     </StepFrame>
   )
 }
@@ -377,23 +390,23 @@ function ClientStep({
   const { t } = useI18n()
   const [name, setName] = React.useState("")
   const [pending, setPending] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const { errors, clear, fail } = useFormErrors()
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setPending(true)
-    setError(null)
+    clear()
     try {
       onNext(await api.createClient({ name: name.trim(), trafficLimit: 0, expiresAt: null, note: "", enabled: true }))
     } catch (err) {
-      setError(errorText(err, t))
+      fail(err, ["client-name"], { name: "client-name" })
     } finally {
       setPending(false)
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex w-full justify-center">
+    <form onSubmit={onSubmit} onInput={clear} className="flex w-full justify-center">
       <StepFrame
         step={step}
         total={total}
@@ -414,7 +427,7 @@ function ClientStep({
           </>
         }
       >
-        <FormField id="client-name" label={t("clients.form.name")} hint={t("welcome.client.nameHint")}>
+        <FormField id="client-name" label={t("clients.form.name")} hint={t("welcome.client.nameHint")} error={errors["client-name"]}>
           <Input
             id="client-name"
             value={name}
@@ -423,7 +436,7 @@ function ClientStep({
             autoFocus
           />
         </FormField>
-        <FormError>{error}</FormError>
+        <FormError>{errors.form}</FormError>
       </StepFrame>
     </form>
   )
@@ -540,7 +553,10 @@ function WelcomeFlow() {
   })
   // Come back with the first half done (the usual case: signed in anew at
   // the panel's own domain): straight on with the second.
-  const [step, setStep] = React.useState<Step>(steps.length > 0 ? "hello" : "continue")
+  // An account added to a panel that is already set up has one thing to do
+  // here, its own password: no greeting, no setup, and then the panel.
+  const [invited] = React.useState(setupCompleted)
+  const [step, setStep] = React.useState<Step>(steps.length === 0 ? "continue" : invited ? steps[0] : "hello")
   const canGuide = user.role === "admin"
 
   // Nothing to do here (e.g. opened by hand later): go to the panel.
@@ -559,7 +575,10 @@ function WelcomeFlow() {
   const total = steps.length + (withDomain ? 2 : 0)
   // After the first half: on with the second for whoever can make
   // connections; anybody else is done.
-  const onwards = () => setStep(canGuide ? "continue" : "done")
+  const onwards = () => {
+    if (invited && !(canGuide && guide)) router.replace("/")
+    else setStep(canGuide ? "continue" : "done")
+  }
   const next = (after: Step) => {
     const i = steps.indexOf(after)
     if (i + 1 < steps.length) setStep(steps[i + 1])
@@ -590,7 +609,7 @@ function WelcomeFlow() {
       </header>
       <div className="flex flex-1 items-center justify-center px-6 pb-16">
         {step === "hello" && <Hello onNext={() => setStep(steps[0])} />}
-        {step === "password" && <PasswordStep step={index} total={total} onNext={() => next("password")} />}
+        {step === "password" && <PasswordStep step={index} total={total} invited={invited} onNext={() => next("password")} />}
         {step === "server" && (
           <ServerStep
             step={index}
