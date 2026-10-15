@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/PaulichP/Portunus/server/internal/backup"
+	"github.com/Portunus-org/Portunus/server/internal/backup"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,10 +17,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/agent"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/selfupdate"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/agent"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/selfupdate"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // Node kinds.

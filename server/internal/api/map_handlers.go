@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/store"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 // Map tiles are fetched by the panel and handed to the browser, so the
@@ -194,7 +194,7 @@ func (c *tileCache) detailTemplate(ctx context.Context, tileJSON string) (string
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Portunus/"+version.Version+" (+https://github.com/PaulichP/Portunus)")
+	req.Header.Set("User-Agent", "Portunus/"+version.Version+" (+https://github.com/Portunus-org/Portunus)")
 	res, err := c.http.Do(req)
 	if err != nil {
 		return "", err
@@ -291,7 +291,7 @@ func (c *tileCache) fetch(ctx context.Context, path, url string, image bool) ([]
 		return nil, err
 	}
 	// Tile servers ask applications to say who they are.
-	req.Header.Set("User-Agent", "Portunus/"+version.Version+" (+https://github.com/PaulichP/Portunus)")
+	req.Header.Set("User-Agent", "Portunus/"+version.Version+" (+https://github.com/Portunus-org/Portunus)")
 	res, err := c.http.Do(req)
 	if err != nil {
 		return nil, err

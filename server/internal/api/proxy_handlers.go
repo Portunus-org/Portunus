@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/qrsvg"
-	"github.com/PaulichP/Portunus/server/internal/singbox"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/qrsvg"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 var roleRank = map[store.Role]int{store.RoleViewer: 1, store.RoleOperator: 2, store.RoleAdmin: 3}

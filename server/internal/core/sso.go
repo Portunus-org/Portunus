@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/PaulichP/Portunus/server/internal/oidc"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/oidc"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // SSO is how people sign in through an OIDC provider, and what their

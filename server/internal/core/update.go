@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/agent"
-	"github.com/PaulichP/Portunus/server/internal/selfupdate"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/agent"
+	"github.com/Portunus-org/Portunus/server/internal/selfupdate"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 // Update is what the panel knows about releases newer than itself.

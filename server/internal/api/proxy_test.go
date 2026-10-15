@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PaulichP/Portunus/server/internal/auth"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/auth"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // loginFresh signs in as admin and replaces the generated password, returning

@@ -5,8 +5,8 @@ import "runtime"
 
 // Set at build time:
 //
-//	-ldflags "-X github.com/PaulichP/Portunus/server/internal/version.Version=v0.1.0
-//	          -X github.com/PaulichP/Portunus/server/internal/version.Commit=abc123"
+//	-ldflags "-X github.com/Portunus-org/Portunus/server/internal/version.Version=v0.1.0
+//	          -X github.com/Portunus-org/Portunus/server/internal/version.Commit=abc123"
 var (
 	Version = "dev"
 	Commit  = "unknown"

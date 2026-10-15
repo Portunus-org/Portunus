@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PaulichP/Portunus/server/internal/agent"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/agent"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
 )
 
 // A node joined by an earlier version holds a certificate issued by the

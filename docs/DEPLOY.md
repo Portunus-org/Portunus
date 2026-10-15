@@ -10,12 +10,12 @@
 ## Quick start
 
 Only `docker-compose.yml` is needed: it starts the published image
-(`ghcr.io/paulichp/portunus`) and, next to it, the updater that installs
+(`ghcr.io/portunus-org/portunus`) and, next to it, the updater that installs
 new releases when the panel asks. There is nothing to fill in.
 
 ```sh
 mkdir portunus && cd portunus
-curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml
 docker compose up -d
 docker compose logs portunus      # how to sign in
 ```
@@ -75,8 +75,8 @@ unprivileged user.
 | `PORTUNUS_SUB_LISTEN` | empty | Public listener that serves only `/sub/<token>`, e.g. `0.0.0.0:2096`. Empty: subscriptions are not published. |
 | `PORTUNUS_SECRET_KEY_FILE` | `$DATA_DIR/master.key` | Master key for encrypting keys in the database; generated on first start. |
 | `PORTUNUS_SINGBOX_CTL` | `127.0.0.1:2055` | Loopback address of sing-box's control API; the panel measures exits through it. |
-| `PORTUNUS_NODE_IMAGE` | `ghcr.io/paulichp/portunus-node:<version>` | Image the join command for new nodes uses: by default the published node image of the panel's version (`latest` for a build that is not a release). Without a registry in the name it is a local build, and the panel also shows how to copy it to the server. |
-| `PORTUNUS_UPDATE_CHECK` | `ghcr.io/paulichp/portunus` | Image repository whose tags tell the panel that a newer release is out (asked shortly after the start and every 6 hours, without an account); `off` turns the check off. |
+| `PORTUNUS_NODE_IMAGE` | `ghcr.io/portunus-org/portunus-node:<version>` | Image the join command for new nodes uses: by default the published node image of the panel's version (`latest` for a build that is not a release). Without a registry in the name it is a local build, and the panel also shows how to copy it to the server. |
+| `PORTUNUS_UPDATE_CHECK` | `ghcr.io/portunus-org/portunus` | Image repository whose tags tell the panel that a newer release is out (asked shortly after the start and every 6 hours, without an account); `off` turns the check off. |
 | `PORTUNUS_GEO_LOOKUP` | `https://ipwho.is/` | Service asked where servers are, for the map of nodes (`<URL><IP>`); `off` disables it. |
 | `PORTUNUS_MAP_DETAIL` | OpenFreeMap, then VersaTiles, then OpenStreetMap's own vector tiles | Where the drawn map of nodes gets what it shows when zoomed in past the scale of countries (coasts, borders of regions, names of towns): TileJSON addresses of vector tile sets, separated by commas, in the OpenMapTiles or the Shortbread layout. The panel uses the first one this server can actually get tiles from, and looks again every few hours: a provider that works in one country may be out of reach in another (OpenFreeMap is behind Cloudflare, which Russian hosting cannot reach). The panel fetches and caches the tiles itself; the browser talks to the panel only. `off` keeps the built-in map, which needs nothing from outside and goes down to the scale of countries. |
 | `PORTUNUS_MAP_TILES` | `off` | By default the panel draws the map of nodes itself (country shapes it carries; nothing is fetched). Set a tile server to use map images instead: a template with `{z}`, `{x}`, `{y}`, optional `{style}` = `light`/`dark`, or `esri` for Esri's gray canvas. Images are cached in the data volume and served to the browser by the panel. |
@@ -250,7 +250,7 @@ sudo docker rm -f portunus-node 2>/dev/null; sudo docker run -d --pull always \
   --name portunus-node --restart unless-stopped --network host \
   --read-only --cap-drop ALL --cap-add NET_BIND_SERVICE \
   -v portunus-node:/var/lib/portunus \
-  -e PORTUNUS_JOIN=<token from the panel> ghcr.io/paulichp/portunus-node:<version>
+  -e PORTUNUS_JOIN=<token from the panel> ghcr.io/portunus-org/portunus-node:<version>
 ```
 
 The server downloads the image itself. It is a separate, minimal image
@@ -360,7 +360,7 @@ node: save it outside the main server. A node cannot read its copy.
 When the main server is gone, on a server that keeps a copy:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml
 sudo docker compose run --rm -v portunus-node:/node:ro portunus restore /node/panel-backup
 sudo docker rm -f portunus-node && sudo docker compose up -d
 ```
@@ -449,7 +449,7 @@ tells, and shows the commands.
 **A server set up before v0.2.5** has no updater. Bring it once:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml
 docker compose pull && docker compose up -d
 ```
 
@@ -458,7 +458,7 @@ docker compose pull && docker compose up -d
 node again.
 
 `latest` follows releases; put a version instead (`image:
-ghcr.io/paulichp/portunus:v1.2.3`) to stay on one. Nodes are updated by
+ghcr.io/portunus-org/portunus:v1.2.3`) to stay on one. Nodes are updated by
 running their join command again (the panel shows it in the node's menu).
 
 Database migrations run automatically on start. Migrations are forward-only.
@@ -554,8 +554,8 @@ git push origin v0.1.0
 
 Pushing the tag starts `.github/workflows/release.yml`: both images are
 built for x86 and ARM, scanned with Trivy and, if nothing HIGH or CRITICAL
-is found, published as `ghcr.io/paulichp/portunus:v0.1.0` and
-`ghcr.io/paulichp/portunus-node:v0.1.0`, and as `latest`. The first time,
+is found, published as `ghcr.io/portunus-org/portunus:v0.1.0` and
+`ghcr.io/portunus-org/portunus-node:v0.1.0`, and as `latest`. The first time,
 make both packages public on GitHub (profile → Packages → the package →
 Package settings → Change visibility), or servers would have to sign in to
 download them. The published images are scanned again every week

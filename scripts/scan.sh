@@ -3,7 +3,7 @@
 # does: HIGH or CRITICAL findings fail. Build the images first.
 #
 #   scripts/scan.sh                                  portunus:local and portunus-node:local
-#   scripts/scan.sh ghcr.io/paulichp/portunus:latest any other image
+#   scripts/scan.sh ghcr.io/portunus-org/portunus:latest any other image
 set -eu
 cd "$(dirname "$0")/.."
 trivy=aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969

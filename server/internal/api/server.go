@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/auth"
-	"github.com/PaulichP/Portunus/server/internal/config"
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/singbox"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/auth"
+	"github.com/Portunus-org/Portunus/server/internal/config"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 const (

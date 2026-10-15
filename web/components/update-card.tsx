@@ -25,7 +25,7 @@ export const updateCommand = "docker compose pull && docker compose up -d"
 
 /** Run once on a server set up before updates could be installed from the panel: it brings the updater. */
 export const updaterCommand =
-  "curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml && docker compose pull && docker compose up -d"
+  "curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml && docker compose pull && docker compose up -d"
 
 const hourLabels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`)
 

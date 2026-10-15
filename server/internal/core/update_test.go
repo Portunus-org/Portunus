@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PaulichP/Portunus/server/internal/selfupdate"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/selfupdate"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 // registry is an image registry as the public ones behave: nothing without

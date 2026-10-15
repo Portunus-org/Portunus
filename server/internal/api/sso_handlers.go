@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/oidc"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/oidc"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // Sign-in through an OIDC provider, and the accounts of the panel.

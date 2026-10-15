@@ -9,7 +9,7 @@ import (
 	"crypto/x509"
 	_ "embed"
 	"encoding/hex"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
 	"math/big"
 	"net"
 	"net/url"

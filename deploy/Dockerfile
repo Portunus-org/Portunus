@@ -75,7 +75,7 @@ COPY server/ ./
 COPY --from=web /src/web/out internal/webui/dist
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
-      -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
+      -ldflags "-s -w -X github.com/Portunus-org/Portunus/server/internal/version.Version=${VERSION} -X github.com/Portunus-org/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus ./cmd/portunus \
  && install -d -m 0700 /out/data && install -d -m 0777 /out/run/portunus-update
 # The panel listens on 443 itself when it is opened by its domain, and runs
@@ -97,7 +97,7 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY server/ ./
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
-      -ldflags "-s -w -X github.com/PaulichP/Portunus/server/internal/version.Version=${VERSION} -X github.com/PaulichP/Portunus/server/internal/version.Commit=${COMMIT}" \
+      -ldflags "-s -w -X github.com/Portunus-org/Portunus/server/internal/version.Version=${VERSION} -X github.com/Portunus-org/Portunus/server/internal/version.Commit=${COMMIT}" \
       -o /out/portunus-node ./cmd/portunus-node \
  && install -d -m 0700 /out/data && install -d -m 0777 /out/run/portunus-update
 
@@ -119,6 +119,10 @@ ENV PATH=/usr/local/bin \
     PORTUNUS_LOG_FORMAT=json \
     GOMEMLIMIT=32MiB
 VOLUME ["/var/lib/portunus"]
+# The repository the image comes from: GHCR links the package to it, so the
+# package shows on the repository and takes its permissions.
+LABEL org.opencontainers.image.source="https://github.com/Portunus-org/Portunus" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 ENTRYPOINT ["portunus-node"]
 
 # --- panel ----------------------------------------------------------------
@@ -138,5 +142,9 @@ ENV PORTUNUS_DATA_DIR=/var/lib/portunus \
     GOMEMLIMIT=96MiB
 VOLUME ["/var/lib/portunus"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["portunus", "healthcheck"]
+# The repository the image comes from: GHCR links the package to it, so the
+# package shows on the repository and takes its permissions.
+LABEL org.opencontainers.image.source="https://github.com/Portunus-org/Portunus" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 ENTRYPOINT ["portunus"]
 CMD ["serve"]

@@ -31,10 +31,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/selfupdate"
-	"github.com/PaulichP/Portunus/server/internal/singbox"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/selfupdate"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 // DefaultPort is where the agent listens unless the bundle says otherwise.

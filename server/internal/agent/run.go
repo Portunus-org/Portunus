@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/singbox"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 // RunOptions is what a node needs to know about its own machine. Everything

@@ -1,4 +1,4 @@
-module github.com/PaulichP/Portunus/server
+module github.com/Portunus-org/Portunus/server
 
 go 1.27.1
 

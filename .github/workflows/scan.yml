@@ -30,11 +30,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Scan ghcr.io/paulichp/${{ matrix.image }}:latest
+      - name: Scan ghcr.io/portunus-org/${{ matrix.image }}:latest
         run: |
-          docker pull ghcr.io/paulichp/${{ matrix.image }}:latest
+          docker pull ghcr.io/portunus-org/${{ matrix.image }}:latest
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD/.trivyignore:/.trivyignore:ro" \
             "$TRIVY_IMAGE" image --exit-code 1 --severity HIGH,CRITICAL \
-            --ignorefile /.trivyignore ghcr.io/paulichp/${{ matrix.image }}:latest
+            --ignorefile /.trivyignore ghcr.io/portunus-org/${{ matrix.image }}:latest

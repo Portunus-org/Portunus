@@ -12,7 +12,7 @@ import { useI18n } from "@/lib/i18n"
 import { useSettingsWindow } from "@/lib/settings-dialog"
 import { useResource } from "@/lib/use-resource"
 
-const repo = "https://github.com/PaulichP/Portunus"
+const repo = "https://github.com/Portunus-org/Portunus"
 
 /**
  * What this panel is, the way an "About" window of a desktop application

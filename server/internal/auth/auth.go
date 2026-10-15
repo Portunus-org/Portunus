@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 var (

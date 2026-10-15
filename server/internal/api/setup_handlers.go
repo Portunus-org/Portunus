@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/qrsvg"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/qrsvg"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 func (s *Server) routesSetup(mux *http.ServeMux) {

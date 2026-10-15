@@ -7,8 +7,8 @@ package config
 
 import (
 	"fmt"
-	"github.com/PaulichP/Portunus/server/internal/selfupdate"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/selfupdate"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 	"log/slog"
 	"net"
 	"net/url"
@@ -119,9 +119,9 @@ const (
 	EsriMapLabels = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_{style}_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
 	// PanelImageRepository is where releases publish the panel's image: the
 	// panel reads its tags to learn that a newer version is out.
-	PanelImageRepository = "ghcr.io/paulichp/portunus"
+	PanelImageRepository = "ghcr.io/portunus-org/portunus"
 	// NodeImageRepository is where releases publish the node image.
-	NodeImageRepository = "ghcr.io/paulichp/portunus-node"
+	NodeImageRepository = "ghcr.io/portunus-org/portunus-node"
 )
 
 // DefaultNodeImage is the published node image that goes with this build:

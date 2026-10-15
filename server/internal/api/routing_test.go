@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/agent"
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/agent"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
 )
 
 func (e *testEnv) list(t *testing.T, path string) []map[string]any {

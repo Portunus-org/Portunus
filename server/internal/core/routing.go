@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/PaulichP/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
 	"io"
 	"net"
 	"net/http"
@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // Route list kinds.

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // writeCert puts a certificate for domain at path, after its key when

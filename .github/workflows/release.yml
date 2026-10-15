@@ -1,7 +1,7 @@
 # Publishes the two images of a release to the GitHub container registry:
 #
-#   ghcr.io/paulichp/portunus        the panel
-#   ghcr.io/paulichp/portunus-node   a node (agent and sing-box only)
+#   ghcr.io/portunus-org/portunus        the panel
+#   ghcr.io/portunus-org/portunus-node   a node (agent and sing-box only)
 #
 # It runs when a version tag (v1.2.3) is pushed. Both platforms are built on
 # the runner's own processor: the Dockerfile cross-compiles, so no emulation
@@ -76,7 +76,24 @@ jobs:
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
           tags: |
-            ghcr.io/paulichp/${{ matrix.image }}:${{ github.ref_name }}
-            ghcr.io/paulichp/${{ matrix.image }}:latest
+            ghcr.io/portunus-org/${{ matrix.image }}:${{ github.ref_name }}
+            ghcr.io/portunus-org/${{ matrix.image }}:latest
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+      # Installations pull without signing in: an image nobody can pull is
+      # no release. GHCR makes a new package private; it is made public once,
+      # in the package's settings (Change visibility).
+      - name: Check that the image can be pulled without signing in
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          repo="portunus-org/$IMAGE"
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | sed -n "s/.*\"token\":\"\([^\"]*\)\".*/\1/p")
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://ghcr.io/v2/$repo/manifests/$VERSION")
+          if [ "$code" != "200" ]; then
+            echo "::error::ghcr.io/$repo:$VERSION cannot be pulled without signing in (HTTP $code). Make the package public: https://github.com/orgs/Portunus-org/packages/container/$IMAGE/settings"
+            exit 1
+          fi

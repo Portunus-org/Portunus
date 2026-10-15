@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/agent"
-	"github.com/PaulichP/Portunus/server/internal/backup"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/agent"
+	"github.com/Portunus-org/Portunus/server/internal/backup"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
 )
 
 // Standby: the panel lives on one server. So that losing that server is

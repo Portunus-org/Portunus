@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/db"
-	"github.com/PaulichP/Portunus/server/internal/secrets"
-	"github.com/PaulichP/Portunus/server/internal/singbox"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/db"
+	"github.com/Portunus-org/Portunus/server/internal/secrets"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 func newBindingCore(t *testing.T) (*Core, *time.Time) {

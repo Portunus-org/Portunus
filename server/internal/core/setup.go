@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/setup"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/setup"
 )
 
 const (

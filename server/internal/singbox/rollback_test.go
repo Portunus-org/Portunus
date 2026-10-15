@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
 )
 
 // A configuration that passes `sing-box check` but cannot start (its port

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // What is counted for clients also lands in the hour it was counted in,

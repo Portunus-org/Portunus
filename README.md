@@ -26,7 +26,7 @@ One container, tens of megabytes of RAM, loopback-only by default.
 ## Quick start
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml
 docker compose up -d
 docker compose logs portunus                     # address, login and password
 ssh -N -L 2053:127.0.0.1:2053 user@your-server   # then open http://localhost:2053

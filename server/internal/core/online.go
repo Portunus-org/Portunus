@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // A client is online while traffic of its own is being counted. There is

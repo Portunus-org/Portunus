@@ -18,8 +18,8 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // idp is an OIDC provider as the real ones behave: it describes itself,

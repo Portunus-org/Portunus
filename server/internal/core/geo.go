@@ -8,7 +8,7 @@ import (
 	"io"
 	"net"
 
-	"github.com/PaulichP/Portunus/server/internal/setup"
+	"github.com/Portunus-org/Portunus/server/internal/setup"
 	"net/http"
 	"net/url"
 	"strconv"

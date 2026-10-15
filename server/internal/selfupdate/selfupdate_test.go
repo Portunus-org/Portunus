@@ -37,13 +37,13 @@ func TestOnlyANewerReleaseIsAllowed(t *testing.T) {
 
 func TestImageReferences(t *testing.T) {
 	for ref, want := range map[string][2]string{
-		"ghcr.io/paulichp/portunus:v0.2.5":            {"ghcr.io/paulichp/portunus", "v0.2.5"},
-		"ghcr.io/paulichp/portunus":                   {"ghcr.io/paulichp/portunus", ""},
-		"localhost:5000/portunus-node:latest":         {"localhost:5000/portunus-node", "latest"},
-		"localhost:5000/portunus-node":                {"localhost:5000/portunus-node", ""},
-		"portunus:local":                              {"portunus", "local"},
-		"ghcr.io/paulichp/portunus:v0.2.5@sha256:abc": {"ghcr.io/paulichp/portunus", "v0.2.5"},
-		"ghcr.io/paulichp/portunus@sha256:abc":        {"ghcr.io/paulichp/portunus", ""},
+		"ghcr.io/portunus-org/portunus:v0.2.5":            {"ghcr.io/portunus-org/portunus", "v0.2.5"},
+		"ghcr.io/portunus-org/portunus":                   {"ghcr.io/portunus-org/portunus", ""},
+		"localhost:5000/portunus-node:latest":             {"localhost:5000/portunus-node", "latest"},
+		"localhost:5000/portunus-node":                    {"localhost:5000/portunus-node", ""},
+		"portunus:local":                                  {"portunus", "local"},
+		"ghcr.io/portunus-org/portunus:v0.2.5@sha256:abc": {"ghcr.io/portunus-org/portunus", "v0.2.5"},
+		"ghcr.io/portunus-org/portunus@sha256:abc":        {"ghcr.io/portunus-org/portunus", ""},
 	} {
 		if got := [2]string{Repository(ref), Tag(ref)}; got != want {
 			t.Errorf("%s: %v, want %v", ref, got, want)
@@ -93,7 +93,7 @@ func TestTheNewContainerIsLikeTheOld(t *testing.T) {
 	old := container{
 		ID: "abcdef123456789",
 		Config: obj{
-			"Image":      "ghcr.io/paulichp/portunus-node:v0.2.5",
+			"Image":      "ghcr.io/portunus-org/portunus-node:v0.2.5",
 			"Hostname":   "abcdef123456",
 			"Env":        []any{"PORTUNUS_JOIN=token", "PATH=/usr/local/bin", "GOMEMLIMIT=32MiB"},
 			"Entrypoint": []any{"portunus-node"},
@@ -110,8 +110,8 @@ func TestTheNewContainerIsLikeTheOld(t *testing.T) {
 		"User":       "10001:10001",
 		"Labels":     obj{"org.opencontainers.image.version": "v0.2.5"},
 	}
-	body := sameAs(old, oldImage, "ghcr.io/paulichp/portunus-node:v0.2.6")
-	if body["Image"] != "ghcr.io/paulichp/portunus-node:v0.2.6" {
+	body := sameAs(old, oldImage, "ghcr.io/portunus-org/portunus-node:v0.2.6")
+	if body["Image"] != "ghcr.io/portunus-org/portunus-node:v0.2.6" {
 		t.Fatalf("image: %v", body["Image"])
 	}
 	if fmt.Sprint(body["Env"]) != "[PORTUNUS_JOIN=token]" {

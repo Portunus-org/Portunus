@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
 )
 
 const (

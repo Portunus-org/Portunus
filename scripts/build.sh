@@ -10,7 +10,7 @@ root=$(pwd)
 
 version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
 commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
-pkg=github.com/PaulichP/Portunus/server
+pkg=github.com/Portunus-org/Portunus/server
 ldflags="-s -w -X $pkg/internal/version.Version=$version -X $pkg/internal/version.Commit=$commit"
 
 tags=""

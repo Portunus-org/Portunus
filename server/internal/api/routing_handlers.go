@@ -2,14 +2,14 @@ package api
 
 import (
 	"context"
-	"github.com/PaulichP/Portunus/server/internal/agent"
+	"github.com/Portunus-org/Portunus/server/internal/agent"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/core"
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/core"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 func (s *Server) routesRouting(mux *http.ServeMux) {
@@ -509,7 +509,7 @@ func (s *Server) handleRecovery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"key": key,
 		"commands": []string{
-			"curl -fsSLO https://raw.githubusercontent.com/PaulichP/Portunus/main/docker-compose.yml",
+			"curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml",
 			"sudo docker compose run --rm -v portunus-node:/node:ro portunus restore /node/" + agent.PanelCopyFile,
 			"sudo docker rm -f portunus-node && sudo docker compose up -d",
 		},

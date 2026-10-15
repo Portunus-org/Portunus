@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/auth"
-	"github.com/PaulichP/Portunus/server/internal/config"
-	"github.com/PaulichP/Portunus/server/internal/store"
-	"github.com/PaulichP/Portunus/server/internal/sysinfo"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/auth"
+	"github.com/Portunus-org/Portunus/server/internal/config"
+	"github.com/Portunus-org/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/sysinfo"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

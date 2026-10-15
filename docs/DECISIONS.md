@@ -634,8 +634,8 @@ over by hand (`docker save | ssh docker load`). Now:
   against 67 MB of content for the panel. sing-box is the same binary as in
   the panel's image: a second build without ACME and the control API would
   save a few megabytes at the price of two variants to keep in step.
-- **From a registry.** A release publishes `ghcr.io/paulichp/portunus` and
-  `ghcr.io/paulichp/portunus-node` with the version as tag; the panel's
+- **From a registry.** A release publishes `ghcr.io/portunus-org/portunus` and
+  `ghcr.io/portunus-org/portunus-node` with the version as tag; the panel's
   join command names the node image of its own version, so panel and node
   never drift apart. `PORTUNUS_NODE_IMAGE` overrides it.
 - **One command.** `sudo docker rm -f portunus-node; sudo docker run -d
@@ -867,7 +867,7 @@ An installation is updated by its operator (`docker compose pull && docker
 compose up -d`), who had no way to learn that there was something to pull.
 
 - **Where it looks.** The tags of the panel's own image repository
-  (`ghcr.io/paulichp/portunus`), read the way any container client reads
+  (`ghcr.io/portunus-org/portunus`), read the way any container client reads
   them, with the anonymous token the registry hands out. This is the very
   place the update comes from, so the panel never announces a release that
   cannot be pulled yet, and it needs neither an account nor access to the
@@ -1081,3 +1081,14 @@ The certificates of earlier domains are kept and listed, to be removed by
 hand; the current one and the one being moved to cannot be. A name is
 checked as a host name before anything is removed, so nothing outside the
 two certificate stores is reached.
+
+## D-48 The project lives in the Portunus-org organisation — Accepted
+
+The repository is github.com/Portunus-org/Portunus and the images are
+ghcr.io/portunus-org/portunus and ghcr.io/portunus-org/portunus-node; the
+Go module path follows. The images carry the
+org.opencontainers.image.source label, so GHCR links each package to the
+repository.
+
+A release stops if its images cannot be pulled without signing in, since a
+new package on GHCR starts private.

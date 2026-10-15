@@ -1,6 +1,6 @@
 services:
   portunus:
-    image: ghcr.io/paulichp/portunus:latest
+    image: ghcr.io/portunus-org/portunus:latest
     container_name: portunus
     restart: unless-stopped
     network_mode: host
@@ -9,7 +9,7 @@ services:
       - portunus-update:/run/portunus-update
 
   updater:
-    image: ghcr.io/paulichp/portunus-node:latest
+    image: ghcr.io/portunus-org/portunus-node:latest
     container_name: portunus-updater
     command: ["updater", "portunus"]
     restart: unless-stopped

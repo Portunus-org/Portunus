@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/proxy"
-	"github.com/PaulichP/Portunus/server/internal/store"
+	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // A client is bound to one exit: traffic that rules send "through the

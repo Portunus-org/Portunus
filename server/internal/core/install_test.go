@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/PaulichP/Portunus/server/internal/selfupdate"
-	"github.com/PaulichP/Portunus/server/internal/version"
+	"github.com/Portunus-org/Portunus/server/internal/selfupdate"
+	"github.com/Portunus-org/Portunus/server/internal/version"
 )
 
 func updaterSays(t *testing.T, dir string, st selfupdate.Status) {
