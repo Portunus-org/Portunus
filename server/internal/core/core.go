@@ -74,6 +74,7 @@ type Core struct {
 	beforeApply  func(context.Context)
 	offline      bool
 	panelCertDir string
+	panelACMEDir string
 	hostPorts    func() (tcp, udp map[int]bool)
 	// listHTTP replaces the list downloader in tests.
 	listHTTP *http.Client
@@ -109,6 +110,9 @@ type Options struct {
 	// PanelCertDir is where the panel puts the certificate it serves its
 	// own HTTPS with (PanelCertFiles); empty: inbounds never share it.
 	PanelCertDir string
+	// PanelACMEDir is the panel's cache of the certificates it obtained
+	// from Let's Encrypt, for the settings to list and remove them.
+	PanelACMEDir string
 	// ControlAPI is the loopback address of sing-box's control API, used
 	// to measure exits; empty disables that.
 	ControlAPI string
@@ -153,6 +157,7 @@ func New(st *store.Store, box *secrets.Box, mgr *singbox.Manager, o Options, log
 		updates:      updates{source: o.UpdateSource, dir: o.UpdateDir, before: o.BeforeUpdate, client: &http.Client{Timeout: 20 * time.Second}},
 		offline:      o.Offline,
 		panelCertDir: o.PanelCertDir,
+		panelACMEDir: o.PanelACMEDir,
 		hostPorts:    o.HostPorts,
 		nodeRuntime: nodeRuntime{
 			nodeStatus:  map[int64]NodeStatus{},

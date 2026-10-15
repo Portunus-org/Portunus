@@ -75,6 +75,9 @@ type PanelAccess struct {
 	// Shared: a VLESS connection listens on Port, and the panel is reached
 	// through it.
 	Shared bool
+	// Next is the domain the server is moving to: its certificate is
+	// obtained ahead, and the move is made once it is there (domain.go).
+	Next string
 }
 
 // URL is the entry address to give to the operator ("" when off).
@@ -110,6 +113,7 @@ func (c *Core) PanelAccess(ctx context.Context) (PanelAccess, error) {
 	if p.Domain, err = c.Domain(ctx); err != nil {
 		return p, err
 	}
+	p.Next, _ = c.store.Setting(ctx, settingDomainNext)
 	port, _ := c.store.Setting(ctx, settingPanelPort)
 	p.Port, _ = strconv.Atoi(port)
 	p.Enabled = p.Port > 0 && p.Domain != ""

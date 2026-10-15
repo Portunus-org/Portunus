@@ -76,7 +76,9 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center bg-background p-6">
+    // On a phone the form stands in the upper part of the screen, so that
+    // the keyboard, which takes the lower part, covers neither field.
+    <main className="flex min-h-dvh flex-col items-center bg-background p-6 pt-[12dvh] sm:justify-center sm:pt-6">
       <div className="flex w-full max-w-72 flex-col gap-10">
         <div className="flex flex-col items-center gap-5">
           <LogoMark className="size-9" strokeWidth={1.5} />

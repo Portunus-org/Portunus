@@ -275,6 +275,7 @@ export default function NodesPage() {
             data={nodes}
             columns={columns}
             getRowId={(n) => String(n.id)}
+            onRowClick={(n) => open(n)}
             columnLabels={{
               address: t("nodes.col.address"),
               roles: t("nodes.col.roles"),

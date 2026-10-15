@@ -66,6 +66,26 @@ export interface SSOSettings {
   defaultRole: "" | Role
 }
 
+/** A certificate the server keeps for a domain. */
+export interface DomainCertificate {
+  domain: string
+  issuer: string
+  notAfter: string
+}
+
+/** The server's domain, its certificate, a move to another domain, and the certificates of earlier ones. */
+export interface DomainInfo {
+  domain: string
+  certificate: DomainCertificate | null
+  /** The panel is opened with the operator's own certificate: the domain is changed there. */
+  own: boolean
+  /** The domain being moved to, while its certificate is obtained. */
+  next?: string
+  moveError?: string
+  others: DomainCertificate[]
+  panelUrl?: string
+}
+
 export interface SessionInfo {
   user: User
   csrfToken: string
@@ -645,6 +665,10 @@ export const api = {
 
   suggestInbound: (protocol: Protocol, domain = "") => request<InboundSuggestion>("POST", "/api/inbounds/suggest", { protocol, domain }),
   checkDomain: (domain: string) => request<DomainCheck>("POST", "/api/domain/check", { domain }),
+  domain: () => request<DomainInfo>("GET", "/api/domain"),
+  moveDomain: (domain: string) => request<DomainInfo>("POST", "/api/domain", { domain }),
+  cancelDomainMove: () => request<DomainInfo>("DELETE", "/api/domain/next"),
+  removeCertificate: (domain: string) => request<DomainInfo>("DELETE", `/api/certificates/${encodeURIComponent(domain)}`),
   verifyProxy: (domain: string, port: number) =>
     request<{ ok: boolean; message?: string }>("POST", "/api/acme/verify-proxy", { domain, port }),
 

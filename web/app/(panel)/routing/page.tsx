@@ -22,6 +22,9 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { cardTap } from "@/lib/card-tap"
+import { cn } from "@/lib/utils"
 import { api, errorText, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
@@ -46,6 +49,7 @@ function targetBroken(target: RouteTarget, nodes: Node[]): boolean {
 }
 
 export default function RoutingPage() {
+  const isMobile = useIsMobile()
   const { t, tp, locale } = useI18n()
   const canEdit = useCanEdit()
   const { data: routing, reload } = useResource(api.routing)
@@ -60,13 +64,12 @@ export default function RoutingPage() {
     rule: RouteRule | null
   } | null>(null)
   const [ruleOpen, setRuleOpen] = React.useState(false)
-  const keys = React.useRef(0)
   // Where all other traffic goes is chosen first and saved after: picking
   // an item in a list must not reroute everybody at once.
   const [pending, setPending] = React.useState<RouteTarget | null>(null)
 
   const openRule = (rule: RouteRule | null) => {
-    setRuleDrawer({ key: ++keys.current, rule })
+    setRuleDrawer((d) => ({ key: (d?.key ?? 0) + 1, rule }))
     setRuleOpen(true)
   }
 
@@ -101,6 +104,123 @@ export default function RoutingPage() {
   const hasExits = nodes.some((n) => n.isExit)
   const chosen = pending ?? routing.default
   const changed = targetValue(chosen) !== targetValue(routing.default)
+
+  // The parts of a rule, laid out as a table row on a wide screen and as
+  // a card on a phone.
+  const ruleParts = (rule: RouteRule, i: number) => {
+    const list = listById.get(rule.listId)
+    return {
+      what: (
+        <div className="grid">
+          {canEdit ? (
+            <Button variant="link" className="h-auto w-fit px-0 text-left font-medium text-foreground" onClick={() => openRule(rule)}>
+              {list?.name}
+            </Button>
+          ) : (
+            <span className="font-medium">{list?.name}</span>
+          )}
+          {list && (
+            <span className="text-xs text-muted-foreground">
+              {[summary(list), list.skipped > 0 && tp("routing.list.skipped", list.skipped)].filter(Boolean).join(", ")}
+            </span>
+          )}
+          {list?.kind === "url" &&
+            (list.fetchError ? (
+              <span className="text-xs text-destructive">{t("routing.list.updateFailed")}</span>
+            ) : (
+              list.fetchedAt && (
+                <span className="text-xs text-muted-foreground">
+                  {t("routing.list.updated", {
+                    date: formatDateTime(list.fetchedAt, locale),
+                  })}
+                </span>
+              )
+            ))}
+        </div>
+      ),
+      target: (
+        <div className="flex flex-wrap items-center gap-2">
+          {targetLabel(rule)}
+          {rule.enabled && targetBroken(rule, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>}
+        </div>
+      ),
+      toggle: (
+        <Switch
+          checked={rule.enabled}
+          disabled={!canEdit}
+          aria-label={t("routing.rules.col.enabled")}
+          onCheckedChange={(enabled) =>
+            act(() =>
+              api.updateRouteRule(rule.id, {
+                action: rule.action,
+                nodeId: rule.nodeId,
+                listId: rule.listId,
+                enabled,
+              })
+            )
+          }
+        />
+      ),
+      controls: (
+        <>
+          {canEdit && (
+            <div className="flex justify-end">
+              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" disabled={i === 0} onClick={() => move(i, -1)}>
+                <ArrowUpIcon />
+                <span className="sr-only">{t("routing.rules.moveUp")}</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                disabled={i === rules.length - 1}
+                onClick={() => move(i, 1)}
+              >
+                <ArrowDownIcon />
+                <span className="sr-only">{t("routing.rules.moveDown")}</span>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-8 text-muted-foreground data-[state=open]:bg-muted">
+                    <EllipsisVerticalIcon />
+                    <span className="sr-only">{t("common.actions")}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onSelect={() => openRule(rule)}>
+                    <PencilIcon />
+                    {t("common.edit")}
+                  </DropdownMenuItem>
+                  {list?.kind === "url" && (
+                    <DropdownMenuItem onSelect={() => act(() => api.refreshRouteList(list.id), t("routing.toast.listRefreshed"))}>
+                      <RefreshCwIcon />
+                      {t("routing.list.refresh")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() =>
+                      confirm({
+                        title: t("routing.confirm.deleteRule"),
+                        description: t("routing.confirm.deleteRuleText"),
+                        action: t("common.delete"),
+                        destructive: true,
+                        onConfirm: () => act(() => api.deleteRouteRule(rule.id), t("routing.toast.ruleDeleted")),
+                      })
+                    }
+                  >
+                    <Trash2Icon />
+                    {t("common.delete")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+        </>
+      ),
+    }
+  }
 
   return (
     <div className="grid gap-4 px-4 lg:px-6">
@@ -177,6 +297,35 @@ export default function RoutingPage() {
                 </EmptyContent>
               )}
             </Empty>
+          ) : isMobile ? (
+            <div className="grid gap-3">
+              {rules.map((rule, i) => {
+                const part = ruleParts(rule, i)
+                return (
+                  <div
+                    key={rule.id}
+                    {...cardTap(canEdit ? () => openRule(rule) : undefined)}
+                    className={cn(
+                      "grid gap-3 rounded-lg border p-4 text-sm",
+                      canEdit && cardTap(() => {}).className,
+                      !rule.enabled && "text-muted-foreground"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 gap-3">
+                        <span className="pt-0.5 text-muted-foreground tabular-nums">{i + 1}</span>
+                        {part.what}
+                      </div>
+                      <div className="-mt-1 -mr-2 shrink-0">{part.controls}</div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 pl-6">
+                      {part.target}
+                      {part.toggle}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           ) : (
             <div className="overflow-hidden rounded-lg border">
               <Table>
@@ -191,131 +340,14 @@ export default function RoutingPage() {
                 </TableHeader>
                 <TableBody>
                   {rules.map((rule, i) => {
-                    const list = listById.get(rule.listId)
+                    const part = ruleParts(rule, i)
                     return (
                       <TableRow key={rule.id} className={rule.enabled ? undefined : "text-muted-foreground"}>
                         <TableCell className="text-muted-foreground tabular-nums">{i + 1}</TableCell>
-                        <TableCell>
-                          <div className="grid">
-                            {canEdit ? (
-                              <Button
-                                variant="link"
-                                className="h-auto w-fit px-0 text-left font-medium text-foreground"
-                                onClick={() => openRule(rule)}
-                              >
-                                {list?.name}
-                              </Button>
-                            ) : (
-                              <span className="font-medium">{list?.name}</span>
-                            )}
-                            {list && (
-                              <span className="text-xs text-muted-foreground">
-                                {[summary(list), list.skipped > 0 && tp("routing.list.skipped", list.skipped)].filter(Boolean).join(", ")}
-                              </span>
-                            )}
-                            {list?.kind === "url" &&
-                              (list.fetchError ? (
-                                <span className="text-xs text-destructive">{t("routing.list.updateFailed")}</span>
-                              ) : (
-                                list.fetchedAt && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {t("routing.list.updated", {
-                                      date: formatDateTime(list.fetchedAt, locale),
-                                    })}
-                                  </span>
-                                )
-                              ))}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {targetLabel(rule)}
-                            {rule.enabled && targetBroken(rule, nodes) && (
-                              <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Switch
-                            checked={rule.enabled}
-                            disabled={!canEdit}
-                            aria-label={t("routing.rules.col.enabled")}
-                            onCheckedChange={(enabled) =>
-                              act(() =>
-                                api.updateRouteRule(rule.id, {
-                                  action: rule.action,
-                                  nodeId: rule.nodeId,
-                                  listId: rule.listId,
-                                  enabled,
-                                })
-                              )
-                            }
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {canEdit && (
-                            <div className="flex justify-end">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-8 text-muted-foreground"
-                                disabled={i === 0}
-                                onClick={() => move(i, -1)}
-                              >
-                                <ArrowUpIcon />
-                                <span className="sr-only">{t("routing.rules.moveUp")}</span>
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-8 text-muted-foreground"
-                                disabled={i === rules.length - 1}
-                                onClick={() => move(i, 1)}
-                              >
-                                <ArrowDownIcon />
-                                <span className="sr-only">{t("routing.rules.moveDown")}</span>
-                              </Button>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="size-8 text-muted-foreground data-[state=open]:bg-muted">
-                                    <EllipsisVerticalIcon />
-                                    <span className="sr-only">{t("common.actions")}</span>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-44">
-                                  <DropdownMenuItem onSelect={() => openRule(rule)}>
-                                    <PencilIcon />
-                                    {t("common.edit")}
-                                  </DropdownMenuItem>
-                                  {list?.kind === "url" && (
-                                    <DropdownMenuItem
-                                      onSelect={() => act(() => api.refreshRouteList(list.id), t("routing.toast.listRefreshed"))}
-                                    >
-                                      <RefreshCwIcon />
-                                      {t("routing.list.refresh")}
-                                    </DropdownMenuItem>
-                                  )}
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    variant="destructive"
-                                    onSelect={() =>
-                                      confirm({
-                                        title: t("routing.confirm.deleteRule"),
-                                        description: t("routing.confirm.deleteRuleText"),
-                                        action: t("common.delete"),
-                                        destructive: true,
-                                        onConfirm: () => act(() => api.deleteRouteRule(rule.id), t("routing.toast.ruleDeleted")),
-                                      })
-                                    }
-                                  >
-                                    <Trash2Icon />
-                                    {t("common.delete")}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          )}
-                        </TableCell>
+                        <TableCell>{part.what}</TableCell>
+                        <TableCell>{part.target}</TableCell>
+                        <TableCell>{part.toggle}</TableCell>
+                        <TableCell>{part.controls}</TableCell>
                       </TableRow>
                     )
                   })}

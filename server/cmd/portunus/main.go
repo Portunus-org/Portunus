@@ -185,6 +185,7 @@ func serve() error {
 		Reserved:     reservedPorts(cfg),
 		// Inside sing-box's own directory: the one place it is sure to read.
 		PanelCertDir: filepath.Join(cfg.SingBoxDir(), "panel-cert"),
+		PanelACMEDir: filepath.Join(cfg.DataDir, "panel-acme"),
 		ACME: core.ACMEPaths{
 			DataDirectory: "acme", // relative to sing-box's working directory
 			StorageDir:    filepath.Join(cfg.SingBoxDir(), "acme"),

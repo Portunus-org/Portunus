@@ -607,7 +607,7 @@ function WelcomeFlow() {
         <LogoMark />
         Portunus
       </header>
-      <div className="flex flex-1 items-center justify-center px-6 pb-16">
+      <div className="flex flex-1 items-start justify-center px-4 pb-16 sm:items-center sm:px-6">
         {step === "hello" && <Hello onNext={() => setStep(steps[0])} />}
         {step === "password" && <PasswordStep step={index} total={total} invited={invited} onNext={() => next("password")} />}
         {step === "server" && (

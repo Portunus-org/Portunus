@@ -35,6 +35,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { cardTap } from "@/lib/card-tap"
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
@@ -80,6 +82,7 @@ export function DataTable<T extends RowData>({
   pageSize = 20,
   pager = "auto",
   found,
+  onRowClick,
 }: {
   data: T[]
   columns: ColumnDef<TableFeatures, T, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -102,6 +105,8 @@ export function DataTable<T extends RowData>({
   pager?: "auto" | "always"
   /** A row to show: its page is turned to, it is scrolled to and lights up once, as a setting found in the settings does. */
   found?: string | null
+  /** What a tap on a row's card opens (phones); without it the card only shows. */
+  onRowClick?: (row: T) => void
 }) {
   const { t, tp } = useI18n()
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>(() =>
@@ -151,6 +156,10 @@ export function DataTable<T extends RowData>({
     setPagination((p) => ({ ...p, pageIndex: 0 }))
     onViewChange?.(v)
   }
+
+  const isMobile = useIsMobile()
+  // What a value is called on a card: the name the columns menu uses, or the column's own header.
+  const labelOf = (id: string, header: unknown) => columnLabels[id] ?? (typeof header === "string" ? header : id)
 
   const hideable = table.getAllColumns().filter((c) => typeof c.accessorFn !== "undefined" && c.getCanHide())
 
@@ -216,67 +225,127 @@ export function DataTable<T extends RowData>({
       </div>
 
       <div className="flex flex-col gap-4 px-4 lg:px-6">
-        <div className="overflow-hidden rounded-lg border">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-muted">
-              {table.getHeaderGroups().map((group) => (
-                <TableRow key={group.id} className="hover:bg-transparent">
-                  {group.headers.map((header) => {
-                    const sorted = header.column.getIsSorted()
-                    return (
-                      <TableHead key={header.id} colSpan={header.colSpan}>
-                        {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                          <button
-                            type="button"
-                            onClick={header.column.getToggleSortingHandler()}
-                            className="inline-flex items-center gap-1 hover:text-foreground"
-                          >
+        {isMobile ? (
+          // On a phone every row is a card: what it is called and its
+          // actions on top, the rest under it as named values, so nothing
+          // has to be scrolled sideways to be seen.
+          <div className="grid gap-3">
+            {loading ? (
+              Array.from({ length: 3 }, (_, i) => (
+                <div key={i} className="grid gap-3 rounded-lg border p-4">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              ))
+            ) : table.getRowModel().rows.length ? (
+              table.getRowModel().rows.map((row) => {
+                const cells = row.getVisibleCells()
+                // An empty value (a note nobody wrote) takes no line on a card.
+                const [title, ...rest] = cells.filter(
+                  (c, i) => c.column.id !== "actions" && (i === 0 || !["", null, undefined].includes(c.getValue() as never))
+                )
+                const actions = cells.find((c) => c.column.id === "actions")
+                const tap = cardTap(onRowClick && (() => onRowClick(row.original)))
+                return (
+                  <div
+                    key={row.id}
+                    data-row-id={row.id}
+                    {...tap}
+                    className={cn("grid gap-3 rounded-lg border bg-card p-4 text-sm", tap.className, lit === row.id && "row-found")}
+                  >
+                    <div className="flex min-h-7 items-center justify-between gap-3">
+                      <div className="min-w-0 font-medium break-words">{title && <FlexRender cell={title} />}</div>
+                      {actions && (
+                        <div className="-mr-2 shrink-0">
+                          <FlexRender cell={actions} />
+                        </div>
+                      )}
+                    </div>
+                    {rest.length > 0 && (
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5">
+                        {rest.map((cell) => (
+                          <React.Fragment key={cell.id}>
+                            <dt className="text-muted-foreground">{labelOf(cell.column.id, cell.column.columnDef.header)}</dt>
+                            <dd className="flex min-w-0 justify-end text-right">
+                              <FlexRender cell={cell} />
+                            </dd>
+                          </React.Fragment>
+                        ))}
+                      </dl>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              <div className="flex h-32 items-center justify-center rounded-lg border text-center text-sm text-muted-foreground">
+                {empty ?? t("common.noResults")}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-muted">
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id} className="hover:bg-transparent">
+                    {group.headers.map((header) => {
+                      const sorted = header.column.getIsSorted()
+                      return (
+                        <TableHead key={header.id} colSpan={header.colSpan}>
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <button
+                              type="button"
+                              onClick={header.column.getToggleSortingHandler()}
+                              className="inline-flex items-center gap-1 hover:text-foreground"
+                            >
+                              <FlexRender header={header} />
+                              {sorted === "asc" && <ArrowUpIcon className="size-3" />}
+                              {sorted === "desc" && <ArrowDownIcon className="size-3" />}
+                            </button>
+                          ) : (
                             <FlexRender header={header} />
-                            {sorted === "asc" && <ArrowUpIcon className="size-3" />}
-                            {sorted === "desc" && <ArrowDownIcon className="size-3" />}
-                          </button>
-                        ) : (
-                          <FlexRender header={header} />
-                        )}
-                      </TableHead>
-                    )
-                  })}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                // shadcn's Skeleton, in the shape of the rows to come: the
-                // table keeps its height and nothing jumps when they arrive.
-                Array.from({ length: 4 }, (_, i) => (
-                  <TableRow key={i} className="hover:bg-transparent">
-                    {table.getVisibleLeafColumns().map((column, j) => (
-                      <TableCell key={column.id}>
-                        {column.id !== "actions" && <Skeleton className="h-4" style={{ width: `${[70, 45, 55, 35][(i + j) % 4]}%` }} />}
-                      </TableCell>
-                    ))}
+                          )}
+                        </TableHead>
+                      )
+                    })}
                   </TableRow>
-                ))
-              ) : table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} data-row-id={row.id} className={cn(lit === row.id && "row-found")}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className={cn(cell.column.id === "actions" && "w-10 text-right")}>
-                        <FlexRender cell={cell} />
-                      </TableCell>
-                    ))}
+                ))}
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  // shadcn's Skeleton, in the shape of the rows to come: the
+                  // table keeps its height and nothing jumps when they arrive.
+                  Array.from({ length: 4 }, (_, i) => (
+                    <TableRow key={i} className="hover:bg-transparent">
+                      {table.getVisibleLeafColumns().map((column, j) => (
+                        <TableCell key={column.id}>
+                          {column.id !== "actions" && <Skeleton className="h-4" style={{ width: `${[70, 45, 55, 35][(i + j) % 4]}%` }} />}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : table.getRowModel().rows.length ? (
+                  table.getRowModel().rows.map((row) => (
+                    <TableRow key={row.id} data-row-id={row.id} className={cn(lit === row.id && "row-found")}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className={cn(cell.column.id === "actions" && "w-10 text-right")}>
+                          <FlexRender cell={cell} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={columns.length} className="h-32 text-center text-muted-foreground">
+                      {empty ?? t("common.noResults")}
+                    </TableCell>
                   </TableRow>
-                ))
-              ) : (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={columns.length} className="h-32 text-center text-muted-foreground">
-                    {empty ?? t("common.noResults")}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
 
         {(pager === "always" || table.getPageCount() > 1) && (
           <div className="flex items-center justify-between px-2">

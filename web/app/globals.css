@@ -326,11 +326,13 @@ html[data-rendering="software"] [data-slot$="-overlay"] {
     background-color: transparent;
   }
 }
-.row-found > td {
+.row-found > td,
+div.row-found {
   animation: row-found 1.8s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .row-found > td {
+  .row-found > td,
+  div.row-found {
     animation-duration: 0.01s;
   }
   .row-found {
@@ -342,4 +344,27 @@ html[data-rendering="software"] [data-slot$="-overlay"] {
     outline: 2px solid var(--ring);
     outline-offset: 6px;
   }
+}
+
+/* A section of the settings on a phone, the way a phone app shows its
+   settings: the settings of a pane in one rounded card, its explanation
+   above and its button below at full width. A pane without settings of
+   its own (a list of cards, a log) stays as it is, so that no card ends up
+   inside another. */
+.phone-settings [data-slot="pane"] {
+  gap: 1rem;
+}
+.phone-settings [data-slot="pane-content"]:has([data-slot="field"]) {
+  border-radius: 1rem;
+  background-color: color-mix(in oklab, var(--muted) 60%, transparent);
+  padding: 1rem;
+  gap: 1.5rem;
+}
+.phone-settings [data-slot="pane-footer"] {
+  border-top: 0;
+  padding-top: 0.25rem;
+}
+.phone-settings [data-slot="pane-footer"] > button {
+  flex: 1;
+  height: 2.5rem;
 }

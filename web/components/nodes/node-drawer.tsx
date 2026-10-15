@@ -176,7 +176,7 @@ export function NodeDrawer({
                         </FieldContent>
                       </Field>
                     </FieldGroup>
-                    <div className="grid grid-cols-2 items-start gap-4">
+                    <div className="grid items-start gap-4 sm:grid-cols-2">
                       <FormField id="hopPort" error={errors.hopPort} label={t("nodes.form.hopPort")}>
                         <Input
                           id="hopPort"

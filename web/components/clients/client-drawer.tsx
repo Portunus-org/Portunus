@@ -277,7 +277,7 @@ function ClientForm({
         <FormField id="name" label={t("clients.form.name")} error={errors.name}>
           <Input id="name" name="name" defaultValue={client?.name} required maxLength={64} autoFocus={!client} />
         </FormField>
-        <div className="grid grid-cols-2 items-start gap-4">
+        <div className="grid items-start gap-4 sm:grid-cols-2">
           <FormField id="limit" label={t("clients.form.limit")} error={errors.limit}>
             <Input
               id="limit"

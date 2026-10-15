@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { SearchIcon } from "lucide-react"
 
 import { ClientStatus } from "@/components/clients/client-status"
@@ -23,6 +24,7 @@ const col = columnHelper<Client>()
  */
 export const ClientsOverview = React.memo(function ClientsOverview({ clients, loading = false }: { clients: Client[]; loading?: boolean }) {
   const { t, tp, locale } = useI18n()
+  const router = useRouter()
   const [query, setQuery] = React.useState("")
   const [view, setView] = React.useState("all")
 
@@ -93,6 +95,7 @@ export const ClientsOverview = React.memo(function ClientsOverview({ clients, lo
       loading={loading}
       columns={columns}
       getRowId={(r) => String(r.id)}
+      onRowClick={(c) => router.push(`/clients/#client-${c.id}`)}
       initialSorting={[{ id: "traffic", desc: true }]}
       initialHidden={["note", "created"]}
       pageSize={10}

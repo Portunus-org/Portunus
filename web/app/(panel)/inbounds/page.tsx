@@ -214,6 +214,7 @@ export default function InboundsPage() {
         data={rows}
         columns={columns}
         getRowId={(r) => String(r.id)}
+        onRowClick={open}
         views={[
           { value: "all", label: t("inbounds.view.all") },
           {

@@ -37,6 +37,15 @@ npx shadcn@latest add dashboard-01
   content scrolls under the header.
 - Formatting is Prettier with `web/.prettierrc.json`; `components/ui` is
   excluded, registry components stay as installed.
+- On a phone the settings take the whole screen, as a phone app's do: the
+  sections as a grouped list (with a short state under some), a section on
+  a screen of its own with a way back, its settings in one rounded card and
+  its button at full width below.
+- On a phone (below md) a table is a list of cards: what a row is called
+  and its actions on top, the other columns under it as named values, an
+  empty value left out. Fields that stand side by side on a wide screen
+  stand one under another. Forms stand in the upper part of the screen and
+  the field being typed in is brought above the keyboard (KeyboardAware).
 - An error that is about one field is shown at that field: the control is
   outlined in red (aria-invalid) and the words are right under it
   (`useFormErrors`, which places the server's refusals by the field they

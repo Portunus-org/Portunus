@@ -27,8 +27,24 @@ export function PaneHeader({ className, children, ...props }: React.ComponentPro
   )
 }
 
-export function PaneTitle({ className, ...props }: React.ComponentProps<"h2">) {
-  return <h2 data-slot="pane-title" className={cn("col-start-1 font-heading text-xl font-medium", className)} {...props} />
+/**
+ * A title already said above the pane (on a phone, the bar of the screen
+ * names the section): a pane title that says the same is kept for screen
+ * readers only.
+ */
+export const SaidAboveContext = React.createContext<string | null>(null)
+
+export function PaneTitle({ className, children, ...props }: React.ComponentProps<"h2">) {
+  const said = React.useContext(SaidAboveContext)
+  return (
+    <h2
+      data-slot="pane-title"
+      className={cn("col-start-1 font-heading text-xl font-medium", said !== null && children === said && "sr-only", className)}
+      {...props}
+    >
+      {children}
+    </h2>
+  )
 }
 
 export function PaneDescription({ className, ...props }: React.ComponentProps<"p">) {

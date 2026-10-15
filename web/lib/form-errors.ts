@@ -39,7 +39,8 @@ export function useFormErrors() {
     (err: unknown, fields: readonly string[] | HTMLElement = [], as: Record<string, string> = {}) => {
       const named = err instanceof ApiError ? (err.field ?? fieldOfCode[err.code]) : undefined
       const field = named ? (as[named] ?? named) : undefined
-      const shown = (f: string) => (Array.isArray(fields) ? fields.includes(f) : !!(fields as HTMLElement).querySelector(`#${CSS.escape(f)}`))
+      const shown = (f: string) =>
+        Array.isArray(fields) ? fields.includes(f) : !!(fields as HTMLElement).querySelector(`#${CSS.escape(f)}`)
       const at = field && shown(field) ? field : "form"
       setErrors({ [at]: errorText(err, t) })
       return at

@@ -51,6 +51,11 @@ func (s *Server) routesProxy(mux *http.ServeMux) {
 	mux.Handle("GET /api/settings", view(s.handleGetSettings))
 	mux.Handle("PUT /api/settings", admin(s.handlePutSettings))
 
+	mux.Handle("GET /api/domain", admin(s.handleGetDomain))
+	mux.Handle("POST /api/domain", admin(s.handleMoveDomain))
+	mux.Handle("DELETE /api/domain/next", admin(s.handleCancelDomainMove))
+	mux.Handle("DELETE /api/certificates/{domain}", admin(s.handleRemoveCertificate))
+
 	mux.Handle("GET /api/singbox", view(s.handleSingBoxStatus))
 	mux.Handle("POST /api/singbox/restart", op(s.handleSingBoxRestart))
 	mux.Handle("GET /api/singbox/logs", admin(s.handleSingBoxLogs))
@@ -723,4 +728,73 @@ func isSingBoxClient(ua string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------- domain
+
+type domainDTO struct {
+	core.DomainState
+	// MoveError says why the new domain's certificate has not come yet.
+	MoveError string `json:"moveError,omitempty"`
+	// PanelURL is the panel's entry address by its domain, so that a page
+	// opened by the old one can go over once the server has moved.
+	PanelURL string `json:"panelUrl,omitempty"`
+}
+
+func (s *Server) writeDomain(w http.ResponseWriter, r *http.Request) {
+	st, err := s.core.DomainState(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	out := domainDTO{DomainState: st}
+	if st.Next != "" {
+		out.MoveError = s.DomainMoveError()
+	}
+	if pa, err := s.core.PanelAccess(r.Context()); err == nil {
+		out.PanelURL = pa.URL()
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleGetDomain(w http.ResponseWriter, r *http.Request) { s.writeDomain(w, r) }
+
+func (s *Server) handleMoveDomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain string `json:"domain"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	moved, err := s.core.MoveDomainTo(r.Context(), req.Domain)
+	if err != nil {
+		s.writeCoreError(w, r, err)
+		return
+	}
+	s.kickPanelAccess()
+	if moved {
+		s.kickSubscriptions()
+	}
+	s.auditAction(r, "domain.move", req.Domain, map[string]any{"done": moved})
+	s.writeDomain(w, r)
+}
+
+func (s *Server) handleCancelDomainMove(w http.ResponseWriter, r *http.Request) {
+	if err := s.core.CancelDomainMove(r.Context()); err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	s.kickPanelAccess()
+	s.auditAction(r, "domain.move_cancel", "", nil)
+	s.writeDomain(w, r)
+}
+
+func (s *Server) handleRemoveCertificate(w http.ResponseWriter, r *http.Request) {
+	domain := r.PathValue("domain")
+	if err := s.core.RemoveCertificate(r.Context(), domain); err != nil {
+		s.writeCoreError(w, r, err)
+		return
+	}
+	s.auditAction(r, "certificate.remove", domain, nil)
+	s.writeDomain(w, r)
 }

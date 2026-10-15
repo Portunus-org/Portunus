@@ -221,6 +221,7 @@ export default function ClientsPage() {
         data={rows}
         columns={columns}
         getRowId={(r) => String(r.id)}
+        onRowClick={open}
         found={found}
         views={clientViews(clients, t)}
         view={view}

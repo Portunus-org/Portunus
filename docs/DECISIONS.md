@@ -1048,12 +1048,36 @@ next to the user at the foot of the menu, or from the user's own menu
 Esc, leaving the page as it was. The section is in the address
 (`#settings/updates`), so links and the old `/settings/` and `/users/`
 addresses open the window where they mean to; accounts and single sign-on
-are sections of it rather than a page of their own. A wizard started from
-the window, as setting up single sign-on, runs inside it in place of its
-section and returns there; the old `/users/sso/` address opens the section. A newer release is
+are sections of it rather than a page of their own. Single sign-on is set
+up there as a section like the others, its settings in rows saved by one
+button, not a wizard; the old `/users/sso/` address opens the section. A newer release is
 marked on the gear. Inside the window, FormField and SwitchField lay
 themselves out as rows; elsewhere they stay as they were.
 
 What is on its way is shown in its shape (shadcn's Skeleton) instead of a
 word: table rows, the map, a client's code and links, a node's command,
 and the sections of the settings.
+
+## D-47 One domain, moved whole, its certificate shown with it — Accepted
+
+The settings have no section of a single setting: the address in the links
+and the subscriptions are the Server section; the domain, how Let's Encrypt
+checks it and the certificate authority are Domain and certificates. The
+domain is shown with the certificate it is served with now.
+
+Moving to another domain is one step for everything that goes by it: the
+panel opened by it, HTTPS subscriptions, the address in the links (when it
+was the domain) and the connections that present it with a Let's Encrypt
+certificate. The new domain has to point to the server already. When the
+panel is opened by its domain with a certificate from Let's Encrypt, the
+new domain's certificate is obtained first through the panel's listener,
+while everything still works on the old one, and the move is made once it
+is there; the page opened by the old domain then goes to the new address.
+Without that listener there is nothing to obtain it with ahead, so the
+move is made at once and the certificates follow. With the operator's own
+certificate the domain is changed where that certificate is uploaded.
+
+The certificates of earlier domains are kept and listed, to be removed by
+hand; the current one and the one being moved to cannot be. A name is
+checked as a host name before anything is removed, so nothing outside the
+two certificate stores is reached.

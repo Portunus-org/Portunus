@@ -2,116 +2,183 @@
 
 import * as React from "react"
 
-import { useConfirm } from "@/components/confirm"
-import { StatusBadge } from "@/components/status"
-import { SSOSetup } from "@/components/users/sso-setup"
+import { CopyButton } from "@/components/copy-button"
+import { FormError, FormField, SwitchField } from "@/components/form-field"
+import { Pane, PaneContent, PaneDescription, PaneFooter, PaneGroup, PaneHeader, PaneTitle } from "@/components/settings-pane"
 import { Button } from "@/components/ui/button"
-import { Pane, PaneContent, PaneDescription, PaneFooter, PaneHeader, PaneTitle } from "@/components/settings-pane"
-import { api, errorText, ssoInput, type SSOSettings } from "@/lib/api"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Note } from "@/components/wizard"
+import { api, ssoInput, type Role, type SSOSettings } from "@/lib/api"
+import { useFormErrors } from "@/lib/form-errors"
 import { useI18n } from "@/lib/i18n"
+import { useSession } from "@/lib/session"
 import { toast } from "@/lib/toast"
 import { useResource } from "@/lib/use-resource"
 
+const fallbacks = ["", "viewer", "operator", "admin"] as const
+const roles = ["admin", "operator", "viewer"] as const
+
 /**
- * Sign-in through an OIDC provider, as it stands: not set up, on, or off.
- * Setting it up and changing it is a wizard that takes the section's place.
+ * Sign-in through an OIDC provider: the provider, the application made for
+ * the panel there, and who gets in, as rows like every other section of
+ * the settings, saved together by its button. Turning it on asks the
+ * provider first, so a wrong address is said at the address.
  */
 export function SSOCard() {
-  const { t } = useI18n()
   const { data, reload } = useResource(api.sso)
-  const [confirm, confirmDialog] = useConfirm()
-  const s = data?.settings
-  const configured = !!s && s.issuer !== "" && s.clientId !== ""
-  const [setup, setSetup] = React.useState(false)
+  if (!data) return null
+  // Saved, the form starts again from what the server keeps.
+  return <SSOForm key={JSON.stringify(data.settings)} settings={data.settings} callback={data.callback} onSaved={reload} />
+}
 
-  const turn = async (s: SSOSettings, enabled: boolean) => {
+function SSOForm({ settings, callback, onSaved }: { settings: SSOSettings; callback: string; onSaved: () => void }) {
+  const { t } = useI18n()
+  const { user } = useSession()
+  const isAdmin = user.role === "admin"
+  const [v, setV] = React.useState({ ...settings, clientSecret: "" })
+  const [pending, setPending] = React.useState(false)
+  const { errors, wrong, clear, fail } = useFormErrors()
+  const set = (patch: Partial<typeof v>) => {
+    setV((old) => ({ ...old, ...patch }))
+    clear()
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    clear()
+    const issuer = v.issuer.trim()
+    if (v.enabled || issuer) {
+      if (!issuer) return wrong("issuer", t("sso.error.noIssuer"))
+      if (!/^https?:\/\/[^\s/]+/i.test(issuer)) return wrong("issuer", t("sso.error.notUrl"))
+    }
+    if (v.enabled && !v.clientId.trim()) return wrong("clientId", t("sso.error.noClient"))
+    setPending(true)
     try {
-      await api.saveSSO({ ...ssoInput(s), enabled })
-      toast.success(t(enabled ? "sso.toast.on" : "sso.toast.off"))
-      reload()
+      // Nothing is turned on for a provider that is not there.
+      if (v.enabled && (issuer !== settings.issuer || !settings.enabled)) {
+        const found = await api.testSSO(issuer).catch(() => ({ ok: false }))
+        if (!found.ok) return wrong("issuer", t("sso.checkFailed"))
+      }
+      // An empty secret means "as it was": the stored one is never shown, so it cannot be retyped.
+      await api.saveSSO({ ...ssoInput({ ...v, issuer }), ...(v.clientSecret ? { clientSecret: v.clientSecret } : {}) })
+      toast.success(v.enabled === settings.enabled ? t("settings.saved") : t(v.enabled ? "sso.toast.on" : "sso.toast.off"))
+      onSaved()
     } catch (err) {
-      toast.error(errorText(err, t))
+      fail(err, ["issuer", "ssoName", "clientId", "clientSecret", "defaultRole", "groupsClaim", "scopes"], { name: "ssoName" })
+    } finally {
+      setPending(false)
     }
   }
 
-  const groups = s
-    ? (["admin", "operator", "viewer"] as const).filter((r) => s[`${r}Group`]).map((r) => `${s[`${r}Group`]}: ${t(`role.${r}`)}`)
-    : []
-
-  if (setup && data)
-    return (
-      <SSOSetup
-        settings={data.settings}
-        callback={data.callback}
-        onCancel={() => setSetup(false)}
-        onDone={() => {
-          setSetup(false)
-          reload()
-        }}
-      />
-    )
+  const text = (id: string, key: keyof typeof v, extra: React.ComponentProps<typeof Input> = {}) => (
+    <Input
+      id={id}
+      value={String(v[key])}
+      onChange={(e) => set({ [key]: e.target.value })}
+      spellCheck={false}
+      autoComplete="off"
+      {...extra}
+    />
+  )
 
   return (
     <Pane>
-      {confirmDialog}
-      <PaneHeader>
-        <PaneTitle>{t("sso.title")}</PaneTitle>
-        <PaneDescription>{t("sso.description")}</PaneDescription>
-      </PaneHeader>
-      {s && configured && (
+      <form className="contents" noValidate onSubmit={save}>
+        <PaneHeader>
+          <PaneTitle>{t("sso.title")}</PaneTitle>
+          <PaneDescription>{t("sso.description")}</PaneDescription>
+        </PaneHeader>
         <PaneContent>
-          <dl className="grid grid-cols-[10rem_1fr] items-baseline gap-y-3 text-sm" data-setting="sso-summary">
-            <dt className="text-muted-foreground">{t("sso.row.state")}</dt>
-            <dd>
-              <StatusBadge tone={s.enabled ? "ok" : "off"}>{t(s.enabled ? "sso.state.on" : "sso.state.off")}</StatusBadge>
-            </dd>
-            <dt className="text-muted-foreground">{t("sso.row.provider")}</dt>
-            <dd className="min-w-0 break-all">
-              {s.name ? `${s.name}, ` : ""}
-              {s.issuer}
-            </dd>
-            <dt className="text-muted-foreground">{t("sso.row.flow")}</dt>
-            <dd>{t("sso.row.flowValue")}</dd>
-            <dt className="text-muted-foreground">{t("sso.row.access")}</dt>
-            <dd className="grid gap-1">
-              {groups.map((g) => (
-                <span key={g}>{g}</span>
-              ))}
-              <span className={groups.length ? "text-muted-foreground" : ""}>
-                {s.defaultRole ? t("sso.row.everyone", { role: t(`role.${s.defaultRole}`) }) : t("sso.row.nobodyElse")}
-              </span>
-            </dd>
-          </dl>
-        </PaneContent>
-      )}
-      {s && (
-        <PaneFooter className="gap-2 border-t">
-          <Button size="sm" variant={configured ? "outline" : "default"} data-setting="sso-setup" onClick={() => setSetup(true)}>
-            {t(configured ? "sso.change" : "sso.setUp")}
-          </Button>
-          {configured &&
-            (s.enabled ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  confirm({
-                    title: t("sso.off.title"),
-                    description: t("sso.off.description"),
-                    action: t("sso.turnOff"),
-                    onConfirm: () => turn(s, false),
-                  })
-                }
+          <fieldset disabled={!isAdmin} className="grid gap-10">
+            <SwitchField
+              id="sso-enabled"
+              label={t("sso.enabled")}
+              hint={t("sso.enabledHint")}
+              checked={v.enabled}
+              onCheckedChange={(enabled) => set({ enabled })}
+            />
+
+            <PaneGroup title={t("sso.group.provider")}>
+              <FormField id="issuer" label={t("sso.issuer")} hint={t("sso.issuerHint")} error={errors.issuer}>
+                {text("issuer", "issuer", { type: "url", placeholder: "https://id.example.com" })}
+              </FormField>
+              <FormField id="ssoName" label={t("sso.name")} hint={t("sso.nameHint")} error={errors.ssoName}>
+                {text("ssoName", "name", { maxLength: 40, placeholder: "SSO", spellCheck: undefined })}
+              </FormField>
+            </PaneGroup>
+
+            <PaneGroup title={t("sso.group.client")}>
+              <Note tone="info">{t("sso.pkce")}</Note>
+              <FormField id="callback" label={t("sso.callback")} hint={t("sso.callbackHint")}>
+                <div className="relative">
+                  <Input id="callback" readOnly value={callback} className="pr-10 font-mono text-xs" />
+                  <CopyButton value={callback} className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </FormField>
+              <FormField id="clientId" label={t("sso.clientId")} error={errors.clientId}>
+                {text("clientId", "clientId")}
+              </FormField>
+              <FormField
+                id="clientSecret"
+                label={t("sso.clientSecret")}
+                hint={t(settings.hasSecret ? "sso.clientSecretKept" : "sso.clientSecretHint")}
+                error={errors.clientSecret}
               >
-                {t("sso.turnOff")}
-              </Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => turn(s, true)}>
-                {t("sso.turnOn")}
-              </Button>
-            ))}
-        </PaneFooter>
-      )}
+                {text("clientSecret", "clientSecret", {
+                  type: "password",
+                  autoComplete: "new-password",
+                  placeholder: settings.hasSecret ? "••••••••••••" : "",
+                })}
+              </FormField>
+            </PaneGroup>
+
+            <PaneGroup title={t("sso.group.access")}>
+              <p className="-mt-3 max-w-2xl text-sm text-muted-foreground">{t("sso.accessLead")}</p>
+              {roles.map((role) => (
+                <FormField key={role} id={`${role}Group`} label={t("sso.groupFor", { role: t(`role.${role}`) })}>
+                  {text(`${role}Group`, `${role}Group`, { placeholder: t("sso.groupPlaceholder") })}
+                </FormField>
+              ))}
+              <FormField
+                id="defaultRole"
+                label={t("sso.fallback")}
+                hint={t(v.defaultRole ? "sso.fallbackRoleHint" : "sso.fallbackNoneHint")}
+                error={errors.defaultRole}
+              >
+                <Select value={v.defaultRole || "none"} onValueChange={(r) => set({ defaultRole: r === "none" ? "" : (r as Role) })}>
+                  <SelectTrigger id="defaultRole" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {fallbacks.map((r) => (
+                        <SelectItem key={r || "none"} value={r || "none"}>
+                          {r ? t(`role.${r}`) : t("sso.fallbackNone")}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField id="groupsClaim" label={t("sso.groupsClaim")} hint={t("sso.groupsClaimHint")} error={errors.groupsClaim}>
+                {text("groupsClaim", "groupsClaim", { className: "font-mono" })}
+              </FormField>
+              <FormField id="scopes" label={t("sso.scopes")} hint={t("sso.scopesHint")} error={errors.scopes}>
+                {text("scopes", "scopes", { className: "font-mono" })}
+              </FormField>
+            </PaneGroup>
+          </fieldset>
+          <FormError>{errors.form}</FormError>
+        </PaneContent>
+        {isAdmin && (
+          <PaneFooter className="border-t">
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? t("common.saving") : t("common.save")}
+            </Button>
+          </PaneFooter>
+        )}
+      </form>
     </Pane>
   )
 }

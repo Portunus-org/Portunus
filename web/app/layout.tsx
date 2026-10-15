@@ -1,8 +1,9 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google"
 import { ThemeProvider } from "next-themes"
 
 import { FreshBuild } from "@/components/fresh-build"
+import { KeyboardAware } from "@/components/keyboard-aware"
 import { RenderingHint } from "@/components/rendering-hint"
 
 import { Toaster } from "@/components/ui/sonner"
@@ -37,6 +38,15 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 }
 
+// On a phone the page is made shorter while the keyboard is open, rather
+// than the keyboard being laid over it (Chrome on Android; Safari covers
+// the page either way, and KeyboardAware brings the field into view).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+}
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
@@ -48,6 +58,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <RenderingHint />
           <FreshBuild />
+          <KeyboardAware />
           <I18nProvider>
             <TooltipProvider>
               {children}

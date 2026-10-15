@@ -70,6 +70,10 @@ type panelState struct {
 	cover     http.Handler
 	coverFor  string
 	decoyStop func()
+	// The domain the server is moving to (core: MoveDomainTo): why its
+	// certificate has not come yet, and when it is asked for again.
+	nextErr   string
+	nextRetry time.Time
 }
 
 const gateCookie = "portunus_gate"
@@ -87,6 +91,14 @@ func (s *Server) PanelAccessError() string {
 	s.panel.mu.Lock()
 	defer s.panel.mu.Unlock()
 	return s.panel.err
+}
+
+// DomainMoveError says why the certificate of the domain the server is
+// moving to has not been obtained ("" while all goes well).
+func (s *Server) DomainMoveError() string {
+	s.panel.mu.Lock()
+	defer s.panel.mu.Unlock()
+	return s.panel.nextErr
 }
 
 func (s *Server) setPanelError(msg string) {
@@ -136,7 +148,7 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 	sum := sha256.Sum256([]byte(pa.Certificate))
 	key := ""
 	if pa.Enabled {
-		key = strings.Join([]string{pa.Domain, strconv.Itoa(pa.Port), pa.Mode, hex.EncodeToString(sum[:8]), strconv.FormatBool(pa.Shared)}, "|")
+		key = strings.Join([]string{pa.Domain, strconv.Itoa(pa.Port), pa.Mode, hex.EncodeToString(sum[:8]), strconv.FormatBool(pa.Shared), pa.Next}, "|")
 	}
 	var decoy *url.URL
 	if pa.Decoy != "" {
@@ -149,7 +161,19 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 		s.panel.cover, s.panel.coverFor = cover.New(s.core.CoverSeed(), pa.Domain), pa.Domain
 	}
 	same := key == s.panel.key && (key == "" || s.panel.close != nil)
+	if pa.Next == "" {
+		s.panel.nextErr = ""
+	}
+	// The new domain's certificate is asked for again after a refusal,
+	// once its pause is over.
+	again := same && key != "" && pa.Next != "" && pa.Mode != core.PanelCertOwn && time.Now().After(s.panel.nextRetry)
+	if again {
+		s.panel.nextRetry = time.Now().Add(2 * time.Minute)
+	}
 	s.panel.mu.Unlock()
+	if again {
+		go s.warmUp(pa.Next)
+	}
 	if same {
 		return
 	}
@@ -181,7 +205,7 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 	default:
 		m := &autocert.Manager{
 			Prompt:     autocert.AcceptTOS,
-			HostPolicy: autocert.HostWhitelist(pa.Domain),
+			HostPolicy: autocert.HostWhitelist(slices.DeleteFunc([]string{pa.Domain, pa.Next}, func(h string) bool { return h == "" })...),
 			Cache:      autocert.DirCache(filepath.Join(s.cfg.DataDir, "panel-acme")),
 			Email:      s.core.ACMEEmail(ctx),
 		}
@@ -203,6 +227,9 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 			ours := strings.EqualFold(hello.ServerName, pa.Domain)
 			// Let's Encrypt's own check of the domain is always answered.
 			validating := slices.Contains(hello.SupportedProtos, acme.ALPNProto)
+			if pa.Next != "" && strings.EqualFold(hello.ServerName, pa.Next) && !validating {
+				return s.nextCertificate(get, hello, pa.Next)
+			}
 			if ours && !validating {
 				waitMu.Lock()
 				until, last := waitUntil, waitErr
@@ -321,7 +348,47 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 	s.log.Info("panel available by its domain", "address", pa.Origin(), "certificate", pa.Mode, "shared_with_vless", pa.Shared)
 	if warm {
 		go s.warmUp(pa.Domain)
+		if pa.Next != "" {
+			s.panel.mu.Lock()
+			s.panel.nextRetry = time.Now().Add(2 * time.Minute)
+			s.panel.mu.Unlock()
+			go s.warmUp(pa.Next)
+		}
 	}
+}
+
+// nextCertificate obtains the certificate of the domain the server is
+// moving to. Once it is there, the server moves: the panel, the
+// subscriptions and the connections go over to the new name together.
+func (s *Server) nextCertificate(get func(*tls.ClientHelloInfo) (*tls.Certificate, error), hello *tls.ClientHelloInfo, next string) (*tls.Certificate, error) {
+	cert, err := get(hello)
+	if err != nil {
+		if !strings.Contains(err.Error(), "missing certificate") {
+			msg, pause := acmeFailure(err)
+			s.panel.mu.Lock()
+			s.panel.nextErr, s.panel.nextRetry = msg, time.Now().Add(pause)
+			s.panel.mu.Unlock()
+			s.log.Warn("no certificate for the new domain yet", "domain", next, "err", err, "next_try_in", pause.Round(time.Second))
+		}
+		return nil, err
+	}
+	// Moved from outside a handshake: moving rebuilds this listener.
+	go func() {
+		ctx := context.Background()
+		if pa, err := s.core.PanelAccess(ctx); err != nil || !strings.EqualFold(pa.Next, next) {
+			return // moved already, or the move was called off
+		}
+		if err := s.core.MoveDomain(ctx, next); err != nil {
+			s.log.Error("move to the new domain", "domain", next, "err", err)
+			s.panel.mu.Lock()
+			s.panel.nextErr = err.Error()
+			s.panel.mu.Unlock()
+			return
+		}
+		s.kickPanelAccess()
+		s.kickSubscriptions()
+	}()
+	return cert, nil
 }
 
 // serveDecoy starts the cover site on loopback, in plain HTTP: what a
