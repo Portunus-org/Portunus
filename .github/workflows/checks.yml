@@ -62,7 +62,7 @@ jobs:
     name: go
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Format, vet and test (race detector on)
         run: |
           docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc '
@@ -76,7 +76,7 @@ jobs:
     name: web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Types, lint, format and build
         run: |
           docker run --rm -v "$PWD:/src" -w /src/web -e NEXT_TELEMETRY_DISABLED=1 "$NODE_IMAGE" sh -euc '
@@ -92,7 +92,7 @@ jobs:
     name: sast
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Semgrep
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$SEMGREP_IMAGE" semgrep scan --metrics=off --error \
@@ -111,13 +111,13 @@ jobs:
       matrix:
         language: [go, javascript-typescript, actions]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: github/codeql-action/init@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           languages: ${{ matrix.language }}
           build-mode: none
           queries: security-extended
-      - uses: github/codeql-action/analyze@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: /language:${{ matrix.language }}
       # Findings of high or critical severity fail the check; the rest are
@@ -141,7 +141,7 @@ jobs:
     name: sca
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the whole history, for the secret scan
       - name: Go modules (govulncheck, only what the code reaches)
@@ -166,7 +166,7 @@ jobs:
     name: images
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build both images
         run: |
           docker build -f deploy/Dockerfile -t portunus:check .
@@ -182,7 +182,7 @@ jobs:
     name: dast
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Start the panel from its image
         run: |
           docker build -f deploy/Dockerfile -t portunus:check .
@@ -203,7 +203,7 @@ jobs:
             zap-baseline.py -t http://panel:2053/ -m 2 -c /zap/rules.tsv -r report.html -J report.json
       - name: Keep the report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dast-report
           path: zap/
@@ -213,6 +213,6 @@ jobs:
     name: workflows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: actionlint
         run: docker run --rm -v "$PWD:/repo" -w /repo --entrypoint /usr/local/bin/actionlint "$ACTIONLINT_IMAGE"
