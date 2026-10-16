@@ -547,11 +547,19 @@ A version is a tag in git, and nothing else has to be edited: the build
 takes the number from the tag, the panel shows it in **Settings**, and nodes
 are started from the node image with the same number.
 
+Work comes together on `dev`; `main` holds what is released and takes
+changes from `dev` only, through a pull request that passed every check
+(`checks.yml`, see [CONTRIBUTING.md](../CONTRIBUTING.md)). A release is a tag on
+`main`:
+
 ```sh
+# after the pull request dev → main is merged
+git switch main && git pull
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
+A tag on a commit that is not on `main` is refused by the release.
 Pushing the tag starts `.github/workflows/release.yml`: both images are
 built for x86 and ARM, scanned with Trivy and, if nothing HIGH or CRITICAL
 is found, published as `ghcr.io/portunus-org/portunus:v0.1.0` and

@@ -1092,3 +1092,26 @@ repository.
 
 A release stops if its images cannot be pulled without signing in, since a
 new package on GHCR starts private.
+
+## D-49 Changes reach main through dev, past every check — Accepted
+
+The repository is open to contributions. Every pull request goes into
+`dev`; `main` holds what is released and takes changes from `dev` only, and
+a release is a tag on a commit of `main` (the release refuses any other).
+
+Every pull request, and every push to `dev` and `main`, runs `checks.yml`:
+the tests and the web build; static analysis (Semgrep with fixed rule
+packs, CodeQL for Go, TypeScript and the workflows); known vulnerabilities
+in the dependencies (govulncheck on what the code reaches, pnpm audit,
+Trivy over the tree) and secrets in the whole history (gitleaks); both
+images built and scanned with Trivy; and the panel started from its image
+and probed from outside with an OWASP ZAP baseline scan. A HIGH or CRITICAL
+finding fails its check, and so does any ZAP warning not accepted, with its
+reason, in `.zap/rules.tsv`. The branch rules (`.github/rulesets`, imported
+into the repository's settings) require every check on both branches and
+leave no one a way around them; only administrators create release tags.
+Every tool runs from an image or a version pinned exactly, and every action
+by commit.
+
+The panel's pages also send `Cross-Origin-Embedder-Policy: require-corp`:
+everything they load is the panel's own.

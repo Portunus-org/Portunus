@@ -1,0 +1,28 @@
+name: Bug report
+description: Something does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: For a security issue, do not open an issue here; see the Security tab.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About.
+      placeholder: v0.4.2
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`docker compose logs portunus`, and the sing-box log from Settings → sing-box, with addresses and keys removed."
+      render: text

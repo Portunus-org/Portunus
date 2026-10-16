@@ -1,0 +1,218 @@
+# Every change is checked before it is merged, and again on dev and main:
+#
+#   go, web      the tests, the type and style checks, the web build
+#   sast         static analysis of the code (Semgrep, CodeQL)
+#   sca          known vulnerabilities in the dependencies (govulncheck,
+#                pnpm audit, Trivy) and secrets in the whole history (gitleaks)
+#   images       both images built and scanned as they would be published
+#   dast         the panel, started from its image, probed from outside (ZAP)
+#   workflows    the workflows themselves (actionlint)
+#   source       main takes changes from dev only
+#
+# A HIGH or CRITICAL finding fails its check, and the branch rules
+# (.github/rulesets, CONTRIBUTING.md) let nothing into dev or main while a
+# check fails. Accepted findings are listed with their reasons in
+# .trivyignore and .zap/rules.tsv.
+name: checks
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The images the release builds with (deploy/Dockerfile), and the tools,
+  # each pinned by digest.
+  GO_IMAGE: golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
+  NODE_IMAGE: node:26.9.0-alpine3.24@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070
+  TRIVY_IMAGE: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+  SEMGREP_IMAGE: semgrep/semgrep@sha256:acaac22ffc7b7cc5926de0751b223bce0b2491c33d18422fa72f632c78d81198
+  GITLEAKS_IMAGE: zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  ACTIONLINT_IMAGE: rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+  ZAP_IMAGE: ghcr.io/zaproxy/zaproxy@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef
+  GOVULNCHECK: golang.org/x/vuln/cmd/govulncheck@v1.9.0
+  PNPM_VERSION: 12.6.0
+
+jobs:
+  source:
+    name: source
+    runs-on: ubuntu-latest
+    steps:
+      - name: main takes changes from dev only
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE" = "main" ] && [ "$HEAD" != "dev" ]; then
+            echo "::error::Pull requests into main come from dev. Open this one against dev."
+            exit 1
+          fi
+
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Format, vet and test (race detector on)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc '
+            apk add --no-cache gcc musl-dev git >/dev/null
+            test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt: the files above are not formatted"; exit 1; }
+            go vet -tags noui ./...
+            CGO_ENABLED=1 go test -tags noui -race -count=1 ./...
+          '
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Types, lint, format and build
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/web -e NEXT_TELEMETRY_DISABLED=1 "$NODE_IMAGE" sh -euc '
+            npm i -g "pnpm@$0" >/dev/null 2>&1
+            pnpm install --frozen-lockfile
+            pnpm exec tsc --noEmit
+            pnpm exec eslint
+            npx -y prettier@3.9.10 --check .
+            pnpm build
+          ' "$PNPM_VERSION"
+
+  sast:
+    name: sast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Semgrep
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src "$SEMGREP_IMAGE" semgrep scan --metrics=off --error \
+            --config p/default --config p/golang --config p/typescript --config p/react \
+            --config p/nextjs --config p/secrets --config p/dockerfile --config p/github-actions \
+            --exclude node_modules --exclude .next --exclude out .
+
+  codeql:
+    name: codeql (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: github/codeql-action/init@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - uses: github/codeql-action/analyze@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
+        with:
+          category: /language:${{ matrix.language }}
+      # Findings of high or critical severity fail the check; the rest are
+      # in the repository's Security tab.
+      - name: Fail on high or critical findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LANGUAGE: ${{ matrix.language }}
+          REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          sleep 15
+          found=$(gh api "repos/$REPO/code-scanning/alerts?ref=$REF&state=open&tool_name=CodeQL&per_page=100" \
+            --jq "[.[] | select(.most_recent_instance.category == \"/language:$LANGUAGE\") | select(.rule.security_severity_level == \"high\" or .rule.security_severity_level == \"critical\")] | length")
+          if [ "$found" != "0" ]; then
+            echo "::error::CodeQL found $found high or critical issue(s) in $LANGUAGE: see the Security tab."
+            exit 1
+          fi
+
+  sca:
+    name: sca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # the whole history, for the secret scan
+      - name: Go modules (govulncheck, only what the code reaches)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc \
+            'go run "$0" -tags noui ./...' "$GOVULNCHECK"
+      - name: Web packages (pnpm audit)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/web "$NODE_IMAGE" sh -euc '
+            npm i -g "pnpm@$0" >/dev/null 2>&1
+            pnpm audit --audit-level high
+          ' "$PNPM_VERSION"
+      - name: Dependencies, secrets and configuration (Trivy)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" fs --exit-code 1 \
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL \
+            --ignorefile .trivyignore --skip-dirs web/node_modules .
+      - name: Secrets in the whole history (gitleaks)
+        run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" git /repo --no-banner --redact
+
+  images:
+    name: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build both images
+        run: |
+          docker build -f deploy/Dockerfile -t portunus:check .
+          docker build -f deploy/Dockerfile --target node -t portunus-node:check .
+      - name: Scan both images (Trivy)
+        run: |
+          for image in portunus:check portunus-node:check; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/.trivyignore:/.trivyignore:ro" \
+              "$TRIVY_IMAGE" image --exit-code 1 --severity HIGH,CRITICAL --ignorefile /.trivyignore "$image"
+          done
+
+  dast:
+    name: dast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Start the panel from its image
+        run: |
+          docker build -f deploy/Dockerfile -t portunus:check .
+          docker network create dast
+          docker run -d --name panel --network dast -e PORTUNUS_LISTEN=0.0.0.0:2053 -e PORTUNUS_UPDATE_CHECK=off portunus:check
+          for _ in $(seq 60); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' panel)" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs panel; exit 1
+      # ZAP looks at every page and answer it reaches without signing in.
+      # Every warning fails the check, except those accepted with a reason in
+      # .zap/rules.tsv; all it noted is in the report.
+      - name: Probe it from outside (OWASP ZAP baseline)
+        run: |
+          mkdir -p zap && chmod 777 zap
+          docker run --rm --network dast -v "$PWD/zap:/zap/wrk" -v "$PWD/.zap/rules.tsv:/zap/rules.tsv:ro" "$ZAP_IMAGE" \
+            zap-baseline.py -t http://panel:2053/ -m 2 -c /zap/rules.tsv -r report.html -J report.json
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dast-report
+          path: zap/
+          retention-days: 14
+
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo --entrypoint /usr/local/bin/actionlint "$ACTIONLINT_IMAGE"

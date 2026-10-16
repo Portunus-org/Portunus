@@ -218,6 +218,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		// Everything a page loads is the panel's own (fonts, images, map
+		// tiles through its API), so nothing from elsewhere is let in either.
+		h.Set("Cross-Origin-Embedder-Policy", "require-corp")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
 		if r.TLS != nil {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
