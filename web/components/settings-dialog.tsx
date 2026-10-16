@@ -781,7 +781,7 @@ export function SettingsDialog() {
             const shown = ids.flatMap((id) => allowed.filter((s) => s.id === id))
             if (!shown.length) return null
             return (
-              <div key={ids[0]} className="overflow-hidden rounded-2xl bg-muted/60">
+              <div key={ids[0]} className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
                 {shown.map((s, i) => (
                   <button
                     key={s.id}
@@ -792,7 +792,7 @@ export function SettingsDialog() {
                     }}
                     className={cn(
                       "flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors active:bg-muted [&>svg]:size-5 [&>svg]:shrink-0",
-                      i > 0 && "border-t border-background/80"
+                      i > 0 && "border-t"
                     )}
                   >
                     {s.icon}
@@ -816,10 +816,17 @@ export function SettingsDialog() {
     <Dialog open={win.open} onOpenChange={(o) => !o && (setCameBack(false), win.close())}>
       <DialogContent
         showCloseButton={!isMobile}
+        // On a phone nothing is focused on opening: the first button would be
+        // the close button, outlined before anything was touched.
+        onOpenAutoFocus={(e) => {
+          if (!isMobile) return
+          e.preventDefault()
+          ;(e.currentTarget as HTMLElement).focus()
+        }}
         className={cn(
           "flex gap-0 overflow-hidden p-0",
           isMobile
-            ? "h-dvh w-full max-w-none flex-col rounded-none ring-0 sm:max-w-none"
+            ? "h-dvh w-full max-w-none flex-col rounded-none bg-background ring-0 sm:max-w-none"
             : "h-[min(52rem,90svh)] w-[calc(100%-2rem)] max-w-none sm:max-w-6xl"
         )}
       >

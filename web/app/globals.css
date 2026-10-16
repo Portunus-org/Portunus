@@ -355,8 +355,10 @@ div.row-found {
   gap: 1rem;
 }
 .phone-settings [data-slot="pane-content"]:has([data-slot="field"]) {
-  border-radius: 1rem;
-  background-color: color-mix(in oklab, var(--muted) 60%, transparent);
+  /* As the cards of the panel's pages. */
+  border-radius: calc(var(--radius) * 1.4);
+  background-color: var(--card);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
   padding: 1rem;
   gap: 1.5rem;
 }
