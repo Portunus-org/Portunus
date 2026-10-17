@@ -7,8 +7,8 @@
 
 # Portunus
 
-**A light, self-hosted panel for [sing-box](https://sing-box.sagernet.org).**<br>
-Connections, clients, exit servers and routing on one server, from a browser or a phone.
+**Lightweight self-hosted proxy panel with multihop routing, automatic failover, and built-in traffic filtering.**<br>
+Built on [sing-box](https://sing-box.sagernet.org). Connections, clients, exit servers and routing, from a browser or a phone.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-e5e5e5?style=flat-square&labelColor=171717)](LICENSE)
 ![sing-box 1.14](https://img.shields.io/badge/sing--box-1.14-e5e5e5?style=flat-square&labelColor=171717)

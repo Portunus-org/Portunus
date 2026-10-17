@@ -872,7 +872,7 @@
   "notFound.back": "Back to the panel",
   "renderError.title": "This screen failed to render",
   "about.title": "About",
-  "about.tagline": "A light panel for sing-box on your own server",
+  "about.tagline": "A lightweight panel for sing-box on your own server",
   "about.version": "Version",
   "about.singbox": "with sing-box {version}",
   "about.code": "Source code",
