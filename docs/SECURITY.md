@@ -7,7 +7,7 @@ Please report vulnerabilities privately, as described in
 
 ## Threat model (summary)
 
-Portunus administers censorship-circumvention infrastructure. The assumed
+Portunus administers proxy servers and the panel that controls them. The assumed
 adversaries are:
 
 1. **Internet scanners and active probers** that try to identify the server

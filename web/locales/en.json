@@ -465,7 +465,7 @@
   "wizard.masquerade": "Site shown to scanners",
   "wizard.masqueradeHint": "Anyone who opens this port in a browser sees this site instead of a proxy.",
   "wizard.obfs": "Obfuscation",
-  "wizard.obfsHint": "Hides that the traffic is QUIC at all. Turn it on only if Hysteria2 gets blocked: few apps support it.",
+  "wizard.obfsHint": "Hides that the traffic is QUIC at all. Turn it on only if Hysteria2 does not get through on some network: few apps support it.",
   "wizard.review.transport": "Transport",
   "domain.section": "Domain and certificates",
   "domain.title": "Domain",
