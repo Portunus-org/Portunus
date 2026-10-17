@@ -32,7 +32,7 @@ import { useSettingsWindow } from "@/lib/settings-dialog"
 import { useResource } from "@/lib/use-resource"
 
 export function NavUser() {
-  const { isMobile, setOpenMobile } = useSidebar()
+  const { setOpenMobile } = useSidebar()
   const win = useSettingsWindow()
   // On a phone the menu is a panel of its own over the page: it is put
   // away, so that the window is the only thing open.
@@ -83,8 +83,8 @@ export function NavUser() {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-            side={isMobile ? "bottom" : "right"}
-            align="end"
+            side="top"
+            align="start"
             sideOffset={4}
           >
             <DropdownMenuLabel className="p-0 font-normal">
@@ -156,7 +156,7 @@ export function NavUser() {
               onClick={() => openSettings(update?.available ? "updates" : undefined)}
             >
               <Settings2Icon />
-              {update?.available && <span className="absolute top-1 right-1 size-2 rounded-full bg-primary ring-2 ring-sidebar" />}
+              {update?.available && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-sidebar" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">{gearLabel}</TooltipContent>

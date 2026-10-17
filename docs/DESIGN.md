@@ -1,7 +1,8 @@
 # Design
 
-The interface is shadcn/ui's `dashboard-01` block, used as shipped
-(DECISIONS D-22). When in doubt, compare with a fresh copy:
+The interface is shadcn/ui's `dashboard-01` block, used as shipped:
+components are not edited locally, so `shadcn add … --overwrite` keeps
+producing the same result. When in doubt, compare with a fresh copy:
 
 ```sh
 npx shadcn@latest add dashboard-01

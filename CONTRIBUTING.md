@@ -59,7 +59,7 @@ scripts/scan.sh
 ## Style
 
 The design rules of the interface are in [docs/DESIGN.md](docs/DESIGN.md),
-the reasons behind larger choices in [docs/DECISIONS.md](docs/DECISIONS.md).
+how the parts fit together in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Interface texts live in `web/locales/<code>.json`, never in components.
 
 ## Security issues

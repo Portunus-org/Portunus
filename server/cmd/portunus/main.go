@@ -163,7 +163,7 @@ func serve() error {
 	mgr := singbox.New(cfg.SingBoxBin, cfg.SingBoxDir(), log)
 	// A stable QUIC stateless-reset key lets Hysteria2/TUIC clients notice a
 	// reload at once instead of after their 30 s idle timeout. Read by the
-	// patched sing-quic in our sing-box build (docs/DECISIONS.md, D-17).
+	// patched sing-quic in our sing-box build (deploy/patches).
 	mgr.Env = []string{
 		"SING_QUIC_STATELESS_RESET_KEY=" + hex.EncodeToString(box.Derive("sing-quic stateless reset")),
 		// Its own memory limit, not the panel's (the last value wins).
