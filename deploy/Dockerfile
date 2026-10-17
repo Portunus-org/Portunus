@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go get ${SINGBOX_DEP_BUMPS} && go mod tidy
 # Patched sing-quic: a stable stateless-reset key so Hysteria2/TUIC clients
 # reconnect immediately after a reload instead of after a 30 s idle timeout
-# (docs/DECISIONS.md, D-17). The patch targets one sing-quic version; the
+# (the key is derived from the master key by the panel). The patch targets one sing-quic version; the
 # build fails loudly if a sing-box upgrade moves it.
 ARG SINGQUIC_VERSION=v0.7.0
 COPY deploy/patches/sing-quic-stable-stateless-reset.patch /patches/
@@ -141,7 +141,9 @@ ENV PORTUNUS_DATA_DIR=/var/lib/portunus \
     PORTUNUS_LOG_FORMAT=json \
     GOMEMLIMIT=96MiB
 VOLUME ["/var/lib/portunus"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["portunus", "healthcheck"]
+# Checked every second while starting, so "docker compose up --wait" returns
+# as soon as the panel answers (and its log already shows how to sign in).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --start-interval=1s --retries=3 CMD ["portunus", "healthcheck"]
 # The repository the image comes from: GHCR links the package to it, so the
 # package shows on the repository and takes its permissions.
 LABEL org.opencontainers.image.source="https://github.com/Portunus-org/Portunus" \

@@ -70,8 +70,8 @@ On a Linux server with Docker:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml
-docker compose up -d
-docker compose logs portunus     # the address, the login and a first password
+docker compose up -d --wait
+docker compose logs portunus      # the address, the login and a first password
 ```
 
 Then, from your computer:
@@ -93,13 +93,17 @@ The guide for everyday use is built into the panel (**Help** in the user
 menu): protocols, certificates, clients and subscriptions, apps, nodes,
 troubleshooting. The files here cover running it and how it is made.
 
-| | |
-|---|---|
-| [Deployment](docs/DEPLOY.md) | Installing, configuring, updating, backups |
-| [Security](docs/SECURITY.md) | What is protected and how |
-| [Architecture](docs/ARCHITECTURE.md) | How the parts fit together |
-| [Decisions](docs/DECISIONS.md) | Why things are the way they are |
-| [Design](docs/DESIGN.md) | The interface's rules |
+- [Deployment](docs/DEPLOY.md): installing, configuring, updating, backups
+- [Security](docs/SECURITY.md): what is protected and how
+- [Architecture](docs/ARCHITECTURE.md): how the parts fit together
+- [Design](docs/DESIGN.md): the interface's rules
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Pull requests go to the
+`dev` branch; [CONTRIBUTING.md](CONTRIBUTING.md) says what they have to
+pass. Please report vulnerabilities privately, as described in
+[SECURITY.md](.github/SECURITY.md).
 
 ## License
 

@@ -4,33 +4,29 @@ Portunus is a lightweight control panel for [sing-box](https://sing-box.sagernet
 It generates sing-box configuration, manages nodes and clients, and serves
 subscriptions. It never carries proxy traffic itself.
 
-Status markers: **[built]** exists in the code, **[planned: stage N]** is
-designed but not implemented yet. Stages refer to the build plan in the
-project spec.
-
 ## 1. Planes
 
 ```
                   operator (browser, via SSH tunnel)
                                │ HTTP :2053 (loopback)
 ┌──────────────────────────────▼──────────────────────────────┐
-│ main node · container "portunus" · network_mode: host        │
-│                                                              │
-│  portunus (Go, one static binary)          CONTROL PLANE     │
-│   ├─ HTTP API + embedded web UI  [built]                     │
-│   ├─ auth: local accounts, sessions, OIDC  [built]           │
-│   ├─ SQLite (WAL) on volume  [built]                         │
-│   ├─ config generator → sing-box JSON  [built]               │
-│   ├─ route list updater  [built]                             │
-│   └─ node client (mTLS HTTPS)  [built]                       │
-│          │ spawns, reloads, supervises                       │
-│  sing-box (child process)               DATA PLANE [built]   │
-│   inbounds: VLESS+REALITY, Hysteria2, Trojan, SS, TUIC       │
-└──────┬───────────────────────────────▲───────────────────────┘
-       │ hop (sing-box outbound, D-15) │ agent control channel
-┌──────▼───────────────────────────────┴───────┐
-│ exit / backup node · `portunus agent` + sing-box │  [built]
-└───────────────────────────────────────────────┘
+│ main node · container "portunus" · network_mode: host       │
+│                                                             │
+│  portunus (Go, one static binary)          CONTROL PLANE    │
+│   ├─ HTTP API + embedded web UI                             │
+│   ├─ auth: local accounts, sessions, OIDC                   │
+│   ├─ SQLite (WAL) on volume                                 │
+│   ├─ config generator → sing-box JSON                       │
+│   ├─ route list updater                                     │
+│   └─ node client (mTLS HTTPS)                               │
+│          │ spawns, reloads, supervises                      │
+│  sing-box (child process)               DATA PLANE          │
+│   inbounds: VLESS+REALITY, Hysteria2, Trojan, SS, TUIC      │
+└──────┬───────────────────────────────▲──────────────────────┘
+       │ hop (sing-box outbound)       │ agent control channel
+┌──────▼───────────────────────────────┴──────────────────────┐
+│ exit / backup node · `portunus agent` + sing-box            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 - **Control plane**: the `portunus` binary. It owns state, renders sing-box
@@ -39,14 +35,14 @@ project spec.
   panel restarts; a panel outage freezes configuration but does not stop
   traffic.
 
-## 2. Process model (main node) [built / st. 2]
+## 2. Process model (main node)
 
 One container, one entrypoint (`portunus serve`), which:
 
 1. loads `PORTUNUS_*` configuration from the environment;
 2. opens SQLite and applies pending migrations;
 3. creates the initial admin on an empty database;
-4. [st. 2] renders the sing-box config, validates it with `sing-box check`,
+4. renders the sing-box config, validates it with `sing-box check`,
    starts sing-box as a child process, and restarts it with backoff if it exits;
 5. serves HTTP on `PORTUNUS_LISTEN` until SIGTERM, then shuts down gracefully.
 
@@ -71,7 +67,7 @@ server/                     Go module (go.mod, go.sum)
 web/                        Next.js app (static export → web/out)
 deploy/                     Dockerfile
 scripts/                    build.sh
-docs/                       this document, DECISIONS, DEPLOY, SECURITY, DESIGN
+docs/                       this document, DEPLOY, SECURITY, DESIGN
 ```
 
 Nodes and routing live in `internal/agent` (both ends of the control
@@ -80,7 +76,7 @@ channel), `internal/proxy` (routing rules, hops, link import) and
 `internal/oidc` (the flow) and `internal/core` (its settings, groups to
 roles).
 
-## 4. HTTP surface [built]
+## 4. HTTP surface
 
 | Path | Auth | Purpose |
 |---|---|---|
@@ -97,15 +93,15 @@ API responses carry `Content-Security-Policy: default-src 'none'` and
 lists the SHA-256 hashes of that page's inline Next.js bootstrap scripts,
 computed at startup. There is no `'unsafe-inline'` for scripts.
 
-Stage 2 endpoints: `/api/inbounds`, `/api/clients` (+ `/access` with links
+Proxies and clients: `/api/inbounds`, `/api/clients` (+ `/access` with links
 and QR codes), `/api/settings`, `/api/singbox` (status, restart, logs, masked
 config), and `GET /sub/<token>` (also on the optional public listener).
 Nodes and routing: `/api/nodes` (with `/join` and `/check`) and
-`/api/routing` (default, lists, rules). When the panel is published behind the decoy
-[st. 6], only these paths and the secret panel prefix are routed to Portunus;
+`/api/routing` (default, lists, rules). When the panel is published behind the decoy,
+only these paths and the secret panel prefix are routed to Portunus;
 everything else returns the decoy site.
 
-## 5. Data model [built: users, sessions, audit_log, settings]
+## 5. Data model
 
 - `users`: accounts with a password of their own and accounts of an OIDC
   provider (known by issuer and subject), role `admin|operator|viewer`.
@@ -114,30 +110,30 @@ everything else returns the decoy site.
   change or reset); later all config mutations.
 - `settings`: key/value for panel-wide settings.
 
-Stage 2: `inbounds` (public settings JSON + encrypted secret) and `clients`
+Proxies and clients: `inbounds` (public settings JSON + encrypted secret) and `clients`
 (credentials, subscription token, limit, expiry, traffic counters).
 Nodes and routing: `nodes` (roles, public settings, encrypted keys),
 `route_lists`, `route_rules`. The one OIDC provider is a setting, its client
 secret encrypted like the other secrets.
 
-## 6. Nodes, routing and failover [built]
+## 6. Nodes, routing and failover
 
 - **Join**: the panel issues the node's keys and shows one `docker run …
   agent` command with a `PORTUNUS_JOIN` token. The agent listens for the
   panel over mutually authenticated TLS; the panel sends it a complete
-  sing-box configuration and polls it every 30 s (D-29).
-- **Exits**: a node of ours (VLESS + REALITY hop, D-15) or a proxy imported
+  sing-box configuration and polls it every 30 s.
+- **Exits**: a node of ours (VLESS + REALITY hop) or a proxy imported
   from a share link. Each becomes an outbound. Every client is bound to one
-  exit (D-34); the route target `auto` sends traffic through it.
+  exit; the route target `auto` sends traffic through it.
 - **Routing**: text lists of sites and addresses, typed or downloaded daily,
   inlined as sing-box rule-sets. Ordered rules map a list to `direct`, an
-  exit, `auto` or `block`; a default covers the rest (D-30).
+  exit, `auto` or `block`; a default covers the rest.
 - **Failover**:
   - *client side*: subscriptions contain every entry point (the main server
     and backup entries) in one `urltest` group, so a dead entry is skipped
     without operator action;
   - *exits*: the panel moves the clients of an exit that has not answered
-    for two minutes to the other exits (D-34); until then, and for a rule
+    for two minutes to the other exits; until then, and for a rule
     bound to one exit, traffic fails closed.
 - **Degradation**:
   - *exit down*: only traffic routed to it is affected; `direct` traffic is
@@ -147,7 +143,7 @@ secret encrypted like the other secrets.
     nothing can be changed and limits are not enforced until the panel is
     back. Panel HA is out of scope.
 
-## 7. Frontend [built]
+## 7. Frontend
 
 Next.js App Router, static export, shadcn/ui only. Route groups:
 

@@ -16,7 +16,7 @@ new releases when the panel asks. There is nothing to fill in.
 ```sh
 mkdir portunus && cd portunus
 curl -fsSLO https://raw.githubusercontent.com/Portunus-org/Portunus/main/docker-compose.yml
-docker compose up -d
+docker compose up -d --wait       # returns once the panel is up
 docker compose logs portunus      # how to sign in
 ```
 
@@ -82,7 +82,7 @@ unprivileged user.
 | `PORTUNUS_MAP_TILES` | `off` | By default the panel draws the map of nodes itself (country shapes it carries; nothing is fetched). Set a tile server to use map images instead: a template with `{z}`, `{x}`, `{y}`, optional `{style}` = `light`/`dark`, or `esri` for Esri's gray canvas. Images are cached in the data volume and served to the browser by the panel. |
 | `PORTUNUS_MAP_LABELS` | none | Optional second layer drawn over the tiles (place names), same format. `esri` brings its own. |
 | `PORTUNUS_MAP_CREDIT` | none | Attribution shown on the map when tiles are used. `esri` brings its own. |
-| `PORTUNUS_SINGBOX_BIN` | `sing-box` | sing-box executable (the image ships a patched build, see DECISIONS D-17/D-18). |
+| `PORTUNUS_SINGBOX_BIN` | `sing-box` | sing-box executable (the image ships its own build, with per-client traffic counters and a QUIC fix, see `deploy/Dockerfile`). |
 | `PORTUNUS_SINGBOX_API` | `127.0.0.1:2054` | Loopback address of sing-box's stats API (per-client traffic). |
 | `PORTUNUS_ACME_DIRECTORY` | Let's Encrypt | Other ACME directory URL (another CA, or Pebble for testing). |
 | `GOMEMLIMIT` | `96MiB` | Go runtime soft memory limit of the panel itself |
@@ -493,9 +493,9 @@ far higher and whose certificates browsers do not trust:
   `/healthz`, which also pings the database).
 - Logs are structured JSON on stderr. Compose rotates them (3 × 10 MB).
 
-## Resource usage (measured)
+## Resource usage
 
-| | |
+| What | Measured |
 |---|---|
 | Image size | ~93 MB (sing-box ~41 MB) |
 | Panel RSS, idle | ~15 MB |
@@ -504,7 +504,8 @@ far higher and whose certificates browsers do not trust:
 
 Throughput, one connection, server pinned to a single core (loopback,
 Ryzen 7 255): VLESS+REALITY 4.2 Gbit/s, Hysteria2 1.5 Gbit/s,
-Shadowsocks-2022 10 Gbit/s. See DECISIONS D-20 to reproduce.
+Shadowsocks-2022 10 Gbit/s. Reproduce with
+`PORTUNUS_TEST_THROUGHPUT=1` (`server/internal/singbox/throughput_test.go`).
 
 ## Development
 
