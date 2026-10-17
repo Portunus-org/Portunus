@@ -83,6 +83,7 @@ export function DataTable<T extends RowData>({
   pager = "auto",
   found,
   onRowClick,
+  inset = true,
 }: {
   data: T[]
   columns: ColumnDef<TableFeatures, T, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -107,6 +108,8 @@ export function DataTable<T extends RowData>({
   found?: string | null
   /** What a tap on a row's card opens (phones); without it the card only shows. */
   onRowClick?: (row: T) => void
+  /** The page's side padding; off where the table stands inside something padded already (a settings pane). */
+  inset?: boolean
 }) {
   const { t, tp } = useI18n()
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>(() =>
@@ -165,7 +168,7 @@ export function DataTable<T extends RowData>({
 
   return (
     <div className="flex w-full flex-col gap-4">
-      <div className="flex items-center justify-between gap-2 px-4 lg:px-6">
+      <div className={cn("flex items-center justify-between gap-2", inset && "px-4 lg:px-6")}>
         {views && view && onViewChange ? (
           <Tabs value={view} onValueChange={changeView}>
             <Label htmlFor="view-selector" className="sr-only">
@@ -224,7 +227,7 @@ export function DataTable<T extends RowData>({
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 px-4 lg:px-6">
+      <div className={cn("flex flex-col gap-4", inset && "px-4 lg:px-6")}>
         {isMobile ? (
           // On a phone every row is a card: what it is called and its
           // actions on top, the rest under it as named values, so nothing

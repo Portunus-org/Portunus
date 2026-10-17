@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast"
 import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
 import { FormError, FormField, SwitchField } from "@/components/form-field"
+import { NumberInput } from "@/components/number-input"
 import { Button } from "@/components/ui/button"
 import { Pane, PaneContent, PaneDescription, PaneFooter, PaneHeader, PaneTitle } from "@/components/settings-pane"
 import { Input } from "@/components/ui/input"
@@ -195,7 +196,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
   const [mode, setMode] = React.useState<"acme" | "own">("acme")
   const [port, setPort] = React.useState(443)
   const [pending, setPending] = React.useState(false)
-  const { errors, clear, fail } = useFormErrors()
+  const { errors, clear, fail, numbers } = useFormErrors()
   const { check, reached, retry, waiting } = usePanelAccessChecks(!!access?.enabled)
 
   const show = React.useCallback((a: PanelAccess) => {
@@ -213,6 +214,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = e.currentTarget
+    if (!numbers(form)) return
     const f = new FormData(form)
     const certificate = String(f.get("certificate") ?? "").trim()
     const key = String(f.get("key") ?? "").trim()
@@ -268,9 +270,8 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                     {mode === "own" && (
                       <>
                         <FormField id="access-port" error={errors["access-port"]} label={t("access.port")} hint={t("access.portHint")}>
-                          <Input
+                          <NumberInput
                             id="access-port"
-                            type="number"
                             min={1}
                             max={65535}
                             className="max-w-32 tabular-nums"
@@ -308,7 +309,7 @@ export function PanelAccessCard({ canEdit }: { canEdit: boolean }) {
                   </>
                 )}
                 {enabled && (
-                  <FormField id="decoy" error={errors.decoy} label={t("access.decoy")} hint={t("access.decoyHint")}>
+                  <FormField id="decoy" wide error={errors.decoy} label={t("access.decoy")} hint={t("access.decoyHint")}>
                     <Input id="decoy" name="decoy" defaultValue={access.decoy} placeholder={t("access.decoyAuto")} spellCheck={false} />
                   </FormField>
                 )}

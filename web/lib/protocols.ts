@@ -7,7 +7,7 @@ export interface ProtocolInfo {
 }
 
 // VLESS+REALITY first: the throughput profile. Hysteria2 second: the one
-// that gets through lossy or throttled links.
+// that keeps its speed on lossy and congested links.
 export const protocols: Record<Protocol, ProtocolInfo> = {
   vless: {
     label: "VLESS Reality",

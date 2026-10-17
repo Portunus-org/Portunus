@@ -36,6 +36,17 @@ export function ssoInput(s: SSOSettings): Omit<SSOSettings, "hasSecret"> {
 }
 
 /** An account of the panel, as an administrator sees it. */
+/** One entry of the audit log: who did what, to what, when and from where. */
+export interface AuditEntry {
+  id: number
+  at: string
+  actor: string
+  action: string
+  target: string
+  ip: string
+  details: Record<string, unknown>
+}
+
 export interface Account {
   id: number
   username: string
@@ -603,6 +614,7 @@ export const api = {
     request<{ settings: SSOSettings; callback: string }>("PUT", "/api/sso", body),
   testSSO: (issuer: string) => request<{ ok: boolean; error?: string }>("POST", "/api/sso/test", { issuer }),
   accounts: () => request<Account[]>("GET", "/api/users"),
+  audit: () => request<{ entries: AuditEntry[]; limit: number }>("GET", "/api/audit"),
   /** The password comes back once, here. */
   createAccount: (username: string, role: Role) => request<{ user: Account; password: string }>("POST", "/api/users", { username, role }),
   updateAccount: (id: number, body: { role: Role; disabled: boolean }) => request<Account>("PUT", `/api/users/${id}`, body),

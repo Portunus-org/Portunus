@@ -10,6 +10,7 @@ import { CopyButton } from "@/components/copy-button"
 import { DomainStatus, useDomainCheck } from "@/components/domain-check"
 import { ChoiceCard, Note, StepFrame, Task, type TaskState } from "@/components/wizard"
 import { FormField, SwitchField, FormError } from "@/components/form-field"
+import { NumberInput } from "@/components/number-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -489,9 +490,8 @@ function ReviewStep({ draft, set, sug }: { draft: Draft; set: (p: Partial<Draft>
           />
         </FormField>
         <FormField id="port" label={t("wizard.review.port")}>
-          <Input
+          <NumberInput
             id="port"
-            type="number"
             min={1}
             max={65535}
             className="tabular-nums"

@@ -314,6 +314,47 @@ func (s *Store) Audit(ctx context.Context, e AuditEntry) error {
 	return err
 }
 
+// AuditRow is one entry of the audit log as it is read back.
+type AuditRow struct {
+	ID      int64
+	At      time.Time
+	Actor   string
+	Action  string
+	Target  string
+	IP      string
+	Details string // a JSON object
+}
+
+// ListAudit returns the latest entries of the audit log, newest first.
+func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, at, actor, action, target, ip, details FROM audit_log ORDER BY at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditRow
+	for rows.Next() {
+		var a AuditRow
+		var at int64
+		if err := rows.Scan(&a.ID, &at, &a.Actor, &a.Action, &a.Target, &a.IP, &a.Details); err != nil {
+			return nil, err
+		}
+		a.At = time.Unix(at, 0).UTC()
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// PruneAudit deletes the entries older than before.
+func (s *Store) PruneAudit(ctx context.Context, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM audit_log WHERE at < ?`, before.Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func expectOne(res sql.Result) error {
 	n, err := res.RowsAffected()
 	if err != nil {

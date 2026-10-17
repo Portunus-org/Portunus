@@ -9,6 +9,7 @@ import { NodeMap } from "@/components/nodes/node-map"
 import { mapPoints } from "@/components/nodes/nodes-map-card"
 import { NodeStatus } from "@/components/nodes/node-status"
 import { FormField, SwitchField, FormError } from "@/components/form-field"
+import { NumberInput } from "@/components/number-input"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
@@ -68,7 +69,7 @@ export function NodeDrawer({
   const [standby, setStandby] = React.useState(node.standby)
   const [enabled, setEnabled] = React.useState(node.enabled)
   const [pending, setPending] = React.useState(false)
-  const { errors, clear, fail } = useFormErrors()
+  const { errors, clear, fail, numbers } = useFormErrors()
   const agent = node.kind === "agent"
   // The place on the map is one more field of this form: a click on the
   // map changes what will be saved, and nothing is saved before "Save".
@@ -78,6 +79,7 @@ export function NodeDrawer({
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!numbers(e.currentTarget)) return
     const f = new FormData(e.currentTarget)
     setPending(true)
     clear()
@@ -178,10 +180,9 @@ export function NodeDrawer({
                     </FieldGroup>
                     <div className="grid items-start gap-4 sm:grid-cols-2">
                       <FormField id="hopPort" error={errors.hopPort} label={t("nodes.form.hopPort")}>
-                        <Input
+                        <NumberInput
                           id="hopPort"
                           name="hopPort"
-                          type="number"
                           min={1}
                           max={65535}
                           className="tabular-nums"
@@ -189,10 +190,9 @@ export function NodeDrawer({
                         />
                       </FormField>
                       <FormField id="agentPort" error={errors.agentPort} label={t("nodes.form.agentPort")}>
-                        <Input
+                        <NumberInput
                           id="agentPort"
                           name="agentPort"
-                          type="number"
                           min={1}
                           max={65535}
                           className="tabular-nums"

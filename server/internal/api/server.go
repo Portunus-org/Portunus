@@ -139,6 +139,7 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 	s.routesRouting(mux)
 	s.routesMap(mux)
 	s.routesSSO(mux)
+	s.routesAudit(mux)
 	admin := func(h http.HandlerFunc) http.Handler { return s.requireSession(requireRole(store.RoleAdmin, h)) }
 	mux.Handle("GET /api/panel-access", admin(s.handleGetPanelAccess))
 	mux.Handle("PUT /api/panel-access", admin(s.handlePutPanelAccess))

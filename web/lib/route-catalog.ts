@@ -4,10 +4,10 @@ import type { Locale } from "@/lib/messages"
  * Ready-made sets a routing rule can use, downloaded as sing-box rule-sets
  * and refreshed daily by the panel. A snapshot of what the projects publish;
  * any other set works through "From a link". What a set contains is up to
- * the project that keeps it; lists of others carry their own names.
+ * the project that keeps it.
  *
  * Addresses by country: SagerNet/sing-geoip. Sites by service or category:
- * SagerNet/sing-geosite. Russia lists: itdoginfo/allow-domains.
+ * SagerNet/sing-geosite. Regional lists: published domain lists.
  */
 export interface CatalogItem {
   id: string
@@ -18,20 +18,20 @@ export interface CatalogItem {
 
 const GEOIP = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-"
 const GEOSITE = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-"
-const ITDOG = "https://raw.githubusercontent.com/itdoginfo/allow-domains/main/"
+const DOMAINS = "https://raw.githubusercontent.com/itdoginfo/allow-domains/main/"
 
 const lists: CatalogItem[] = [
   {
     id: "ru-inside",
     group: "lists",
-    url: ITDOG + "Russia/inside-raw.lst",
-    name: { en: "Russia: inside (itdoginfo/allow-domains)", ru: "Россия: inside (itdoginfo/allow-domains)" },
+    url: DOMAINS + "Russia/inside-raw.lst",
+    name: { en: "Russia: for users inside the country", ru: "Россия: для пользователей внутри страны" },
   },
   {
     id: "ru-outside",
     group: "lists",
-    url: ITDOG + "Russia/outside-raw.lst",
-    name: { en: "Russia: outside (itdoginfo/allow-domains)", ru: "Россия: outside (itdoginfo/allow-domains)" },
+    url: DOMAINS + "Russia/outside-raw.lst",
+    name: { en: "Russia: for users abroad", ru: "Россия: для пользователей за рубежом" },
   },
   { id: "site-category-ru", group: "lists", url: GEOSITE + "category-ru.srs", name: { en: "Russian sites", ru: "Российские сайты" } },
   {

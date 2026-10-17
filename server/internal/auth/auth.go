@@ -263,6 +263,9 @@ func (s *Service) Bootstrap(ctx context.Context) (username, password string, err
 }
 
 // RunJanitor periodically purges expired sessions and stale limiter state.
+// AuditKept is how long entries of the audit log are kept.
+const AuditKept = 365 * 24 * time.Hour
+
 func (s *Service) RunJanitor(ctx context.Context) {
 	t := time.NewTicker(15 * time.Minute)
 	defer t.Stop()
@@ -276,6 +279,12 @@ func (s *Service) RunJanitor(ctx context.Context) {
 				s.log.Warn("purge expired sessions", "err", err)
 			} else if n > 0 {
 				s.log.Debug("purged expired sessions", "count", n)
+			}
+			// The audit log keeps a year.
+			if n, err := s.store.PruneAudit(ctx, time.Now().Add(-AuditKept)); err != nil {
+				s.log.Warn("prune audit log", "err", err)
+			} else if n > 0 {
+				s.log.Debug("pruned audit log", "count", n)
 			}
 		}
 	}

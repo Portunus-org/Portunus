@@ -284,9 +284,8 @@ func env(key, def string) string {
 
 // DefaultMapDetail are the tile sets the detailed map is taken from, in the
 // order they are tried. All three are free to use and made from
-// OpenStreetMap. They live with different hosts on purpose: the first is
-// behind Cloudflare, which some networks cannot reach (Russian hosting,
-// notably), the other two are not.
+// OpenStreetMap. They live with different hosts on purpose, so that one
+// out of reach from a network leaves the others.
 const DefaultMapDetail = "https://tiles.openfreemap.org/planet," +
 	"https://tiles.versatiles.org/tiles/osm/tiles.json," +
 	"https://vector.openstreetmap.org/shortbread_v1/tilejson.json"

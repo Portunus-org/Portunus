@@ -11,6 +11,7 @@ import {
   GlobeLockIcon,
   KeyRoundIcon,
   RotateCwIcon,
+  ScrollTextIcon,
   SearchIcon,
   ServerIcon,
   ShieldCheckIcon,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 
+import { AuditCard } from "@/components/audit-card"
 import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
 import { PanelAccessCard } from "@/components/panel-access-card"
@@ -29,6 +31,7 @@ import { DomainCard } from "@/components/domain-card"
 import { AboutCard } from "@/components/about-card"
 import { StatusBadge } from "@/components/status"
 import { FormField, FormError } from "@/components/form-field"
+import { NumberInput } from "@/components/number-input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -74,7 +77,7 @@ function SettingsCard({
   const { user } = useSession()
   const isAdmin = user.role === "admin"
   const [pending, setPending] = React.useState(false)
-  const { errors, clear, fail } = useFormErrors()
+  const { errors, clear, fail, numbers } = useFormErrors()
 
   return (
     <Pane>
@@ -85,6 +88,7 @@ function SettingsCard({
         onSubmit={async (e) => {
           e.preventDefault()
           const form = e.currentTarget
+          if (!numbers(form)) return
           setPending(true)
           clear()
           try {
@@ -158,10 +162,9 @@ function ServerCard({ settings, onSaved }: { settings: Settings; onSaved: () => 
         <p className="text-sm text-muted-foreground">{t("settings.subs.env", { addr: settings.subscriptionListen })}</p>
       ) : (
         <FormField id="subscriptionPort" label={t("settings.subs.port")} hint={t("settings.subs.portHint")}>
-          <Input
+          <NumberInput
             id="subscriptionPort"
             name="subscriptionPort"
-            type="number"
             min={0}
             max={65535}
             className="max-w-32 tabular-nums"
@@ -256,9 +259,8 @@ function CertificatesCard({ settings, onSaved }: { settings: Settings; onSaved: 
       {challenge === "proxy" && (
         <>
           <FormField id="acmeHttpPort" label={t("settings.certs.localPort")}>
-            <Input
+            <NumberInput
               id="acmeHttpPort"
-              type="number"
               min={1024}
               max={65535}
               className="max-w-32 tabular-nums"
@@ -438,7 +440,7 @@ function CACard() {
   )
 }
 
-type SectionId = "server" | "domain" | "access" | "accounts" | "sso" | "updates" | "singbox" | "about"
+type SectionId = "server" | "domain" | "access" | "accounts" | "sso" | "audit" | "updates" | "singbox" | "about"
 
 // Sections that were merged into others, for links to them.
 const mergedSections: Record<string, SectionId> = { subscriptions: "server", certificates: "domain", ca: "domain" }
@@ -524,6 +526,14 @@ const sections: Section[] = [
       ["groupsClaim", "sso.groupsClaim"],
       ["scopes", "sso.scopes"],
     ],
+    adminOnly: true,
+  },
+  {
+    id: "audit",
+    icon: <ScrollTextIcon />,
+    title: "audit.title",
+    description: "audit.description",
+    settings: [["audit-table", "audit.title"]],
     adminOnly: true,
   },
   {
@@ -671,6 +681,9 @@ export function SettingsDialog() {
     case "sso":
       body = <SSOCard />
       break
+    case "audit":
+      body = <AuditCard />
+      break
     case "updates":
       body = update ? (
         <UpdateCard
@@ -752,7 +765,7 @@ export function SettingsDialog() {
   // On a phone the window takes the whole screen and works like the
   // settings of a phone app: a list of the sections in groups, and a
   // section on a screen of its own with a way back.
-  const groups: SectionId[][] = [["server", "domain", "access"], ["accounts", "sso"], ["updates", "singbox"], ["about"]]
+  const groups: SectionId[][] = [["server", "domain", "access"], ["accounts", "sso", "audit"], ["updates", "singbox"], ["about"]]
   const subtitle: Partial<Record<SectionId, string>> = {
     server: settings?.publicHost,
     domain: settings ? settings.domain || t("domain.none") : undefined,
