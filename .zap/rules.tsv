@@ -1,0 +1,9 @@
+# What the DAST check (checks.yml, dast) does with each ZAP rule: a finding
+# of a rule set to FAIL fails the check, and so does one of any rule not
+# listed here, since every warning counts. The rules below are accepted on
+# purpose, each with the reason; changing this file needs a maintainer.
+# Format: rule id, tab, IGNORE or INFO or WARN or FAIL, tab, reason.
+10055	IGNORE	(CSP: connect-src https: and style-src 'unsafe-inline') The browser checks that the panel opens by its domain, another origin known only after the page was loaded (the first setup), so connect-src allows https: rather than one origin. Scripts are pinned by hash, so nothing foreign can run to use the wider reach. React and Radix position elements with inline style attributes.
+2	IGNORE	(Private IP Disclosure) 172.17.0.1 is Docker's default gateway, named in a hint about Nginx Proxy Manager, not an address of this server.
+10049	IGNORE	(Storable and Cacheable Content) The scripts and fonts are content-hashed and cached on purpose; pages are sent with no-cache.
+10109	IGNORE	(Modern Web Application) Informational: the panel is a single-page application.

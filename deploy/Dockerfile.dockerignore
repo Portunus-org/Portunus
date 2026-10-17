@@ -1,0 +1,9 @@
+.git
+bin
+data
+**/node_modules
+web/.next
+web/out
+server/internal/webui/dist
+docs
+*.md

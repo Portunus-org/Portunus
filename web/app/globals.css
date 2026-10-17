@@ -1,0 +1,372 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./shadcn.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+  /* Titles everywhere (cards, drawers, dialogs, page headers) are serif. */
+  --font-heading: var(--font-serif);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+/* The welcome greeting: the pen's strokes reveal the ink as they are drawn. */
+@keyframes pen-write {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pen {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/*
+ * The map of servers (Leaflet), dressed in the panel's tokens: labels look
+ * like the panel's popovers, links and outlines take the theme's colours.
+ */
+.portunus-map {
+  font-family: inherit;
+  z-index: 0;
+}
+.portunus-map.leaflet-container {
+  /* The sea is the card the map lies on. */
+  background: transparent;
+  outline: none;
+}
+/* Shown for the keyboard only, in the panel's own ring colour. */
+.portunus-map.leaflet-container:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.portunus-map .leaflet-interactive:focus {
+  outline: none;
+}
+/* Map tiles in the panel's palette. A provider with one look for every
+   theme (plain) is turned to gray, and inverted in the dark theme. One
+   with a light and a dark version of its own (themed) is only brought
+   closer to the panel's own background. */
+.portunus-map[data-tiles="plain"] .leaflet-tile-pane {
+  filter: grayscale(1) contrast(0.86) brightness(1.12);
+}
+.dark .portunus-map[data-tiles="plain"] .leaflet-tile-pane {
+  filter: grayscale(1) invert(1) contrast(0.82) brightness(0.92);
+}
+.dark .portunus-map[data-tiles="themed"] .leaflet-tile-pane {
+  filter: brightness(0.82) contrast(1.2);
+}
+.portunus-map[data-pick],
+.portunus-map[data-pick] .leaflet-interactive {
+  cursor: crosshair;
+}
+.leaflet-tooltip.portunus-map-label {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--popover);
+  color: var(--muted-foreground);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  white-space: nowrap;
+}
+.leaflet-tooltip.portunus-map-label::before {
+  display: none;
+}
+.portunus-map-link {
+  stroke: var(--foreground);
+  stroke-width: 1.5;
+  stroke-opacity: 0.45;
+  fill: none;
+}
+.portunus-map-link-idle {
+  stroke-dasharray: 4 5;
+  stroke-opacity: 0.3;
+}
+/* The land of the built-in map: one canvas under everything Leaflet draws. */
+.portunus-map-world {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/* Names on the built-in map: text at a point, centred on it. */
+.portunus-map-country,
+.portunus-map-city {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  /* The panel's typeface, then the fonts brought for other scripts. */
+  font-family: var(--font-sans), var(--map-font, sans-serif);
+  pointer-events: none;
+}
+.portunus-map-country {
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  font-size: 0.6875rem;
+}
+.portunus-map-country-spaced {
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.portunus-map-city {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+/* A spinner turns on the compositor instead of repainting what is around it
+   on every frame. */
+.animate-spin {
+  will-change: transform;
+}
+
+/* The blur behind drawers and dialogs.
+   With a graphics card it is cheap as long as what lies beneath stands
+   still, so animations under an open overlay are paused (they are blurred
+   out of sight anyway). Without one (see RenderingHint), or when the system
+   asks for less transparency, the background is only dimmed. */
+body:has([data-slot$="-overlay"]) [data-slot="sidebar-wrapper"] * {
+  animation-play-state: paused !important;
+}
+html[data-rendering="software"] [data-slot$="-overlay"] {
+  backdrop-filter: none;
+  background-color: rgb(0 0 0 / 0.5);
+}
+@media (prefers-reduced-transparency: reduce) {
+  [data-slot$="-overlay"] {
+    backdrop-filter: none;
+    background-color: rgb(0 0 0 / 0.5);
+  }
+}
+
+/* Scrollbars the browser still draws itself (code blocks that scroll
+   sideways, text areas, menus) in the colours of the interface, thin, like
+   the Scroll Area ones. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+
+/* Scroll Area scrollbars are hidden until they have something to say: while
+   their own area is being scrolled (data-scrolling, see scroll-area.tsx),
+   and under the pointer. The selectors name the area's own scrollbars only,
+   so a block inside a page does not light up when the page scrolls. */
+[data-slot="scroll-area-scrollbar"] {
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+[data-slot="scroll-area"][data-scrolling] > [data-slot="scroll-area-scrollbar"],
+[data-slot="scroll-area"][data-scrolling] > [data-slot="scroll-area-viewport"] > div > [data-slot="scroll-area-scrollbar"],
+[data-slot="scroll-area-scrollbar"]:hover,
+[data-slot="scroll-area-scrollbar"]:active {
+  opacity: 1;
+  transition-duration: 0.1s;
+}
+
+/* The serif is for headings that title a page or a card. The line inside
+   an empty state is small and sits in the middle of a body of sans text,
+   where a serif reads as another typeface by mistake. */
+[data-slot="empty-title"] {
+  font-family: var(--font-sans);
+}
+
+/* A setting found by the search of the settings: lit up for a moment, then
+   back to normal. The light reaches a little beyond the row, so the row's
+   own edges stay where they are. */
+@keyframes setting-found {
+  0%,
+  35% {
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+    box-shadow: 0 0 0 10px color-mix(in oklab, var(--primary) 10%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+.setting-found {
+  border-radius: calc(var(--radius) - 2px);
+  animation: setting-found 1.8s ease-out;
+}
+/* The same light on a table row: on its cells, as a row cannot be rounded or shadowed. */
+@keyframes row-found {
+  0%,
+  35% {
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.row-found > td,
+div.row-found {
+  animation: row-found 1.8s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-found > td,
+  div.row-found {
+    animation-duration: 0.01s;
+  }
+  .row-found {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+  .setting-found {
+    animation-duration: 0.01s;
+    outline: 2px solid var(--ring);
+    outline-offset: 6px;
+  }
+}
+
+/* A section of the settings on a phone, the way a phone app shows its
+   settings: the settings of a pane in one rounded card, its explanation
+   above and its button below at full width. A pane without settings of
+   its own (a list of cards, a log) stays as it is, so that no card ends up
+   inside another. */
+.phone-settings [data-slot="pane"] {
+  gap: 1rem;
+}
+.phone-settings [data-slot="pane-content"]:has([data-slot="field"]) {
+  /* As the cards of the panel's pages. */
+  border-radius: calc(var(--radius) * 1.4);
+  background-color: var(--card);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+  padding: 1rem;
+  gap: 1.5rem;
+}
+.phone-settings [data-slot="pane-footer"] {
+  border-top: 0;
+  padding-top: 0.25rem;
+}
+.phone-settings [data-slot="pane-footer"] > button {
+  flex: 1;
+  height: 2.5rem;
+}

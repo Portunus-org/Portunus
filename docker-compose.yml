@@ -1,0 +1,26 @@
+services:
+  portunus:
+    image: ghcr.io/portunus-org/portunus:latest
+    container_name: portunus
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - portunus-data:/var/lib/portunus
+      - portunus-update:/run/portunus-update
+
+  updater:
+    image: ghcr.io/portunus-org/portunus-node:latest
+    container_name: portunus-updater
+    command: ["updater", "portunus"]
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    user: "0"
+    volumes:
+      - /var/run/docker.sock:/run/docker.sock
+      - portunus-update:/run/portunus-update
+
+volumes:
+  portunus-data:
+  portunus-update:

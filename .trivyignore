@@ -1,0 +1,9 @@
+# Findings accepted for now, each with the reason and what would lift it.
+# Used by: trivy fs --ignorefile .trivyignore.
+
+# braces 3.0.3: stack overflow on a crafted brace pattern. No fixed release
+# exists. It is pulled in by fast-glob for eslint-config-next and the shadcn
+# CLI, which run at development and build time on patterns from this
+# repository only; nothing of it is in the shipped image (the image scan is
+# clean). Remove this entry when braces or micromatch publish a fix.
+CVE-2026-93687

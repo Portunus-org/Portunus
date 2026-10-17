@@ -1,0 +1,18 @@
+# For working on Portunus itself: builds the panel from this checkout instead
+# of downloading the published image, and starts nodes from a local build too.
+#
+#   docker build -f deploy/Dockerfile --target node -t portunus-node:local .
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+services:
+  portunus:
+    image: portunus:local
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    environment:
+      PORTUNUS_NODE_IMAGE: portunus-node:local
+      # Another port when 2053 is taken, by an SSH tunnel to a real server
+      # for example: PORTUNUS_LISTEN=127.0.0.1:2060 docker compose ... up -d
+      PORTUNUS_LISTEN: ${PORTUNUS_LISTEN:-127.0.0.1:2053}
+  updater:
+    image: portunus-node:local

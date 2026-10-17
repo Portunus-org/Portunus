@@ -1,0 +1,176 @@
+# Releases, and keeps dev level with main.
+#
+# A release is made when dev is merged into main through a pull request
+# whose title names the version, as in "v0.4.4: SSO and phone layout"
+# (checks.yml, version, makes sure before the merge that it is a new and
+# higher one). After the merge the merge commit is tagged with it, and the
+# two images are built, scanned and published:
+#
+#   ghcr.io/portunus-org/portunus        the panel
+#   ghcr.io/portunus-org/portunus-node   a node (agent and sing-box only)
+#
+# A merge without a version in the title releases nothing. A tag pushed by
+# hand on a commit of main releases too.
+#
+# Merging through GitHub leaves a merge commit that only main has; dev is
+# moved forward to it, so that the branches stay level.
+#
+# Both platforms are built on the runner's own processor: the Dockerfile
+# cross-compiles, so no emulation is set up. The panel of a release starts its
+# nodes from the node image with the same tag, so both are published together.
+name: release
+
+on:
+  push:
+    branches: [main]
+    # Three numbers, as in v0.1.0 (docs/DEPLOY.md, "Versions and releases").
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Trivy 0.74.0, run from its image and pinned by digest rather than through
+  # a third-party action.
+  TRIVY_IMAGE: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Move dev forward to main
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git fetch --quiet origin dev
+          if git merge-base --is-ancestor origin/dev origin/main; then
+            git push origin origin/main:refs/heads/dev
+          else
+            echo "::notice::dev has commits that main does not; left as it is."
+          fi
+      - name: The version to release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            echo "version=$REF_NAME" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # The pull request this merge commit came from, and the version in its title.
+          title=$(gh api "repos/$REPO/commits/$GITHUB_SHA/pulls" --jq "[.[] | select(.merge_commit_sha == \"$GITHUB_SHA\")][0].title // \"\"")
+          version=$(printf "%s" "$title" | grep -oE "(^|[^0-9A-Za-z.])v[0-9]+\.[0-9]+\.[0-9]+(\.?([^0-9A-Za-z.]|$))" | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+" | head -1 || true)
+          if [ -z "$version" ]; then
+            echo "No version in the title of the merged pull request: nothing is released."; exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            echo "::error::$version is taken already."; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$version" -m "$version" "$GITHUB_SHA"
+          git push origin "refs/tags/$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: prepare
+    if: needs.prepare.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      matrix:
+        include:
+          - target: panel
+            image: portunus
+          - target: node
+            image: portunus-node
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # A release is made of what main holds: everything there came from dev
+      # through a pull request that passed every check (checks.yml).
+      - name: The tagged commit is on main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$VERSION does not point to a commit on main. Tag a commit of main."
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The image is built once for this machine and scanned as it would be
+      # published. A HIGH or CRITICAL vulnerability stops the release: nothing
+      # is pushed. Accepted findings are listed in .trivyignore, with reasons.
+      - name: Build for scanning
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: ${{ matrix.target }}
+          load: true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            COMMIT=${{ github.sha }}
+          tags: scan/${{ matrix.image }}:candidate
+          cache-from: type=gha,scope=${{ matrix.target }}
+      - name: Scan the image
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/.trivyignore:/.trivyignore:ro" \
+            "$TRIVY_IMAGE" image --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile /.trivyignore scan/${{ matrix.image }}:candidate
+      - name: Build for every platform and publish
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            COMMIT=${{ github.sha }}
+          tags: |
+            ghcr.io/portunus-org/${{ matrix.image }}:${{ needs.prepare.outputs.version }}
+            ghcr.io/portunus-org/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+      # Installations pull without signing in: an image nobody can pull is
+      # no release. GHCR makes a new package private; it is made public once,
+      # in the package's settings (Change visibility).
+      - name: Check that the image can be pulled without signing in
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          repo="portunus-org/$IMAGE"
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | sed -n "s/.*\"token\":\"\([^\"]*\)\".*/\1/p")
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://ghcr.io/v2/$repo/manifests/$VERSION")
+          if [ "$code" != "200" ]; then
+            echo "::error::ghcr.io/$repo:$VERSION cannot be pulled without signing in (HTTP $code). Make the package public: https://github.com/orgs/Portunus-org/packages/container/$IMAGE/settings"
+            exit 1
+          fi
