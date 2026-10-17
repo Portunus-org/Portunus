@@ -258,7 +258,7 @@ func routeAction(match obj, outbound string) obj {
 //
 // Order matters twice. First for the operator: rules are evaluated top to
 // bottom. Second for privacy and safety: a domain headed for an exit should
-// not be resolved here at all (this server's DNS may be the censored one),
+// not be resolved here at all (this server's DNS may answer differently),
 // while anything leaving directly must be resolved so the private-address
 // guard applies. So rules run in two passes around the resolve step:
 // before it, rules that send traffic away (matched by name); after it,

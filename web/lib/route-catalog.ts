@@ -3,7 +3,8 @@ import type { Locale } from "@/lib/messages"
 /**
  * Ready-made sets a routing rule can use, downloaded as sing-box rule-sets
  * and refreshed daily by the panel. A snapshot of what the projects publish;
- * any other set works through "From a link".
+ * any other set works through "From a link". What a set contains is up to
+ * the project that keeps it; lists of others carry their own names.
  *
  * Addresses by country: SagerNet/sing-geoip. Sites by service or category:
  * SagerNet/sing-geosite. Russia lists: itdoginfo/allow-domains.
@@ -24,13 +25,13 @@ const lists: CatalogItem[] = [
     id: "ru-inside",
     group: "lists",
     url: ITDOG + "Russia/inside-raw.lst",
-    name: { en: "Sites blocked in Russia", ru: "Сайты, заблокированные в России" },
+    name: { en: "Russia: inside (itdoginfo/allow-domains)", ru: "Россия: inside (itdoginfo/allow-domains)" },
   },
   {
     id: "ru-outside",
     group: "lists",
     url: ITDOG + "Russia/outside-raw.lst",
-    name: { en: "Russian sites closed to visitors from abroad", ru: "Российские сайты, закрытые для иностранных адресов" },
+    name: { en: "Russia: outside (itdoginfo/allow-domains)", ru: "Россия: outside (itdoginfo/allow-domains)" },
   },
   { id: "site-category-ru", group: "lists", url: GEOSITE + "category-ru.srs", name: { en: "Russian sites", ru: "Российские сайты" } },
   {

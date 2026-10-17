@@ -38,7 +38,7 @@ import (
 // renewed in time (autocert), or is the operator's own.
 //
 // Probing resistance. A stranger who connects, whether a person, a scanner
-// or a censor's probe, must not learn that a panel lives here:
+// or an automated probe, must not learn that a panel lives here:
 //
 //   - without the name of the domain in the TLS handshake there is no
 //     handshake at all, as on any server that hosts named sites only;
