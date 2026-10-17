@@ -100,7 +100,7 @@ export function DocView({ slug }: { slug: string }) {
   const next = docs[index + 1]
 
   return (
-    <div className="grid gap-6 px-4 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:px-6">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 px-4 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10 lg:px-6">
       <nav aria-label={t("docs.title")} className="hidden lg:block">
         <ul className="sticky top-0 grid gap-1">
           {docs.map((d) => (
@@ -140,7 +140,7 @@ export function DocView({ slug }: { slug: string }) {
         </Select>
       </div>
 
-      <article className="grid max-w-2xl gap-4 text-sm leading-relaxed text-muted-foreground">
+      <article className="grid max-w-2xl min-w-0 grid-cols-[minmax(0,1fr)] gap-4 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
         <header className="grid gap-1">
           {/* The page heading (h1) is in the site header. */}
           <h2 className="font-heading text-3xl font-medium tracking-tight text-foreground">{topic.title[locale]}</h2>
@@ -149,9 +149,9 @@ export function DocView({ slug }: { slug: string }) {
         {topic.body[locale].map((block, i) => (
           <Block key={i} block={block} />
         ))}
-        <footer className="mt-6 flex justify-between gap-2 border-t pt-4">
+        <footer className="mt-6 grid grid-cols-2 gap-2 border-t pt-4">
           {prev ? (
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline" size="sm" className="h-auto min-h-8 justify-self-start py-1.5 text-left whitespace-normal">
               <Link href={`/docs/${prev.slug}/`}>
                 <ArrowLeftIcon />
                 {prev.title[locale]}
@@ -161,7 +161,7 @@ export function DocView({ slug }: { slug: string }) {
             <span />
           )}
           {next && (
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline" size="sm" className="col-start-2 h-auto min-h-8 justify-self-end py-1.5 text-right whitespace-normal">
               <Link href={`/docs/${next.slug}/`}>
                 {next.title[locale]}
                 <ArrowRightIcon />

@@ -266,6 +266,16 @@ html[data-rendering="software"] [data-slot$="-overlay"] {
     background-color: rgb(0 0 0 / 0.5);
   }
 }
+/* On a touch screen the blur is redrawn on every frame a drawer slides or
+   is dragged, which is what makes it stutter on a phone (all the more at
+   90 or 120 Hz): there the background is dimmed instead, as a phone's own
+   sheets do it. */
+@media (pointer: coarse) {
+  [data-slot$="-overlay"] {
+    backdrop-filter: none;
+    background-color: rgb(0 0 0 / 0.4);
+  }
+}
 
 /* Scrollbars the browser still draws itself (code blocks that scroll
    sideways, text areas, menus) in the colours of the interface, thin, like

@@ -51,7 +51,7 @@ func validateRouteList(in *RouteListInput) error {
 	if in.Name == "" {
 		return invalid("name", "required")
 	}
-	if len(in.Name) > 64 {
+	if tooLong(in.Name, 64) {
 		return invalid("name", "too_long")
 	}
 	if oddText(in.Name, false) {

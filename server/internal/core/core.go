@@ -272,7 +272,7 @@ func (c *Core) validateInbound(ctx context.Context, id int64, in *InboundInput) 
 	if !in.Protocol.Valid() {
 		return invalid("protocol", "unsupported")
 	}
-	if len(in.Name) > 64 {
+	if tooLong(in.Name, 64) {
 		return invalid("name", "too_long")
 	}
 	if oddText(in.Name, false) {
@@ -660,7 +660,7 @@ func validateClient(in *ClientInput) error {
 	if in.Name == "" {
 		return invalid("name", "required")
 	}
-	if len(in.Name) > 64 {
+	if tooLong(in.Name, 64) {
 		return invalid("name", "too_long")
 	}
 	if oddText(in.Name, false) {
@@ -677,7 +677,7 @@ func validateClient(in *ClientInput) error {
 	if in.TrafficLimit > 1<<50 {
 		return invalid("trafficLimit", "out_of_range")
 	}
-	if len(in.Note) > 500 {
+	if tooLong(in.Note, 500) {
 		return invalid("note", "too_long")
 	}
 	return nil

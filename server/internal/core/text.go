@@ -38,6 +38,13 @@ func oddText(s string, multiline bool) bool {
 	return false
 }
 
+// tooLong reports whether typed text is longer than n characters. Letters
+// are counted, not bytes: a Cyrillic letter takes two bytes in UTF-8, and a
+// name of 40 such letters is not longer than one of 40 Latin ones.
+func tooLong(s string, n int) bool {
+	return utf8.RuneCountInString(s) > n
+}
+
 // plainText removes from s what oddText objects to: for a name that comes
 // from outside and is not typed (the label of an imported link), where
 // refusing the whole thing over a stray character would be no help.

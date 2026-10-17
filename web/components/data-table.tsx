@@ -232,7 +232,7 @@ export function DataTable<T extends RowData>({
           // On a phone every row is a card: what it is called and its
           // actions on top, the rest under it as named values, so nothing
           // has to be scrolled sideways to be seen.
-          <div className="grid gap-3">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
             {loading ? (
               Array.from({ length: 3 }, (_, i) => (
                 <div key={i} className="grid gap-3 rounded-lg border p-4">
@@ -258,7 +258,9 @@ export function DataTable<T extends RowData>({
                     className={cn("grid gap-3 rounded-lg border bg-card p-4 text-sm", tap.className, lit === row.id && "row-found")}
                   >
                     <div className="flex min-h-7 items-center justify-between gap-3">
-                      <div className="min-w-0 font-medium break-words">{title && <FlexRender cell={title} />}</div>
+                      <div className="min-w-0 font-medium break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:text-left [&_[data-slot=button]]:whitespace-normal">
+                        {title && <FlexRender cell={title} />}
+                      </div>
                       {actions && (
                         <div className="-mr-2 shrink-0">
                           <FlexRender cell={actions} />

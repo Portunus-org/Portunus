@@ -104,7 +104,7 @@ func (c *Core) SetSSO(ctx context.Context, s SSO, secret *string) error {
 		return invalid("clientSecret", "bad_characters")
 	}
 	switch {
-	case len(s.Name) > 40:
+	case tooLong(s.Name, 40):
 		return invalid("name", "too_long")
 	case s.DefaultRole != "" && !validRole(s.DefaultRole):
 		return invalid("defaultRole", "unsupported")

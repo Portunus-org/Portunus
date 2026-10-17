@@ -189,7 +189,7 @@ func (c *Core) validateNode(ctx context.Context, id int64, in *NodeInput) error 
 	if in.Name == "" {
 		return invalid("name", "required")
 	}
-	if len(in.Name) > 64 {
+	if tooLong(in.Name, 64) {
 		return invalid("name", "too_long")
 	}
 	if oddText(in.Name, false) {
@@ -273,7 +273,7 @@ func (c *Core) CreateNode(ctx context.Context, in NodeInput) (Node, error) {
 		if strings.TrimSpace(in.Name) == "" {
 			// The label of the link is somebody else's text.
 			in.Name = plainText(imp.Name)
-			if len(in.Name) > 64 {
+			if tooLong(in.Name, 64) {
 				in.Name = strings.ToValidUTF8(in.Name[:64], "")
 			}
 		}
