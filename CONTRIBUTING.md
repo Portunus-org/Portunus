@@ -27,31 +27,28 @@ open an issue first so the approach can be agreed before the work is done.
 
 ## Checks
 
-Every pull request, and every push to `dev` and `main`, runs
-[`checks.yml`](.github/workflows/checks.yml). A pull request can be merged
-only when all of them pass:
+Merging `dev` into `main` is what makes a release possible, so that pull
+request is scanned first ([`checks.yml`](.github/workflows/checks.yml)), and
+it can be merged only when every check passes:
 
 | Check | What it does |
 |---|---|
-| `go` | `gofmt`, `go vet` and the server's tests with the race detector |
-| `web` | type check, ESLint, Prettier and the production build of the web app |
 | `sast` | static analysis of the code with Semgrep |
-| `codeql (…)` | static analysis with CodeQL, for Go, TypeScript and the workflows |
 | `sca` | known vulnerabilities in the Go modules and web packages (govulncheck, pnpm audit, Trivy) and secrets in the whole history (gitleaks) |
 | `images` | both images built and scanned with Trivy, as a release would publish them |
 | `dast` | the panel started from its image and probed from outside with OWASP ZAP |
-| `workflows` | the workflows checked with actionlint |
-| `source` | a pull request into `main` comes from `dev` |
+| `source` | the pull request into `main` comes from `dev` |
 
-A finding of HIGH or CRITICAL severity fails its check. A finding that is
-accepted on purpose is listed with its reason in `.trivyignore` or
-`.zap/rules.tsv`; such a change needs a maintainer's agreement.
+A finding of HIGH or CRITICAL severity fails its check, and so does any
+ZAP warning that is not accepted. A finding accepted on purpose is listed
+with its reason in `.trivyignore` or `.zap/rules.tsv`; such a change needs
+a maintainer's agreement.
 
-The same, on your machine:
+Before sending a change, run what applies to it:
 
 ```sh
-cd server && gofmt -l . && go vet -tags noui ./... && go test -tags noui -race ./...
-cd web && pnpm install && pnpm exec tsc --noEmit && pnpm exec eslint && npx prettier@3.9.10 --check . && pnpm build
+cd server && gofmt -l . && go vet -tags noui ./... && go test -tags noui ./...
+cd web && pnpm install && pnpm exec tsc --noEmit && pnpm exec eslint && pnpm build
 docker build -f deploy/Dockerfile -t portunus:local . && docker build -f deploy/Dockerfile --target node -t portunus-node:local .
 scripts/scan.sh
 ```

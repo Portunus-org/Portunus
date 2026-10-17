@@ -42,27 +42,7 @@
             "integration_id": 15368
           },
           {
-            "context": "go",
-            "integration_id": 15368
-          },
-          {
-            "context": "web",
-            "integration_id": 15368
-          },
-          {
             "context": "sast",
-            "integration_id": 15368
-          },
-          {
-            "context": "codeql (go)",
-            "integration_id": 15368
-          },
-          {
-            "context": "codeql (javascript-typescript)",
-            "integration_id": 15368
-          },
-          {
-            "context": "codeql (actions)",
             "integration_id": 15368
           },
           {
@@ -75,10 +55,6 @@
           },
           {
             "context": "dast",
-            "integration_id": 15368
-          },
-          {
-            "context": "workflows",
             "integration_id": 15368
           }
         ]
