@@ -3,7 +3,16 @@
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import * as React from "react"
-import { CircleHelpIcon, CircleUserRoundIcon, LanguagesIcon, LogOutIcon, PaletteIcon, Settings2Icon } from "lucide-react"
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CircleHelpIcon,
+  CircleUserRoundIcon,
+  LanguagesIcon,
+  LogOutIcon,
+  PaletteIcon,
+  Settings2Icon,
+} from "lucide-react"
 
 import { updateChecked } from "@/components/update-card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -24,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useI18n } from "@/lib/i18n"
 import { localeCodes, localeNames, type Locale } from "@/lib/messages"
 import { useSession } from "@/lib/session"
@@ -33,6 +43,11 @@ import { useResource } from "@/lib/use-resource"
 
 export function NavUser() {
   const { setOpenMobile } = useSidebar()
+  const isMobile = useIsMobile()
+  // On a phone the theme and the language are screens of the menu itself:
+  // there is no room beside it for a submenu, and a list of languages may
+  // grow long. Closing the menu goes back to its first screen.
+  const [screen, setScreen] = React.useState<"theme" | "language" | null>(null)
   const win = useSettingsWindow()
   // On a phone the menu is a panel of its own over the page: it is put
   // away, so that the window is the only thing open.
@@ -64,6 +79,23 @@ export function NavUser() {
     </>
   )
 
+  const themes = (
+    <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+      <DropdownMenuRadioItem value="system">{t("nav.theme.system")}</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="light">{t("nav.theme.light")}</DropdownMenuRadioItem>
+      <DropdownMenuRadioItem value="dark">{t("nav.theme.dark")}</DropdownMenuRadioItem>
+    </DropdownMenuRadioGroup>
+  )
+  const languages = (
+    <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+      {localeCodes.map((l) => (
+        <DropdownMenuRadioItem key={l} value={l}>
+          {localeNames[l]}
+        </DropdownMenuRadioItem>
+      ))}
+    </DropdownMenuRadioGroup>
+  )
+
   return (
     <SidebarMenu>
       {/* The name is the whole row, the gear included, so the row lights up
@@ -72,7 +104,7 @@ export function NavUser() {
       <SidebarMenuItem className="relative">
         {/* Not modal: with the menu open, a press on the gear opens the
             settings at once instead of only closing the menu. */}
-        <DropdownMenu modal={false}>
+        <DropdownMenu modal={false} onOpenChange={(open) => !open && setScreen(null)}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
@@ -87,63 +119,93 @@ export function NavUser() {
             align="start"
             sideOffset={4}
           >
-            <DropdownMenuLabel className="p-0 font-normal">
-              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">{identity}</div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
+            {isMobile && screen ? (
+              <div key={screen} className="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-2 motion-safe:duration-200">
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault()
+                    setScreen(null)
+                  }}
+                >
+                  <ChevronLeftIcon />
+                  {t(screen === "theme" ? "nav.theme" : "nav.language")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div className="max-h-72 overflow-y-auto">{screen === "theme" ? themes : languages}</div>
+              </div>
+            ) : (
+              <>
+              <DropdownMenuLabel className="p-0 font-normal">
+                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">{identity}</div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem asChild>
+                  <Link href="/account/">
+                    <CircleUserRoundIcon />
+                    {t("nav.account")}
+                  </Link>
+                </DropdownMenuItem>
+                {isMobile ? (
+                  <>
+                    {(
+                      [
+                        ["theme", PaletteIcon, t("nav.theme"), t(`nav.theme.${(theme ?? "system") as "system" | "light" | "dark"}`)],
+                        ["language", LanguagesIcon, t("nav.language"), localeNames[locale]],
+                      ] as const
+                    ).map(([to, Icon, name, current]) => (
+                      <DropdownMenuItem
+                        key={to}
+                        onSelect={(e) => {
+                          e.preventDefault()
+                          setScreen(to)
+                        }}
+                      >
+                        <Icon />
+                        {name}
+                        <span className="ml-auto text-muted-foreground">{current}</span>
+                        <ChevronRightIcon className="text-muted-foreground" />
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <PaletteIcon />
+                        {t("nav.theme")}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>{themes}</DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <LanguagesIcon />
+                        {t("nav.language")}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>{languages}</DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </>
+                )}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => openSettings()}>
+                <Settings2Icon />
+                {t("nav.settings")}
+              </DropdownMenuItem>
+              {/* The documentation is help to turn to, not a page of the work. */}
               <DropdownMenuItem asChild>
-                <Link href="/account/">
-                  <CircleUserRoundIcon />
-                  {t("nav.account")}
+                <Link href="/docs/">
+                  <CircleHelpIcon />
+                  {t("nav.help")}
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <PaletteIcon />
-                  {t("nav.theme")}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-                    <DropdownMenuRadioItem value="system">{t("nav.theme.system")}</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="light">{t("nav.theme.light")}</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="dark">{t("nav.theme.dark")}</DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <LanguagesIcon />
-                  {t("nav.language")}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-                    {localeCodes.map((l) => (
-                      <DropdownMenuRadioItem key={l} value={l}>
-                        {localeNames[l]}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => openSettings()}>
-              <Settings2Icon />
-              {t("nav.settings")}
-            </DropdownMenuItem>
-            {/* The documentation is help to turn to, not a page of the work. */}
-            <DropdownMenuItem asChild>
-              <Link href="/docs/">
-                <CircleHelpIcon />
-                {t("nav.help")}
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => logout()}>
-              <LogOutIcon />
-              {t("nav.signOut")}
-            </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => logout()}>
+                <LogOutIcon />
+                {t("nav.signOut")}
+              </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <Tooltip>

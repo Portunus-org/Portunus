@@ -111,13 +111,17 @@ export default function RoutingPage() {
     const list = listById.get(rule.listId)
     return {
       what: (
-        <div className="grid">
+        <div className="grid min-w-0">
           {canEdit ? (
-            <Button variant="link" className="h-auto w-fit px-0 text-left font-medium text-foreground" onClick={() => openRule(rule)}>
+            <Button
+              variant="link"
+              className="h-auto w-fit max-w-full px-0 text-left font-medium break-words whitespace-normal text-foreground"
+              onClick={() => openRule(rule)}
+            >
               {list?.name}
             </Button>
           ) : (
-            <span className="font-medium">{list?.name}</span>
+            <span className="font-medium break-words">{list?.name}</span>
           )}
           {list && (
             <span className="text-xs text-muted-foreground">
@@ -298,7 +302,7 @@ export default function RoutingPage() {
               )}
             </Empty>
           ) : isMobile ? (
-            <div className="grid gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
               {rules.map((rule, i) => {
                 const part = ruleParts(rule, i)
                 return (

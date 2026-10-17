@@ -96,8 +96,10 @@ export function RuleDrawer({
     }
   }
 
+  // The page itself shrinks above the keyboard (interactive-widget=resizes-content);
+  // vaul resizing the drawer as well left it short once the keyboard was gone.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"}>
+    <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"} repositionInputs={false}>
       <DrawerContent>
         <DrawerHeader className="gap-1 text-left!">
           <DrawerTitle>{rule ? source.name || t("routing.rule.edit") : t("routing.rule.new")}</DrawerTitle>

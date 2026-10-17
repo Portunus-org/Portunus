@@ -866,7 +866,7 @@ export function SettingsDialog() {
               <h2
                 key={phoneSection ?? "home"}
                 className={cn(
-                  "truncate text-center text-base font-semibold",
+                  "truncate text-center font-heading text-lg font-medium",
                   slide && "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300"
                 )}
               >

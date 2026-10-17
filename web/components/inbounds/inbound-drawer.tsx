@@ -107,8 +107,10 @@ export function InboundDrawer({
     }
   }
 
+  // The page itself shrinks above the keyboard (interactive-widget=resizes-content);
+  // vaul resizing the drawer as well left it short once the keyboard was gone.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"}>
+    <Drawer open={open} onOpenChange={onOpenChange} direction={isMobile ? "bottom" : "right"} repositionInputs={false}>
       <DrawerContent>
         <DrawerHeader className="gap-1 text-left!">
           <DrawerTitle>{inbound.name || protocols[protocol].label}</DrawerTitle>
@@ -122,11 +124,17 @@ export function InboundDrawer({
 
         <ScrollArea className={drawerScroll}>
           <form id="inbound-form" onSubmit={onSubmit} onInput={clear} className="flex flex-col gap-4 px-4 text-sm" noValidate>
-            <div className="grid grid-cols-[1fr_7rem] gap-4">
+            {/* The port takes the width its label needs on one line, so both fields stand level. */}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
               <FormField id="name" error={errors.name} label={t("inbounds.form.name")}>
                 <Input id="name" name="name" defaultValue={inbound.name} placeholder={protocols[protocol].label} maxLength={64} />
               </FormField>
-              <FormField id="port" error={errors.port} label={t("inbounds.form.port", { transport: info.transport })}>
+              <FormField
+                id="port"
+                error={errors.port}
+                label={t("inbounds.form.port", { transport: info.transport })}
+                className="min-w-28 [&_[data-slot=field-label]]:whitespace-nowrap"
+              >
                 <NumberInput
                   id="port"
                   name="port"
