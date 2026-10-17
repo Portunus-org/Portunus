@@ -549,18 +549,24 @@ are started from the node image with the same number.
 
 Work comes together on `dev`; `main` holds what is released and takes
 changes from `dev` only, through a pull request that passed every check
-(`checks.yml`, see [CONTRIBUTING.md](../CONTRIBUTING.md)). A release is a tag on
-`main`:
+(`checks.yml`, see [CONTRIBUTING.md](../CONTRIBUTING.md)).
+
+To release, open a pull request from `dev` into `main` and name the version
+in its title: `v0.4.4: SSO and phone layout`. Before the merge, the
+`version` check makes sure it is new and higher than the last release.
+After the merge, `.github/workflows/release.yml` tags the merge commit with
+it and moves `dev` forward to `main`, so that the branches stay level. A
+pull request without a version in its title is merged without a release.
+
+A tag can still be pushed by hand, on a commit of `main` only:
 
 ```sh
-# after the pull request dev → main is merged
 git switch main && git pull
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-A tag on a commit that is not on `main` is refused by the release.
-Pushing the tag starts `.github/workflows/release.yml`: both images are
+The release then starts `.github/workflows/release.yml`: both images are
 built for x86 and ARM, scanned with Trivy and, if nothing HIGH or CRITICAL
 is found, published as `ghcr.io/portunus-org/portunus:v0.1.0` and
 `ghcr.io/portunus-org/portunus-node:v0.1.0`, and as `latest`. The first time,
