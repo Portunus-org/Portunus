@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { CopyButton } from "@/components/copy-button"
+import { CopyField } from "@/components/copy-button"
 import { FormError, FormField, SwitchField } from "@/components/form-field"
 import { Pane, PaneContent, PaneDescription, PaneFooter, PaneGroup, PaneHeader, PaneTitle } from "@/components/settings-pane"
 import { Button } from "@/components/ui/button"
@@ -111,10 +111,7 @@ function SSOForm({ settings, callback, onSaved }: { settings: SSOSettings; callb
             <PaneGroup title={t("sso.group.client")}>
               <Note tone="info">{t("sso.pkce")}</Note>
               <FormField id="callback" label={t("sso.callback")} hint={t("sso.callbackHint")}>
-                <div className="relative">
-                  <Input id="callback" readOnly value={callback} className="pr-10 font-mono text-xs" />
-                  <CopyButton value={callback} className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground" />
-                </div>
+                <CopyField id="callback" value={callback} />
               </FormField>
               <FormField id="clientId" label={t("sso.clientId")} error={errors.clientId}>
                 {text("clientId", "clientId")}

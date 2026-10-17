@@ -672,6 +672,11 @@ func validateClient(in *ClientInput) error {
 	if in.TrafficLimit < 0 {
 		return invalid("trafficLimit", "negative")
 	}
+	// A pebibyte: far beyond any real limit, and well inside what every
+	// counter and the browser's numbers hold exactly.
+	if in.TrafficLimit > 1<<50 {
+		return invalid("trafficLimit", "out_of_range")
+	}
 	if len(in.Note) > 500 {
 		return invalid("note", "too_long")
 	}

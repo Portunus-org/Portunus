@@ -10,6 +10,7 @@ import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
 import { DateField } from "@/components/date-field"
 import { FormField, SwitchField, FormError } from "@/components/form-field"
+import { NumberInput } from "@/components/number-input"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
@@ -225,7 +226,7 @@ function ClientForm({
   const { t } = useI18n()
   const canEdit = useCanEdit()
   const [enabled, setEnabled] = React.useState(client?.enabled ?? true)
-  const { errors, wrong, clear, fail } = useFormErrors()
+  const { errors, wrong, clear, fail, numbers } = useFormErrors()
   // "0" has the panel choose an exit.
   const bound = String(client?.exitId ?? 0)
   const [exit, setExit] = React.useState(bound)
@@ -240,6 +241,7 @@ function ClientForm({
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!numbers(e.currentTarget)) return
     const f = new FormData(e.currentTarget)
     const gb = Number(f.get("limit") || 0)
     if (!Number.isFinite(gb) || gb < 0) {
@@ -279,11 +281,11 @@ function ClientForm({
         </FormField>
         <div className="grid items-start gap-4 sm:grid-cols-2">
           <FormField id="limit" label={t("clients.form.limit")} error={errors.limit}>
-            <Input
+            <NumberInput
               id="limit"
               name="limit"
-              type="number"
               min={0}
+              max={1048576}
               step="any"
               placeholder={t("clients.form.limitPlaceholder")}
               className="tabular-nums"

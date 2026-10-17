@@ -47,5 +47,32 @@ export function useFormErrors() {
     },
     [t]
   )
-  return { errors, wrong, clear, fail }
+  // The number fields of a form say what is wrong with them before it is
+  // sent: something that is not a number (a browser that lets anything be
+  // typed sends it as empty, which would read as "no limit"), a number out
+  // of the field's range, or a fraction where a whole number is meant.
+  const numbers = React.useCallback(
+    (form: HTMLFormElement) => {
+      for (const el of form.querySelectorAll<HTMLInputElement>('input[type="number"]')) {
+        const v = el.validity
+        const message = v.badInput
+          ? t("error.not_a_number")
+          : v.rangeUnderflow || v.rangeOverflow
+            ? el.max
+              ? t("error.number_range", { min: el.min, max: el.max })
+              : t("error.number_min", { min: el.min })
+            : v.stepMismatch
+              ? t("error.whole_number")
+              : ""
+        if (message) {
+          setErrors({ [el.id]: message })
+          el.focus()
+          return false
+        }
+      }
+      return true
+    },
+    [t]
+  )
+  return { errors, wrong, clear, fail, numbers }
 }

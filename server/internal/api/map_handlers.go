@@ -129,9 +129,8 @@ func (s *Server) handleMapDetail(w http.ResponseWriter, r *http.Request) {
 
 // detailSource picks where the detailed map comes from: the first of the
 // given tile sets that this server can actually get tiles from, tried in
-// order. A provider that works from one country may be out of reach from
-// another (OpenFreeMap sits behind Cloudflare, which Russian networks
-// throttle to a standstill), and only trying tells. The choice is kept for
+// order. A provider that works from one network may be out of reach from
+// another, and only trying tells. The choice is kept for
 // some hours; when nothing works, that is remembered for a minute, so that
 // every tile asked for meanwhile does not try them all again.
 func (c *tileCache) detailSource(ctx context.Context, sources []string) (source, template string, err error) {

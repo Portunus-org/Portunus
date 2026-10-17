@@ -6,6 +6,7 @@ import { toast } from "@/lib/toast"
 import { CopyButton } from "@/components/copy-button"
 import { StatusBadge } from "@/components/status"
 import { FormField, SwitchField, FormError } from "@/components/form-field"
+import { NumberInput } from "@/components/number-input"
 import { Button } from "@/components/ui/button"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import { Input } from "@/components/ui/input"
@@ -63,13 +64,14 @@ export function InboundDrawer({
   const [strictTls, setStrictTls] = React.useState(inbound.strictTls ?? false)
   const [tlsMode, setTlsMode] = React.useState<TLSMode>(inbound.tlsMode ?? "self-signed")
   const [pending, setPending] = React.useState(false)
-  const { errors, clear, fail } = useFormErrors()
+  const { errors, clear, fail, numbers } = useFormErrors()
 
   const info = protocols[protocol]
   const usesTLS = protocol === "hysteria2" || protocol === "tuic" || protocol === "trojan"
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!numbers(e.currentTarget)) return
     const f = new FormData(e.currentTarget)
     const str = (k: string) => (f.has(k) ? String(f.get(k)) : undefined)
     const input = {
@@ -125,10 +127,9 @@ export function InboundDrawer({
                 <Input id="name" name="name" defaultValue={inbound.name} placeholder={protocols[protocol].label} maxLength={64} />
               </FormField>
               <FormField id="port" error={errors.port} label={t("inbounds.form.port", { transport: info.transport })}>
-                <Input
+                <NumberInput
                   id="port"
                   name="port"
-                  type="number"
                   min={1}
                   max={65535}
                   required
@@ -155,10 +156,9 @@ export function InboundDrawer({
                   />
                 </FormField>
                 <FormField id="realityServerPort" error={errors.realityServerPort} label={t("inbounds.form.targetPort")}>
-                  <Input
+                  <NumberInput
                     id="realityServerPort"
                     name="realityServerPort"
-                    type="number"
                     min={1}
                     max={65535}
                     className="tabular-nums"
