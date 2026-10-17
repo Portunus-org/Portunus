@@ -10,9 +10,11 @@ they have to pass on the way.
 | `dev` | Where work comes together. Every pull request goes here. |
 | `main` | What is released. It takes changes from `dev` only. |
 
-A release is a tag on `main`: `dev` is merged into `main` through a pull
-request, and the merge commit is tagged `vX.Y.Z` (see
-[Versions and releases](docs/DEPLOY.md#versions-and-releases)). Only
+A release is made by merging `dev` into `main` through a pull request whose
+title names the version, as in `v0.4.4: SSO and phone layout`: the merge
+commit is tagged with it and the images are published (see
+[Versions and releases](docs/DEPLOY.md#versions-and-releases)). After every
+merge `dev` is moved forward to `main`, so the two stay level. Only
 maintainers merge into `main` and create release tags.
 
 ## Sending a change
@@ -38,6 +40,7 @@ it can be merged only when every check passes:
 | `images` | both images built and scanned with Trivy, as a release would publish them |
 | `dast` | the panel started from its image and probed from outside with OWASP ZAP |
 | `source` | the pull request into `main` comes from `dev` |
+| `version` | the version in the title, if any, is new and higher than the last release |
 
 A finding of HIGH or CRITICAL severity fails its check, and so does any
 ZAP warning that is not accepted. A finding accepted on purpose is listed

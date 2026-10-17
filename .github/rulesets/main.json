@@ -42,6 +42,10 @@
             "integration_id": 15368
           },
           {
+            "context": "version",
+            "integration_id": 15368
+          },
+          {
             "context": "sast",
             "integration_id": 15368
           },
