@@ -17,11 +17,13 @@ new release by itself (Settings → Updates).
 
 ## How the project guards itself
 
-Every change is checked before it is merged: static analysis (Semgrep,
-CodeQL), known vulnerabilities in the dependencies (govulncheck, pnpm audit,
-Trivy), secrets in the history (gitleaks), the built images (Trivy) and the
-running panel probed from outside (OWASP ZAP). A HIGH or CRITICAL finding
-blocks the merge. The published images are scanned again every week.
+Nothing reaches a release unchecked: before dev can be merged into main,
+the change is scanned with static analysis (Semgrep), for known
+vulnerabilities in the dependencies (govulncheck, pnpm audit, Trivy) and
+secrets in the history (gitleaks), the built images are scanned (Trivy),
+and the running panel is probed from outside (OWASP ZAP). A HIGH or
+CRITICAL finding blocks the merge. The published images are scanned again
+every week.
 
 The threat model and the controls in place are described in
 [docs/SECURITY.md](../docs/SECURITY.md).
