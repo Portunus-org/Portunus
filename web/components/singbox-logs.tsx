@@ -64,6 +64,7 @@ function keyOf(text: string) {
 
 const hints: [RegExp, MessageKey][] = [
   [/did not closed properly/, "logs.hint.stopped"],
+  [/certificate-provider\/acme.*context canceled/, "logs.hint.acmeCanceled"],
   [/lookup (?:failed for )?(\S+?): .*NXDOMAIN/, "logs.hint.noName"],
   [/using outbound\/direct\[[^\]]*\]: dial (?:tcp|udp) (\S+): i\/o timeout/, "logs.hint.timeout"],
   [/dial (?:tcp|udp) (\S+): connect: connection refused/, "logs.hint.refused"],

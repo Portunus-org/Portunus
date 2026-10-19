@@ -688,8 +688,16 @@
   "settings.server.description": "The server address in client links, and the subscription port.",
   "settings.server.publicHost": "Server address",
   "settings.server.publicHostHint": "The domain or IP address used in client links. The domain and its certificate are set under Domain and certificates.",
+  "settings.server.apart": "Client links use {host}, while the panel and certificates stay on {domain}. To move them as well, change the server's domain.",
+  "settings.server.apartNoDomain": "The server has no domain yet: the panel and certificates do not use {host}.",
+  "settings.server.moveThere": "Change the domain to {host}",
+  "settings.server.useThere": "Make {host} the server's domain",
   "settings.subs.port": "Port",
   "settings.subs.portHint": "0 turns subscriptions off. HTTPS is used once the domain has a certificate.",
+  "settings.subs.path": "Subscription path",
+  "settings.subs.pathHint": "Subscriptions open by the panel's address. Links handed out with the old path stop working.",
+  "settings.subs.portByIp": "Subscription port by IP address",
+  "settings.subs.portByIpHint": "Subscriptions now go by the domain. The port is for running without a domain and for links handed out earlier. 0 turns it off.",
   "settings.subs.effective": "Links use {url}",
   "settings.subs.env": "Set by PORTUNUS_SUB_LISTEN: {addr}.",
   "settings.saved": "Settings saved.",
@@ -767,6 +775,7 @@
   "logs.showPutAway": "Hidden: {n}",
   "logs.hidePutAway": "Back",
   "logs.hint.stopped": "sing-box logs this when stopped for a restart. Not an error: the new process is already running.",
+  "logs.hint.acmeCanceled": "A certificate request was cut short by a sing-box restart. Not an error: it continues after the restart if the certificate is still needed.",
   "logs.hint.noName": "The name {address} does not exist. A client app requested it; nothing to fix on the server.",
   "logs.copy": "Copy what is shown",
   "logs.hint.timeout": "{address} did not respond. If other sites work, the problem is on that address's side.",
@@ -960,5 +969,7 @@
   "audit.detail.weekday": "Weekday",
   "audit.detail.minute": "Minute of the day",
   "audit.detail.at": "Time",
-  "audit.detail.issuer": "Issuer"
+  "audit.detail.issuer": "Issuer",
+  "error.bad_path": "Lowercase Latin letters, digits and hyphens only, no spaces or slashes.",
+  "error.path_reserved": "The panel uses this path itself."
 }

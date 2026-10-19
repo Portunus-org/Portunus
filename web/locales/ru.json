@@ -688,8 +688,16 @@
   "settings.server.description": "Адрес сервера в ссылках клиентов и порт подписок.",
   "settings.server.publicHost": "Адрес сервера",
   "settings.server.publicHostHint": "Домен или IP-адрес для ссылок клиентов. Домен и сертификат настраиваются в разделе «Домен и сертификаты».",
+  "settings.server.apart": "В ссылках клиентов {host}, а панель и сертификаты остаются на домене {domain}. Чтобы перенести их тоже, смените домен сервера.",
+  "settings.server.apartNoDomain": "У сервера пока нет домена: панель и сертификаты не используют {host}.",
+  "settings.server.moveThere": "Сменить домен на {host}",
+  "settings.server.useThere": "Сделать {host} доменом сервера",
   "settings.subs.port": "Порт",
   "settings.subs.portHint": "0 выключает подписки. HTTPS включается после выпуска сертификата для домена.",
+  "settings.subs.path": "Путь подписок",
+  "settings.subs.pathHint": "Подписки открываются по адресу панели. Ссылки, выданные со старым путём, перестанут работать.",
+  "settings.subs.portByIp": "Порт подписок по IP-адресу",
+  "settings.subs.portByIpHint": "Сейчас подписки идут через домен. Порт нужен для работы без домена и для ссылок, выданных раньше. 0 выключает.",
   "settings.subs.effective": "Ссылки ведут на {url}",
   "settings.subs.env": "Задано через PORTUNUS_SUB_LISTEN: {addr}.",
   "settings.saved": "Настройки сохранены.",
@@ -767,6 +775,7 @@
   "logs.showPutAway": "Скрытые: {n}",
   "logs.hidePutAway": "Назад",
   "logs.hint.stopped": "sing-box записывает это при остановке перед перезапуском. Это не ошибка: новый процесс уже запущен.",
+  "logs.hint.acmeCanceled": "Запрос сертификата прервал перезапуск sing-box. Это не ошибка: при следующем запуске запрос продолжается, если сертификат ещё нужен.",
   "logs.hint.noName": "Имя {address} не существует. Его запросило приложение клиента, на сервере исправлять нечего.",
   "logs.copy": "Скопировать показанное",
   "logs.hint.timeout": "{address} не ответил. Если остальные сайты работают, проблема на стороне этого адреса.",
@@ -960,5 +969,7 @@
   "audit.detail.weekday": "День недели",
   "audit.detail.minute": "Минута суток",
   "audit.detail.at": "Время",
-  "audit.detail.issuer": "Провайдер"
+  "audit.detail.issuer": "Провайдер",
+  "error.bad_path": "Только строчные латинские буквы, цифры и дефис, без пробелов и слешей.",
+  "error.path_reserved": "Этот путь занят самой панелью."
 }

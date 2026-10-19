@@ -52,15 +52,22 @@ import (
 //     the browser with a cookie and sends it on to the panel.
 
 type panelState struct {
-	mu     sync.Mutex
-	key    string // what the running listener was started with
-	err    string // why it is not running, or why there is no certificate
-	kick   chan struct{}
-	close  func()
-	gate   string
-	token  string
-	probes map[string]time.Time
-	guard  gateGuard
+	mu    sync.Mutex
+	key   string // what the running listener was started with
+	err   string // why it is not running, or why there is no certificate
+	kick  chan struct{}
+	close func()
+	gate  string
+	token string
+	// domain is the panel's domain now, url its entry address there: a
+	// browser that comes by a former domain is sent on to it.
+	domain string
+	url    string
+	// subPath is where subscriptions are under the domain (core:
+	// SubscriptionPath): public, keyed by each client's token.
+	subPath string
+	probes  map[string]time.Time
+	guard   gateGuard
 	// shared is the certificate last written out for the connections.
 	shared [sha256.Size]byte
 	// decoy is the address of the operator's cover site, cover the site
@@ -148,7 +155,7 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 	sum := sha256.Sum256([]byte(pa.Certificate))
 	key := ""
 	if pa.Enabled {
-		key = strings.Join([]string{pa.Domain, strconv.Itoa(pa.Port), pa.Mode, hex.EncodeToString(sum[:8]), strconv.FormatBool(pa.Shared), pa.Next}, "|")
+		key = strings.Join([]string{pa.Domain, strconv.Itoa(pa.Port), pa.Mode, hex.EncodeToString(sum[:8]), strconv.FormatBool(pa.Shared), pa.Next, strconv.FormatBool(s.core.PanelMayHoldPort80(ctx))}, "|")
 	}
 	var decoy *url.URL
 	if pa.Decoy != "" {
@@ -157,6 +164,7 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 	s.panel.mu.Lock()
 	// A new gate or cover site needs no new listener.
 	s.panel.gate, s.panel.token, s.panel.decoy = pa.Gate, s.core.PanelGateToken(pa.Gate), decoy
+	s.panel.domain, s.panel.url, s.panel.subPath = pa.Domain, pa.URL(), s.core.SubscriptionPath(ctx)
 	if s.panel.cover == nil || s.panel.coverFor != pa.Domain {
 		s.panel.cover, s.panel.coverFor = cover.New(s.core.CoverSeed(), pa.Domain), pa.Domain
 	}
@@ -229,6 +237,13 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 			validating := slices.Contains(hello.SupportedProtos, acme.ALPNProto)
 			if pa.Next != "" && strings.EqualFold(hello.ServerName, pa.Next) && !validating {
 				return s.nextCertificate(get, hello, pa.Next)
+			}
+			// A domain the server moved away from is still answered with its
+			// kept certificate, never a new one: see gated.
+			if !ours && !validating && hello.ServerName != "" {
+				if cert, err := s.core.FormerPanelCertificate(context.Background(), hello.ServerName); err == nil {
+					return cert, nil
+				}
 			}
 			if ours && !validating {
 				waitMu.Lock()
@@ -336,6 +351,22 @@ func (s *Server) syncPanelAccess(ctx context.Context) {
 		}
 		servers = append(servers, newServer())
 		go servers[1].ServeTLS(ln, "", "")
+	}
+	// Plain HTTP on port 80 is sent over to HTTPS, so that the domain typed
+	// without https:// leads somewhere instead of to an error; only while
+	// nothing else needs the port (sing-box answers Let's Encrypt there).
+	if s.core.PanelMayHoldPort80(ctx) {
+		if ln, err := net.Listen("tcp", ":80"); err == nil { // nosemgrep: go.lang.security.audit.net.bind_all.avoid-bind-to-all-interfaces -- public on purpose, like the panel's HTTPS port: it only sends browsers on to HTTPS
+			srv := &http.Server{
+				Handler:           s.toHTTPS(pa.Port),
+				ReadHeaderTimeout: 10 * time.Second,
+				ErrorLog:          log.New(io.Discard, "", 0),
+			}
+			servers = append(servers, srv)
+			go srv.Serve(ln)
+		} else {
+			s.log.Debug("port 80 not available for the redirect to HTTPS", "err", err)
+		}
 	}
 	s.panel.mu.Lock()
 	s.panel.key, s.panel.err = key, ""
@@ -585,7 +616,7 @@ func (s *Server) gated(next http.Handler) http.Handler {
 	decoy := s.decoyHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.panel.mu.Lock()
-		gate, token := s.panel.gate, s.panel.token
+		gate, token, domain, entry, sub := s.panel.gate, s.panel.token, s.panel.domain, s.panel.url, s.panel.subPath
 		probe, isProbe := s.panel.probes[strings.TrimPrefix(r.URL.Path, "/")]
 		s.panel.mu.Unlock()
 
@@ -600,6 +631,39 @@ func (s *Server) gated(next http.Handler) http.Handler {
 			return
 		}
 		who := remoteHost(r)
+		// Subscriptions, on this domain and the ones it moved away from (an
+		// app keeps the address it was given): public, as on their own
+		// port, but anything that is not a client's subscription gets the
+		// cover site, so the path gives nothing away.
+		if rest, ok := strings.CutPrefix(r.URL.Path, "/"+sub+"/"); ok && sub != "" && r.Method == http.MethodGet && rest != "" && !strings.Contains(rest, "/") {
+			if rest == "ca.crt" {
+				s.handleCAFile(w, r)
+				return
+			}
+			s.serveSubscription(w, r, rest, func() { decoy.ServeHTTP(w, r) })
+			return
+		}
+		// By a domain the server moved away from, whoever has opened the
+		// gate there (by its cookie, or by the secret path now) is sent to
+		// the panel's address on the new domain; a page still open there
+		// learns it from the API and goes over by itself. Everybody else
+		// sees the cover site, as before.
+		if host := requestHost(r); domain != "" && host != "" && !strings.EqualFold(host, domain) && r.TLS != nil {
+			c, err := r.Cookie(gateCookie)
+			opened := err == nil && gate != "" && hmac.Equal([]byte(c.Value), []byte(token))
+			knows := gate != "" && r.Method == http.MethodGet && hmac.Equal([]byte(r.URL.Path), []byte("/"+gate)) && !s.panel.guard.shut(who)
+			if opened || knows {
+				w.Header().Set("Cache-Control", "no-store")
+				if strings.HasPrefix(r.URL.Path, "/api/") {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": "moved", "url": entry})
+					return
+				}
+				http.Redirect(w, r, entry, http.StatusTemporaryRedirect)
+				return
+			}
+			decoy.ServeHTTP(w, r)
+			return
+		}
 		if gate != "" && r.Method == http.MethodGet && hmac.Equal([]byte(r.URL.Path), []byte("/"+gate)) && !s.panel.guard.shut(who) {
 			http.SetCookie(w, &http.Cookie{
 				Name: gateCookie, Value: token, Path: "/", MaxAge: 180 * 24 * 3600,
@@ -690,6 +754,45 @@ func (g *gateGuard) shut(who string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return len(g.recent(who, time.Now())) >= gateGuesses
+}
+
+// toHTTPS answers plain HTTP with the same address over HTTPS, for the
+// panel's domain and the domains it moved away from; any other name is not
+// sent anywhere (the address is not taken from a request to go elsewhere).
+func (s *Server) toHTTPS(port int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.ToLower(host)
+		s.panel.mu.Lock()
+		domain := s.panel.domain
+		s.panel.mu.Unlock()
+		ours := host != "" && strings.EqualFold(host, domain)
+		if !ours && host != "" {
+			_, err := s.core.FormerPanelCertificate(r.Context(), host)
+			ours = err == nil
+		}
+		if !ours || strings.HasPrefix(r.URL.Path, "/.well-known/") {
+			http.NotFound(w, r)
+			return
+		}
+		target := "https://" + host
+		if port != 443 {
+			target = "https://" + net.JoinHostPort(host, strconv.Itoa(port))
+		}
+		http.Redirect(w, r, target+r.URL.RequestURI(), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- only to the panel's own domain or a former one of it, checked above
+	})
+}
+
+// requestHost is the name a browser asked for: the one its TLS handshake
+// named, which is also what chose the certificate ("" without TLS).
+func requestHost(r *http.Request) string {
+	if r.TLS == nil {
+		return ""
+	}
+	return strings.ToLower(r.TLS.ServerName)
 }
 
 func remoteHost(r *http.Request) string {

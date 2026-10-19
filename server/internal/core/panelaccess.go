@@ -250,7 +250,7 @@ func (c *Core) SetPanelAccess(ctx context.Context, in PanelAccessInput) error {
 		}
 	}
 	if cur.Gate == "" {
-		if err := c.store.SetSetting(ctx, settingPanelGate, newGate()); err != nil {
+		if err := c.store.SetSetting(ctx, settingPanelGate, c.gateFor(ctx)); err != nil {
 			return err
 		}
 	}
@@ -312,7 +312,7 @@ func (c *Core) shareWithPanel(ctx context.Context) error {
 // RotatePanelGate replaces the secret entry address: the old one, and the
 // browsers let in through it, stop being recognised.
 func (c *Core) RotatePanelGate(ctx context.Context) error {
-	return c.store.SetSetting(ctx, settingPanelGate, newGate())
+	return c.store.SetSetting(ctx, settingPanelGate, c.gateFor(ctx))
 }
 
 // gateWordList is what a secret path is chosen from: the EFF long word
@@ -348,6 +348,17 @@ var gateWords = func() []string {
 // so the listener counts wrong guesses and shuts the gate to whoever makes
 // too many (api: gateGuard). The path only keeps the panel out of sight;
 // signing in still takes the password.
+// gateFor makes up a gate that is not the subscription path: both are the
+// first part of a path on the panel's domain.
+func (c *Core) gateFor(ctx context.Context) string {
+	sub := c.SubscriptionPath(ctx)
+	for {
+		if g := newGate(); g != sub {
+			return g
+		}
+	}
+}
+
 func newGate() string {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(gateWords))))
 	if err != nil {

@@ -975,6 +975,13 @@ func (c *Core) tcpPortTaken(ctx context.Context, port int) bool {
 	return false
 }
 
+// PanelMayHoldPort80 reports whether the panel may listen on TCP 80 to
+// send plain HTTP over to HTTPS: sing-box does not need the port for
+// Let's Encrypt's checks, and no connection listens on it.
+func (c *Core) PanelMayHoldPort80(ctx context.Context) bool {
+	return c.acmeListenPort(ctx) != 80 && !c.tcpPortTaken(ctx, 80)
+}
+
 // acmeListenPort is the TCP port sing-box answers certificate checks on,
 // or 0 while no inbound gets its certificate from Let's Encrypt.
 func (c *Core) acmeListenPort(ctx context.Context) int {

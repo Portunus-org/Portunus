@@ -63,7 +63,7 @@ func TestHostileInputNeverBreaksTheServer(t *testing.T) {
 		{"PUT", "/api/routing/rules/" + id(rule), map[string]any{"listId": list["id"], "action": "block", "nodeId": nil, "enabled": true}},
 		{"PUT", "/api/routing/rules/order", map[string]any{"ids": []any{rule["id"]}}},
 		{"PUT", "/api/routing/default", map[string]any{"action": "direct", "nodeId": nil}},
-		{"PUT", "/api/settings", map[string]any{"publicHost": "203.0.113.5", "subscriptionBaseUrl": "", "subscriptionPort": 0, "acmeEmail": "a@example.com", "acmeChallenge": "http", "acmeHttpPort": 8080}},
+		{"PUT", "/api/settings", map[string]any{"publicHost": "203.0.113.5", "subscriptionBaseUrl": "", "subscriptionPort": 0, "subscriptionPath": "sub", "acmeEmail": "a@example.com", "acmeChallenge": "http", "acmeHttpPort": 8080}},
 		{"PUT", "/api/panel-access", map[string]any{"enabled": false, "port": 443, "mode": "acme", "certificate": nil, "key": nil, "decoy": nil}},
 		{"POST", "/api/setup/basics", map[string]any{"publicHost": "203.0.113.5", "domain": ""}},
 		{"PUT", "/api/sso", map[string]any{"enabled": false, "name": "SSO", "issuer": "https://id.example.com", "clientId": "c", "clientSecret": "s", "scopes": "openid", "groupsClaim": "groups", "adminGroup": "a", "operatorGroup": "", "viewerGroup": "", "defaultRole": ""}},
@@ -247,7 +247,7 @@ func TestNonsenseIsRefused(t *testing.T) {
 		map[string]any{"listId": list["id"], "action": "node"}, map[string]any{"listId": "1 OR 1=1", "action": "block"})
 	add("PUT", "/api/routing/rules/order", map[string]any{"ids": []any{-1}}, map[string]any{"ids": []any{99999}}, map[string]any{"ids": []any{rule["id"], rule["id"]}}, map[string]any{"ids": []any{}}, map[string]any{"ids": "1"})
 	add("PUT", "/api/routing/default", map[string]any{"action": "x"}, map[string]any{"action": "node", "nodeId": -1}, map[string]any{"action": "node", "nodeId": 99999}, map[string]any{"action": "node"})
-	add("PUT", "/api/settings", settings(map[string]any{"acmeEmail": "not an address"}), settings(map[string]any{"acmeEmail": "a@b.example\nBcc: x@y.example"}), settings(map[string]any{"acmeChallenge": "dns"}))
+	add("PUT", "/api/settings", settings(map[string]any{"subscriptionPath": "My Sub"}), settings(map[string]any{"subscriptionPath": "api"}), settings(map[string]any{"subscriptionPath": "a/b"}), settings(map[string]any{"acmeEmail": "not an address"}), settings(map[string]any{"acmeEmail": "a@b.example\nBcc: x@y.example"}), settings(map[string]any{"acmeChallenge": "dns"}))
 	add("PUT", "/api/sso", sso(map[string]any{"defaultRole": "root"}), sso(map[string]any{"adminGroup": "a\nb"}), sso(map[string]any{"clientId": strings.Repeat("c", 300)}), sso(map[string]any{"name": "a\x00b"}), sso(map[string]any{"scopes": "profile"}), sso(map[string]any{"issuer": "http://idp.example.com"}))
 	add("POST", "/api/users", map[string]any{"username": "a b", "role": "viewer"}, map[string]any{"username": "x", "role": "root"}, map[string]any{"username": "o'brien", "role": "viewer"}, map[string]any{"username": "sso:abc", "role": "viewer"}, map[string]any{"username": strings.Repeat("u", 65), "role": "viewer"})
 	add("PUT", "/api/update", map[string]any{"auto": true, "weekday": 7, "minute": 0}, map[string]any{"auto": true, "weekday": -2, "minute": 0}, map[string]any{"auto": true, "weekday": 0, "minute": -1}, map[string]any{"auto": true, "weekday": 0, "minute": 1440}, map[string]any{"auto": "yes", "weekday": 0, "minute": 0})

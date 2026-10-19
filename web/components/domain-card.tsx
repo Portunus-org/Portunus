@@ -27,6 +27,9 @@ import { useResource } from "@/lib/use-resource"
  * certificate); when the panel is opened by its domain, the new domain's
  * certificate is obtained first and the move waits for it.
  */
+/** The session key a domain to move to is handed over under. */
+export const DOMAIN_PREFILL = "portunus.domainPrefill"
+
 export function DomainCard() {
   const { t, locale } = useI18n()
   const { user } = useSession()
@@ -35,7 +38,17 @@ export function DomainCard() {
   const [waiting, setWaiting] = React.useState(false)
   const { data, reload } = useResource(api.domain, waiting ? 5000 : 30000)
   const [confirm, confirmDialog] = useConfirm()
-  const [next, setNext] = React.useState("")
+  // A domain handed over from the server's settings ("move to the name the
+  // links use"), taken once.
+  const [next, setNext] = React.useState(() => {
+    try {
+      const v = sessionStorage.getItem(DOMAIN_PREFILL) ?? ""
+      sessionStorage.removeItem(DOMAIN_PREFILL)
+      return v
+    } catch {
+      return ""
+    }
+  })
   const [pending, setPending] = React.useState(false)
   const { errors, wrong, clear, fail } = useFormErrors()
   const check = useDomainCheck(next)

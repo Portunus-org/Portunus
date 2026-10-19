@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -228,6 +229,40 @@ func (c *Core) RemoveCertificate(ctx context.Context, domain string) error {
 	}
 	c.log.Info("certificate removed", "domain", domain)
 	return nil
+}
+
+// FormerPanelCertificate is the panel's certificate for a domain the
+// server has moved away from, for as long as it is kept and valid: a
+// browser that still comes by the old name is sent on to the new address
+// (api: the panel's listener), instead of finding nothing there.
+func (c *Core) FormerPanelCertificate(ctx context.Context, domain string) (*tls.Certificate, error) {
+	notHere := errors.New("not served here")
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if c.panelACMEDir == "" || domain == "" || !validHost(domain) || net.ParseIP(domain) != nil || strings.ContainsAny(domain, `/\`) {
+		return nil, notHere
+	}
+	current, _ := c.Domain(ctx)
+	next, _ := c.store.Setting(ctx, settingDomainNext)
+	if strings.EqualFold(domain, current) || strings.EqualFold(domain, next) {
+		return nil, notHere
+	}
+	for _, name := range []string{domain, domain + "+rsa"} {
+		raw, err := os.ReadFile(filepath.Join(c.panelACMEDir, name))
+		if err != nil {
+			continue
+		}
+		// The cache keeps the key and the chain in one file.
+		cert, err := tls.X509KeyPair(raw, raw)
+		if err != nil {
+			continue
+		}
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil || time.Now().After(leaf.NotAfter) {
+			continue
+		}
+		return &cert, nil
+	}
+	return nil, notHere
 }
 
 // certificateFiles are the files and directories that hold certificates for

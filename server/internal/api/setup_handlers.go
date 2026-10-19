@@ -166,7 +166,7 @@ func (s *Server) handleCAInfo(w http.ResponseWriter, r *http.Request) {
 		"fingerprint": strings.ToUpper(hex.EncodeToString(sum[:])),
 	}
 	if base := s.core.EffectiveSubscriptionBase(ctx); base != "" {
-		url := strings.TrimSuffix(base, "/") + "/ca.crt"
+		url := base + "/ca.crt"
 		out["downloadUrl"] = url
 		out["downloadQr"], _ = qrsvg.Encode(url)
 	}

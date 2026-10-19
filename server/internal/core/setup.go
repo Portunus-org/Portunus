@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,26 +87,79 @@ func (c *Core) SetSubscriptionPort(ctx context.Context, port int) error {
 	return c.store.SetSetting(ctx, settingSubPort, strconv.Itoa(port))
 }
 
-// EffectiveSubscriptionBase is the origin put into subscription URLs: the
-// operator's explicit URL (e.g. behind their reverse proxy) if set,
-// otherwise the built-in listener, over HTTPS once the domain has a
-// certificate.
+// EffectiveSubscriptionBase is what a subscription URL starts with, the
+// client's token following after a slash (and ca.crt, for the private CA):
+//
+//   - the operator's own address (behind their reverse proxy), with /sub;
+//   - when the panel is opened by its domain, the panel's address with the
+//     subscription path (SubscriptionPath): one port, one certificate;
+//   - otherwise the built-in listener's port with /sub, over HTTPS once the
+//     domain has a certificate, by the IP address before.
 func (c *Core) EffectiveSubscriptionBase(ctx context.Context) string {
 	if manual, _ := c.SubscriptionBaseURL(ctx); manual != "" {
-		return manual
+		return manual + "/sub"
+	}
+	if pa, err := c.PanelAccess(ctx); err == nil && pa.Enabled {
+		return pa.Origin() + "/" + c.SubscriptionPath(ctx)
 	}
 	port := c.SubscriptionPort(ctx)
 	if port == 0 {
 		return ""
 	}
 	if domain, _ := c.Domain(ctx); domain != "" && (c.Certificate(domain) != nil || c.sharedCertificate(domain) != nil) {
-		return "https://" + net.JoinHostPort(domain, strconv.Itoa(port))
+		return "https://" + net.JoinHostPort(domain, strconv.Itoa(port)) + "/sub"
 	}
 	host, _ := c.PublicHost(ctx)
 	if host == "" {
 		return ""
 	}
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/sub"
+}
+
+const settingSubPath = "subscription_path"
+
+// DefaultSubscriptionPath is where subscriptions are under the panel's
+// domain unless the operator chose another path.
+const DefaultSubscriptionPath = "sub"
+
+// subPathShape: one lowercase segment of letters, digits and hyphens.
+var subPathShape = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// subPathReserved are the first parts of paths the panel and its cover
+// site answer themselves.
+var subPathReserved = map[string]bool{
+	"api": true, "login": true, "welcome": true, "account": true, "clients": true, "docs": true,
+	"inbounds": true, "nodes": true, "routing": true, "settings": true, "users": true, "healthz": true,
+	"log": true, "about": true, "static": true, "icon": true,
+}
+
+// SubscriptionPath is the first part of the path subscriptions are served
+// under on the panel's domain: https://<domain>/<path>/<token>.
+func (c *Core) SubscriptionPath(ctx context.Context) string {
+	if v, _ := c.store.Setting(ctx, settingSubPath); v != "" {
+		return v
+	}
+	return DefaultSubscriptionPath
+}
+
+// SetSubscriptionPath changes it ("" goes back to the default). Subscribed
+// apps keep the address they were given, so links handed out before stop
+// working: the page says so.
+func (c *Core) SetSubscriptionPath(ctx context.Context, p string) error {
+	p = strings.ToLower(strings.Trim(strings.TrimSpace(p), "/"))
+	if p == "" {
+		p = DefaultSubscriptionPath
+	}
+	if !subPathShape.MatchString(p) {
+		return invalid("subscriptionPath", "bad_path")
+	}
+	if subPathReserved[p] {
+		return invalid("subscriptionPath", "path_reserved")
+	}
+	if gate, _ := c.store.Setting(ctx, settingPanelGate); strings.EqualFold(gate, p) {
+		return invalid("subscriptionPath", "taken")
+	}
+	return c.store.SetSetting(ctx, settingSubPath, p)
 }
 
 // SubscriptionCertificate returns the certificate for the domain to serve

@@ -27,7 +27,7 @@ import { SingboxLogs } from "@/components/singbox-logs"
 import { UpdateCard } from "@/components/update-card"
 import { AccountsCard } from "@/components/users/accounts-card"
 import { SSOCard } from "@/components/users/sso-card"
-import { DomainCard } from "@/components/domain-card"
+import { DOMAIN_PREFILL, DomainCard } from "@/components/domain-card"
 import { AboutCard } from "@/components/about-card"
 import { StatusBadge } from "@/components/status"
 import { FormField, FormError } from "@/components/form-field"
@@ -45,6 +45,7 @@ import {
   SaidAboveContext,
 } from "@/components/settings-pane"
 import { Input } from "@/components/ui/input"
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -131,8 +132,24 @@ function SettingsCard({
  * subscriptions their apps refresh from. The domain and its certificate
  * are a section of their own.
  */
+// A name typed as the address in the links, as opposed to an IP address.
+const isName = (host: string) => /[a-z]/i.test(host) && host.includes(".") && !host.includes(":")
+
 function ServerCard({ settings, onSaved }: { settings: Settings; onSaved: () => void }) {
   const { t } = useI18n()
+  const win = useSettingsWindow()
+  // The links go by a name that is not the server's domain: the panel and
+  // the certificates stay where they were unless the domain is moved too.
+  const host = settings.publicHost
+  const apart = isName(host) && host.toLowerCase() !== settings.domain.toLowerCase()
+  const moveThere = () => {
+    try {
+      sessionStorage.setItem(DOMAIN_PREFILL, host)
+    } catch {
+      // Without storage the field is just empty.
+    }
+    win.setSection("domain")
+  }
   return (
     <SettingsCard
       title={t("settings.server.title")}
@@ -144,6 +161,7 @@ function ServerCard({ settings, onSaved }: { settings: Settings; onSaved: () => 
             .toLowerCase(),
           subscriptionBaseUrl: settings.subscriptionBaseUrl,
           ...(settings.subscriptionListen ? {} : { subscriptionPort: Number(f.get("subscriptionPort") || 0) }),
+          ...(settings.subscriptionOnDomain ? { subscriptionPath: String(f.get("subscriptionPath") ?? "") } : {}),
         })
         onSaved()
       }}
@@ -158,10 +176,46 @@ function ServerCard({ settings, onSaved }: { settings: Settings; onSaved: () => 
           spellCheck={false}
         />
       </FormField>
+      {apart && (
+        <div className="grid gap-2 rounded-lg border p-3 text-sm">
+          <p className="text-muted-foreground">
+            {settings.domain
+              ? t("settings.server.apart", { host, domain: settings.domain })
+              : t("settings.server.apartNoDomain", { host })}
+          </p>
+          <Button type="button" variant="outline" size="sm" className="w-fit" onClick={moveThere}>
+            {t(settings.domain ? "settings.server.moveThere" : "settings.server.useThere", { host })}
+          </Button>
+        </div>
+      )}
+      {/* With the panel on its domain, subscriptions go by its address, under a path of the operator's choice. */}
+      {settings.subscriptionOnDomain && (
+        <FormField id="subscriptionPath" label={t("settings.subs.path")} hint={t("settings.subs.pathHint")}>
+          <InputGroup>
+            <InputGroupAddon>
+              <InputGroupText className="font-mono text-xs">{(settings.panelOrigin ?? "https://" + settings.domain) + "/"}</InputGroupText>
+            </InputGroupAddon>
+            <InputGroupInput
+              id="subscriptionPath"
+              name="subscriptionPath"
+              defaultValue={settings.subscriptionPath}
+              placeholder="sub"
+              maxLength={32}
+              autoCapitalize="none"
+              spellCheck={false}
+              className="pl-0.5 font-mono text-xs"
+            />
+          </InputGroup>
+        </FormField>
+      )}
       {settings.subscriptionListen ? (
         <p className="text-sm text-muted-foreground">{t("settings.subs.env", { addr: settings.subscriptionListen })}</p>
       ) : (
-        <FormField id="subscriptionPort" label={t("settings.subs.port")} hint={t("settings.subs.portHint")}>
+        <FormField
+          id="subscriptionPort"
+          label={t(settings.subscriptionOnDomain ? "settings.subs.portByIp" : "settings.subs.port")}
+          hint={t(settings.subscriptionOnDomain ? "settings.subs.portByIpHint" : "settings.subs.portHint")}
+        >
           <NumberInput
             id="subscriptionPort"
             name="subscriptionPort"

@@ -63,17 +63,22 @@ func (s *Server) SubscriptionHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /sub/{token}", s.handleSubscription)
 	// The CA certificate is public by nature; serving it here lets a phone
-	// download it by scanning a QR code.
-	mux.HandleFunc("GET /ca.crt", func(w http.ResponseWriter, r *http.Request) {
-		ca, err := s.core.CA(r.Context())
-		if err != nil {
-			s.internalError(w, r, err)
-			return
-		}
-		writeCACertificate(w, r, ca)
-	})
+	// download it by scanning a QR code. Under /sub/ as well, where the
+	// address of the subscriptions leads (EffectiveSubscriptionBase).
+	mux.HandleFunc("GET /sub/ca.crt", s.handleCAFile)
+	mux.HandleFunc("GET /ca.crt", s.handleCAFile)
 	mux.HandleFunc("/", http.NotFound)
 	return s.recoverer(s.logRequests(securityHeaders(mux)))
+}
+
+// handleCAFile serves the private CA's certificate, which is public by nature.
+func (s *Server) handleCAFile(w http.ResponseWriter, r *http.Request) {
+	ca, err := s.core.CA(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	writeCACertificate(w, r, ca)
 }
 
 // Handler returns the root handler; ui serves every non-API path.
