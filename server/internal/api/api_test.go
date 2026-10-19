@@ -24,6 +24,7 @@ import (
 )
 
 type testEnv struct {
+	api      *Server
 	srv      *httptest.Server
 	client   *http.Client
 	password string
@@ -93,12 +94,14 @@ func newTestEnv(t *testing.T) *testEnv {
 		ListHTTP:     http.DefaultClient,
 		ACME:         core.ACMEPaths{DataDirectory: "acme", StorageDir: filepath.Join(cfg.DataDir, "sing-box", "acme")},
 		PanelCertDir: filepath.Join(cfg.DataDir, "sing-box", "panel-cert"),
+		PanelACMEDir: filepath.Join(cfg.DataDir, "panel-acme"),
 	}, log)
 
-	srv := httptest.NewServer(New(cfg, log, st, as, c, mgr).Handler(http.NotFoundHandler()))
+	api := New(cfg, log, st, as, c, mgr)
+	srv := httptest.NewServer(api.Handler(http.NotFoundHandler()))
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
-	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, password: pw, store: st, auth: as, core: c, busyTCP: busyTCP}
+	return &testEnv{api: api, srv: srv, client: &http.Client{Jar: jar}, password: pw, store: st, auth: as, core: c, busyTCP: busyTCP}
 }
 
 func (e *testEnv) do(t *testing.T, method, path string, body any, hdr map[string]string) (*http.Response, map[string]any) {

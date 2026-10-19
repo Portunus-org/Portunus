@@ -454,7 +454,7 @@ func (s *Server) handleClientAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if base := s.core.EffectiveSubscriptionBase(ctx); base != "" {
-		out.SubscriptionURL = base + "/sub/" + c.SubToken
+		out.SubscriptionURL = base + "/" + c.SubToken
 		out.SubscriptionQR, _ = qrsvg.Encode(out.SubscriptionURL)
 	}
 	points, err := s.core.EntryPoints(ctx)
@@ -493,6 +493,12 @@ type settingsDTO struct {
 	// SubscriptionURL is the effective public origin of subscription links.
 	SubscriptionURL   string `json:"subscriptionUrl"`
 	SubscriptionError string `json:"subscriptionError,omitempty"`
+	// SubscriptionPath is the path under the panel's domain, used while
+	// SubscriptionOnDomain: the panel is opened by its domain.
+	SubscriptionPath     string `json:"subscriptionPath"`
+	SubscriptionOnDomain bool   `json:"subscriptionOnDomain"`
+	// PanelOrigin is the panel's address by its domain, the path follows it.
+	PanelOrigin string `json:"panelOrigin,omitempty"`
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -517,11 +523,21 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, subErr := s.SubscriptionStatus()
+	pa, _ := s.core.PanelAccess(r.Context())
 	writeJSON(w, http.StatusOK, settingsDTO{
+		SubscriptionPath: s.core.SubscriptionPath(r.Context()), SubscriptionOnDomain: pa.Enabled, PanelOrigin: panelOrigin(pa),
 		PublicHost: host, SubscriptionBaseURL: base, SubscriptionListen: s.cfg.SubListen, ACMESettings: acme,
 		Domain: domain, SubscriptionPort: s.core.SubscriptionPort(r.Context()),
 		SubscriptionURL: s.core.EffectiveSubscriptionBase(r.Context()), SubscriptionError: subErr,
 	})
+}
+
+// panelOrigin is the panel's address by its domain, or "" while it is not opened by it.
+func panelOrigin(pa core.PanelAccess) string {
+	if !pa.Enabled {
+		return ""
+	}
+	return pa.Origin()
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -535,6 +551,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		CloudflareToken  *string `json:"cloudflareToken"`
 		Domain           *string `json:"domain"`
 		SubscriptionPort *int    `json:"subscriptionPort"`
+		SubscriptionPath *string `json:"subscriptionPath"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -563,6 +580,11 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		if req.SubscriptionPath != nil {
+			if err := s.core.SetSubscriptionPath(ctx, *req.SubscriptionPath); err != nil {
+				return err
+			}
+		}
 		if req.SubscriptionPort != nil {
 			return s.core.SetSubscriptionPort(ctx, *req.SubscriptionPort)
 		}
@@ -574,6 +596,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SubscriptionPort != nil {
 		s.kickSubscriptions()
+	}
+	if req.SubscriptionPath != nil {
+		s.kickPanelAccess()
 	}
 	s.auditAction(r, "settings.update", "", nil)
 	s.handleGetSettings(w, r)
@@ -657,10 +682,14 @@ func redact(v any) any {
 // ?format=singbox), otherwise a base64 list of share links, which v2rayN,
 // Hiddify, NekoBox, Streisand and others import.
 func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	notFound := func() { http.Error(w, "404 page not found", http.StatusNotFound) }
+	s.serveSubscription(w, r, r.PathValue("token"), func() { http.Error(w, "404 page not found", http.StatusNotFound) })
+}
 
-	c, err := s.core.ClientBySubToken(ctx, r.PathValue("token"))
+// serveSubscription answers for the client with token; notFound is what
+// anything else gets (a plain 404, or the cover site on the panel's domain).
+func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, token string, notFound func()) {
+	ctx := r.Context()
+	c, err := s.core.ClientBySubToken(ctx, token)
 	// Only a client that may connect gets anything: one that is switched
 	// off, out of time or over its traffic limit is cut off here as well.
 	if err != nil || s.core.ClientStatus(c) != core.ClientActive {

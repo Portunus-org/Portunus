@@ -255,6 +255,11 @@ export interface Settings {
   subscriptionBaseUrl: string
   subscriptionListen: string
   subscriptionPort: number
+  /** Where subscriptions are under the panel's domain, while it is opened by it. */
+  subscriptionPath: string
+  subscriptionOnDomain: boolean
+  /** The panel's address by its domain, which the subscription path follows. */
+  panelOrigin?: string
   /** Effective origin of subscription links ("" when off). */
   subscriptionUrl: string
   subscriptionError?: string
@@ -308,6 +313,7 @@ export interface SettingsInput {
   subscriptionBaseUrl: string
   domain?: string
   subscriptionPort?: number
+  subscriptionPath?: string
   acmeEmail?: string
   acmeChallenge?: ACMEChallenge
   acmeHttpPort?: number
@@ -583,7 +589,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     let field: string | undefined
     let detail: string | undefined
     try {
-      const data = (await res.json()) as { error?: string; field?: string; code?: string; message?: string }
+      const data = (await res.json()) as { error?: string; field?: string; code?: string; message?: string; url?: string }
+      // The server has moved to another domain and this page is still on
+      // the old one: it goes over to the panel's new address.
+      if (data.error === "moved" && data.url?.startsWith("https://")) {
+        window.location.assign(data.url)
+        return new Promise<T>(() => {})
+      }
       if (data.error) code = data.error
       field = data.field
       detail = data.code ?? data.message

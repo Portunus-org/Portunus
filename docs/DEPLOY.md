@@ -292,10 +292,14 @@ documentation explains both pages.
 ## Subscriptions
 
 Subscription URLs let client apps pick up changes (new inbounds, rotated keys)
-without re-importing. Set the port in **Settings → Subscriptions** (the
-welcome does it when you have a domain); the panel opens it itself and serves
-HTTPS there once the domain has a certificate. Behind your own reverse proxy,
-enter its public URL instead. `PORTUNUS_SUB_LISTEN` in `.env` fixes the
+without re-importing. When the panel is opened by its domain, subscriptions
+are served by the same address, `https://<domain>/sub/<token>`, on the
+panel's port with its certificate; `sub` can be changed in **Settings →
+Server**. Anything else under that path gets the cover site. Without a
+domain, set a port there instead; the panel opens it itself and serves HTTP
+by the IP address (HTTPS once the domain has a certificate). A port that is
+set keeps working after a domain is added, for links handed out before.
+Behind your own reverse proxy, enter its public URL instead. `PORTUNUS_SUB_LISTEN` in `.env` fixes the
 listener address if you prefer configuration files. Only `/sub/<token>` and the CA certificate
 (`/ca.crt`) are served on that listener, and the 256-bit token in the URL is the only credential. The format
 is chosen automatically: sing-box apps get a sing-box profile with an
