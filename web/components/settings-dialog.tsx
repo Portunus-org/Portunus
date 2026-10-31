@@ -698,7 +698,15 @@ export function SettingsDialog() {
       clearInterval(timer)
       if (!el) return
       const row = (el.closest('[data-slot="field"]') ?? el) as HTMLElement
-      row.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })
+      const box = row.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')
+      if (box) {
+        const r = row.getBoundingClientRect()
+        const b = box.getBoundingClientRect()
+        box.scrollTo({
+          top: box.scrollTop + r.top + r.height / 2 - (b.top + b.height / 2),
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        })
+      }
       row.classList.remove("setting-found")
       void row.offsetWidth // start the animation again if it is the same row
       row.classList.add("setting-found")

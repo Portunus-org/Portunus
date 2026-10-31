@@ -180,28 +180,26 @@ export function NodeDrawer({
                         </FieldContent>
                       </Field>
                     </FieldGroup>
-                    <div className="grid items-start gap-4 sm:grid-cols-2">
-                      <FormField id="hopPort" error={errors.hopPort} label={t("nodes.form.hopPort")}>
-                        <NumberInput
-                          id="hopPort"
-                          name="hopPort"
-                          min={1}
-                          max={65535}
-                          className="tabular-nums"
-                          defaultValue={node.hopPort}
-                        />
-                      </FormField>
-                      <FormField id="agentPort" error={errors.agentPort} label={t("nodes.form.agentPort")}>
-                        <NumberInput
-                          id="agentPort"
-                          name="agentPort"
-                          min={1}
-                          max={65535}
-                          className="tabular-nums"
-                          defaultValue={node.agentPort}
-                        />
-                      </FormField>
-                    </div>
+                    <FormField id="hopPort" error={errors.hopPort} label={t("nodes.form.hopPort")}>
+                      <NumberInput
+                        id="hopPort"
+                        name="hopPort"
+                        min={1}
+                        max={65535}
+                        className="tabular-nums"
+                        defaultValue={node.hopPort}
+                      />
+                    </FormField>
+                    <FormField id="agentPort" error={errors.agentPort} label={t("nodes.form.agentPort")}>
+                      <NumberInput
+                        id="agentPort"
+                        name="agentPort"
+                        min={1}
+                        max={65535}
+                        className="tabular-nums"
+                        defaultValue={node.agentPort}
+                      />
+                    </FormField>
                   </>
                 )}
                 <SwitchField id="node-enabled" label={t("nodes.form.enabled")} checked={enabled} onCheckedChange={setEnabled} />
