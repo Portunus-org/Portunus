@@ -149,7 +149,16 @@ export function DataTable<T extends RowData>({
   }, [found, data, table])
   React.useEffect(() => {
     if (!lit) return
-    document.querySelector(`[data-row-id="${CSS.escape(lit)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" })
+    const row = document.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(lit)}"]`)
+    const box = row?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]')
+    if (row && box) {
+      const r = row.getBoundingClientRect()
+      const b = box.getBoundingClientRect()
+      box.scrollTo({
+        top: box.scrollTop + r.top + r.height / 2 - (b.top + b.height / 2),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      })
+    }
     const off = setTimeout(() => setLit(null), 1800)
     return () => clearTimeout(off)
   }, [lit])
