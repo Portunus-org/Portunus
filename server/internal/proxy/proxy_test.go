@@ -155,6 +155,51 @@ func TestShareLinks(t *testing.T) {
 	}
 }
 
+// The userinfo of a share link must be fully percent-encoded. Portunus
+// passwords are base64 and therefore contain +, / and =; clients such as
+// Podkop decode userinfo as form data where + means a space, so an unescaped
+// credential turns a correct password into a wrong one.
+func TestShareLinkUserinfoEncoding(t *testing.T) {
+	c := Client{ID: 9, Name: "carol", UUID: NewUUID(), Password: "p+a/s=w d~-.a"}
+	for i, p := range Protocols {
+		in := testInbounds(t)[i]
+		link := ShareLink("203.0.113.10", in, c)
+		_, rest, found := strings.Cut(link, "://")
+		userinfo, _, ok := strings.Cut(rest, "@")
+		if !found || !ok {
+			t.Fatalf("%s: no userinfo in %s", p, link)
+		}
+		for _, r := range userinfo {
+			if strings.ContainsRune("+/= ", r) {
+				t.Fatalf("%s: unescaped %q in userinfo: %s", p, r, link)
+			}
+		}
+		// The credential must decode back to exactly what the server expects.
+		imp, err := ParseShareLink(link)
+		if err != nil {
+			t.Fatalf("%s: %v", link, err)
+		}
+		switch p {
+		case VLESS:
+			if imp.Outbound["uuid"] != c.UUID {
+				t.Fatalf("%s: uuid round-trip: %s", p, link)
+			}
+		case Hysteria2, Trojan:
+			if imp.Outbound["password"] != c.Password {
+				t.Fatalf("%s: password round-trip: %s", p, link)
+			}
+		case TUIC:
+			if imp.Outbound["uuid"] != c.UUID || imp.Outbound["password"] != c.Password {
+				t.Fatalf("%s: uuid/password round-trip: %s", p, link)
+			}
+		case Shadowsocks:
+			if want := in.Secret.ServerPSK + ":" + c.Password; imp.Outbound["password"] != want {
+				t.Fatalf("%s: password round-trip: %s", p, link)
+			}
+		}
+	}
+}
+
 func TestACMEConfig(t *testing.T) {
 	ins := testInbounds(t)
 	for i := range ins {
