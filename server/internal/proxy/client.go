@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // pinned reports whether share links must skip normal verification and pin
@@ -21,10 +22,15 @@ func ShareLink(host string, in Inbound, c Client) string {
 	q := url.Values{}
 	u := url.URL{Host: addr, Fragment: in.Label()}
 
+	// userinfo is the credential, already percent-encoded with
+	// escapeUserinfo: url.URL would leave sub-delimiters such as + and =
+	// unescaped, which breaks clients that decode userinfo as form data.
+	var userinfo string
+
 	switch in.Protocol {
 	case VLESS:
 		u.Scheme = "vless"
-		u.User = url.User(c.UUID)
+		userinfo = escapeUserinfo(c.UUID)
 		q.Set("type", "tcp")
 		q.Set("encryption", "none")
 		q.Set("flow", vlessFlow)
@@ -36,7 +42,7 @@ func ShareLink(host string, in Inbound, c Client) string {
 
 	case Hysteria2:
 		u.Scheme = "hysteria2"
-		u.User = url.User(c.Password)
+		userinfo = escapeUserinfo(c.Password)
 		q.Set("sni", in.Settings.ServerName)
 		if in.pinned() {
 			q.Set("insecure", "1")
@@ -49,7 +55,9 @@ func ShareLink(host string, in Inbound, c Client) string {
 
 	case TUIC:
 		u.Scheme = "tuic"
-		u.User = url.UserPassword(c.UUID, c.Password)
+		// The colon is a structural separator, kept literal as
+		// url.UserPassword rendered it.
+		userinfo = escapeUserinfo(c.UUID) + ":" + escapeUserinfo(c.Password)
 		q.Set("congestion_control", "bbr")
 		q.Set("alpn", "h3")
 		q.Set("sni", in.Settings.ServerName)
@@ -59,7 +67,7 @@ func ShareLink(host string, in Inbound, c Client) string {
 
 	case Trojan:
 		u.Scheme = "trojan"
-		u.User = url.User(c.Password)
+		userinfo = escapeUserinfo(c.Password)
 		q.Set("type", "tcp")
 		q.Set("security", "tls")
 		q.Set("sni", in.Settings.ServerName)
@@ -71,10 +79,33 @@ func ShareLink(host string, in Inbound, c Client) string {
 		// SIP002 with a plain (percent-encoded) userinfo, as required for
 		// 2022 ciphers: method:serverPSK:userPSK.
 		u.Scheme = "ss"
-		u.User = url.User(in.Settings.Method + ":" + in.Secret.ServerPSK + ":" + c.Password)
+		userinfo = escapeUserinfo(in.Settings.Method + ":" + in.Secret.ServerPSK + ":" + c.Password)
 	}
 	u.RawQuery = q.Encode()
-	return u.String()
+	// Render host, query and fragment with the standard library, then splice
+	// in the credential right after the scheme.
+	return strings.Replace(u.String(), "://", "://"+userinfo+"@", 1)
+}
+
+// escapeUserinfo percent-encodes every byte of s except the unreserved set
+// (A-Za-z0-9 and -._~), so +, /, = and spaces come out as %2B, %2F, %3D and
+// %20. Share-link clients decode userinfo in different ways; some treat it
+// as form data where + means a space, which would turn a correct password
+// into a wrong one. Only a fully percent-encoded credential survives all of
+// them.
+func escapeUserinfo(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '-' || c == '.' || c == '_' || c == '~' {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
 
 // ClientOutbound is the sing-box outbound a client uses for one inbound.
