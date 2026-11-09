@@ -28,6 +28,22 @@ export interface MapPoint {
   location: GeoLocation
 }
 
+/** An ordered path drawn over the servers: one chain, in the panel's grey. */
+export interface MapPath {
+  /** Ordered points in latitude/longitude. */
+  points: [number, number][]
+  /** Shown while the line is under the pointer. */
+  label?: string
+  /** The dashed preview of a chain being drawn. */
+  dashed?: boolean
+  /** A link that cannot carry traffic now: one of the servers on it is down. */
+  blocked?: boolean
+  /** The display color of the chain this line belongs to. */
+  color?: string
+  /** Called when the line itself is picked. */
+  onClick?: () => void
+}
+
 /** The state of a node as the map shows it. */
 export function nodeMapState(n: Node): MapState {
   if (!n.enabled) return "off"
@@ -218,6 +234,14 @@ export function NodeMap({
   tiles,
   mapStyle,
   onPick,
+  selected,
+  cursor,
+  cursorDashed,
+  cursorColor,
+  onPointClick,
+  onConnect,
+  onCancelConnect,
+  paths: givenPaths,
   className,
 }: {
   points: MapPoint[]
@@ -225,6 +249,22 @@ export function NodeMap({
   /** How the tiles look and what goes with them; unknown until loaded. */
   mapStyle?: MapStyle
   onPick?: (location: { lat: number; lon: number }) => void
+  /** The step of each point in a chain being drawn, by its id. */
+  selected?: Record<string, number>
+  /** The point traffic is being drawn from; wears a dashed ring. */
+  cursor?: string
+  /** Whether the live preview wire from cursor/drag is dashed (backup route). */
+  cursorDashed?: boolean
+  /** Display color for the live preview wire. */
+  cursorColor?: string
+  /** A server picked for the chain being drawn. */
+  onPointClick?: (id: string) => void
+  /** Called when the user drags a wire from one server and drops it onto another. */
+  onConnect?: (fromId: string, toId: string) => void
+  /** Called when clicking empty space while a wire is started. */
+  onCancelConnect?: () => void
+  /** Chains drawn over the servers. */
+  paths?: MapPath[]
   className?: string
 }) {
   const { t } = useI18n()
@@ -234,10 +274,19 @@ export function NodeMap({
   const pointsKey = JSON.stringify(given)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const points = React.useMemo(() => given, [pointsKey])
+  const selectedKey = JSON.stringify(selected ?? {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sel: Record<string, number> = React.useMemo(() => selected ?? {}, [selectedKey])
+  // The callbacks are read through a ref below; the paths are redrawn when
+  // their shape or colour changes.
+  const pathsKey = JSON.stringify(givenPaths ?? [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pathList: MapPath[] = React.useMemo(() => givenPaths ?? [], [pathsKey])
   const el = React.useRef<HTMLDivElement>(null)
   const [L, setL] = React.useState<typeof Leaflet | null>(null)
   const map = React.useRef<Leaflet.Map | null>(null)
   const layer = React.useRef<Leaflet.LayerGroup | null>(null)
+  const pathsLayer = React.useRef<Leaflet.LayerGroup | null>(null)
   const fitted = React.useRef("")
   const zoomBy = React.useRef<(levels: number) => void>(undefined)
   // What the base is made of, for the code that zooms (set up once).
@@ -280,6 +329,18 @@ export function NodeMap({
   React.useEffect(() => {
     pick.current = onPick
   })
+  const pointClick = React.useRef(onPointClick)
+  React.useEffect(() => {
+    pointClick.current = onPointClick
+  })
+  const connectRef = React.useRef(onConnect)
+  React.useEffect(() => {
+    connectRef.current = onConnect
+  })
+  const cancelConnectRef = React.useRef(onCancelConnect)
+  React.useEffect(() => {
+    cancelConnectRef.current = onCancelConnect
+  })
 
   // Leaflet touches `window` on import: load it in the browser only.
   React.useEffect(() => {
@@ -317,9 +378,11 @@ export function NodeMap({
       })
     )
     map.current = m
-    m.createPane("links").style.zIndex = "420"
-    m.getPane("links")!.style.pointerEvents = "none"
+    // The chains lie over the land and under the place names; their lines
+    // take clicks, so the pane keeps its default pointer events.
+    m.createPane("chains").style.zIndex = "420"
     layer.current = L.layerGroup().addTo(m)
+    pathsLayer.current = L.layerGroup().addTo(m)
     // Leaflet learns its size once. When the box changes (the sidebar is
     // folded, the window resized, a drawer finishes sliding in) it has to
     // be told, or the new part stays without tiles.
@@ -414,6 +477,7 @@ export function NodeMap({
       m.remove()
       map.current = null
       layer.current = null
+      pathsLayer.current = null
       fitted.current = ""
     }
   }, [L])
@@ -699,35 +763,69 @@ export function NodeMap({
     }
   }, [L, tiles, labels, detail, resolvedTheme])
 
-  // Servers and links.
+  // Servers and chains.
   React.useEffect(() => {
     const m = map.current
     const g = layer.current
-    if (!L || !m || !g) return
+    const pg = pathsLayer.current
+    if (!L || !m || !g || !pg) return
     g.clearLayers()
-    const main = points.find((p) => p.state === "main")
-    for (const p of points) {
-      if (main && p !== main) {
-        L.polyline(
-          [
-            [main.location.lat, main.location.lon],
-            [p.location.lat, p.location.lon],
-          ],
-          {
-            className: cn("portunus-map-link", p.state !== "online" && "portunus-map-link-idle"),
-            interactive: false,
-            // Over the land, which is drawn later and would cover them.
-            pane: "links",
-          }
-        ).addTo(g)
-      }
-    }
     // Names stay on the map while there is room for them.
     const permanent = points.length <= 6
+    let dragFrom: string | null = null
+    let suppressClickUntil = 0
+    let previewLine: Leaflet.Polyline | null = null
+
+    const updatePreview = (fromId: string | null | undefined, toLatLng: Leaflet.LatLngExpression | null) => {
+      if (!fromId || !toLatLng) {
+        if (previewLine) {
+          previewLine.remove()
+          previewLine = null
+        }
+        return
+      }
+      const startPt = points.find((p) => p.id === fromId)
+      if (!startPt) return
+      const pts: Leaflet.LatLngExpression[] = [[startPt.location.lat, startPt.location.lon], toLatLng]
+      if (!previewLine) {
+        previewLine = L.polyline(pts, {
+          className: cn("portunus-map-chain pointer-events-none", cursorDashed && "portunus-map-chain-draft"),
+          pane: "chains",
+          interactive: false,
+        }).addTo(pg)
+        if (cursorColor) (previewLine.getElement() as HTMLElement | null)?.style.setProperty("--chain-stroke", cursorColor)
+      } else {
+        previewLine.setLatLngs(pts)
+      }
+    }
+
     // Built from text nodes: names are typed by people.
     const label = (p: MapPoint, full: boolean) => {
       const box = document.createElement("div")
-      box.className = "grid gap-0.5"
+      box.className = cn("grid gap-0.5", (pointClick.current || connectRef.current) && "cursor-pointer select-none")
+      box.addEventListener("mousedown", (e) => {
+        if (!connectRef.current && !pointClick.current) return
+        e.stopPropagation()
+        dragFrom = p.id
+        m.dragging.disable()
+      })
+      box.addEventListener("mouseup", (e) => {
+        if (!dragFrom) return
+        const fromId = dragFrom
+        dragFrom = null
+        m.dragging.enable()
+        updatePreview(null, null)
+        if (p.id !== fromId) {
+          e.stopPropagation()
+          suppressClickUntil = Date.now() + 250
+          connectRef.current?.(fromId, p.id)
+        }
+      })
+      box.addEventListener("click", (e) => {
+        if (Date.now() < suppressClickUntil) return
+        e.stopPropagation()
+        pointClick.current?.(p.id)
+      })
       const name = document.createElement("span")
       name.className = "font-medium text-foreground"
       name.textContent = p.name
@@ -742,11 +840,37 @@ export function NodeMap({
       }
       return box
     }
+
+    const nearestPoint = (containerPt: Leaflet.Point, excludeId?: string): MapPoint | null => {
+      let best: MapPoint | null = null
+      let bestDist = 28
+      for (const p of points) {
+        if (p.id === excludeId) continue
+        const at = m.latLngToContainerPoint([p.location.lat, p.location.lon])
+        const d = Math.hypot(at.x - containerPt.x, at.y - containerPt.y)
+        if (d <= bestDist) {
+          bestDist = d
+          best = p
+        }
+      }
+      return best
+    }
+
     const markers = points.map((p) => {
       const size = p.state === "main" ? 14 : 12
+      // While a chain is drawn the picked servers wear their step number,
+      // over the dot itself: the number is the step, the dot stays under it.
+      const step = sel[p.id]
+      const isCursor = cursor === p.id
       const icon = L.divIcon({
         className: "",
-        html: `<span class="block rounded-full ring-2 ring-background shadow-sm ${dot[p.state]}"></span>`,
+        html: `<span class="relative block"><span class="absolute -inset-2 rounded-full"></span>${
+          isCursor ? '<span class="absolute -inset-1.5 rounded-full border-2 border-dashed border-foreground"></span>' : ""
+        }<span class="block rounded-full ring-2 ring-background shadow-sm ${dot[p.state]}"></span>${
+          step
+            ? `<span class="absolute inset-0 grid place-items-center rounded-full bg-foreground text-[10px] font-semibold leading-none text-background ring-2 ring-background">${step}</span>`
+            : ""
+        }</span>`,
         iconSize: [size, size],
         iconAnchor: [size / 2, size / 2],
       })
@@ -754,8 +878,21 @@ export function NodeMap({
         icon,
         keyboard: true,
         title: p.name,
-        zIndexOffset: p.state === "main" ? 100 : 0,
+        zIndexOffset: step || isCursor ? 200 : p.state === "main" ? 100 : 0,
       }).addTo(g)
+      marker.on("mousedown", () => {
+        if (!connectRef.current && !pointClick.current) return
+        dragFrom = p.id
+        m.dragging.disable()
+      })
+      marker.on("click", (e) => {
+        if (Date.now() < suppressClickUntil) return
+        L.DomEvent.stopPropagation(e)
+        pointClick.current?.(p.id)
+      })
+      marker.on("keypress", (e) => {
+        if (e.originalEvent.key === "Enter") pointClick.current?.(p.id)
+      })
       if (permanent) {
         marker.on("mouseover focus", () => marker.setTooltipContent(label(p, true)))
         marker.on("mouseout blur", () => marker.setTooltipContent(label(p, false)))
@@ -809,6 +946,7 @@ export function NodeMap({
         marker.unbindTooltip()
         marker.bindTooltip(label(p, !permanent), {
           permanent,
+          interactive: !!(pointClick.current || connectRef.current),
           direction: side,
           offset: [...offsets[side]],
           className: "portunus-map-label",
@@ -816,6 +954,82 @@ export function NodeMap({
         })
       }
     }
+    // The chains over the links. A dashed line is a draft link or one that
+    // leaves a backup entry; clicking it removes it while editing.
+    const drawPaths = () => {
+      pg.clearLayers()
+      previewLine = null
+      for (const path of pathList) {
+        if (path.points.length < 2) continue
+        const line = L.polyline(path.points, {
+          className: cn("portunus-map-chain", path.dashed && "portunus-map-chain-draft", path.blocked && "portunus-map-chain-blocked"),
+          pane: "chains",
+          interactive: !path.dashed || !!path.onClick,
+        }).addTo(pg)
+        // The CSS class owns the stroke, so a custom color rides on a variable.
+        if (path.color && !path.blocked) (line.getElement() as HTMLElement | null)?.style.setProperty("--chain-stroke", path.color)
+        if (path.label) line.bindTooltip(path.label, { className: "portunus-map-label", opacity: 1 })
+        if (path.onClick) {
+          line.on("click", (e) => {
+            L.DomEvent.stopPropagation(e)
+            path.onClick?.()
+          })
+          const hit = L.polyline(path.points, {
+            weight: 16,
+            opacity: 0,
+            pane: "chains",
+            interactive: true,
+          }).addTo(pg)
+          if (path.label) hit.bindTooltip(path.label, { className: "portunus-map-label", opacity: 1 })
+          hit.on("click", (e) => {
+            L.DomEvent.stopPropagation(e)
+            path.onClick?.()
+          })
+        }
+      }
+    }
+    drawPaths()
+
+    const onMouseMove = (e: Leaflet.LeafletMouseEvent) => {
+      const activeFrom = dragFrom ?? cursor
+      if (!activeFrom) return
+      const snap = nearestPoint(e.containerPoint, activeFrom)
+      updatePreview(activeFrom, snap ? [snap.location.lat, snap.location.lon] : e.latlng)
+    }
+
+    const onMouseUp = (e: Leaflet.LeafletMouseEvent) => {
+      if (!dragFrom) return
+      const fromId = dragFrom
+      dragFrom = null
+      m.dragging.enable()
+      const snap = nearestPoint(e.containerPoint, fromId)
+      updatePreview(null, null)
+      if (snap && snap.id !== fromId) {
+        suppressClickUntil = Date.now() + 250
+        connectRef.current?.(fromId, snap.id)
+      }
+    }
+
+    const onMapClick = (e: Leaflet.LeafletMouseEvent) => {
+      if (Date.now() < suppressClickUntil) return
+      if (!cursor) return
+      const snap = nearestPoint(e.containerPoint, cursor)
+      if (snap) {
+        pointClick.current?.(snap.id)
+      } else {
+        updatePreview(null, null)
+        cancelConnectRef.current?.()
+      }
+    }
+
+    const onWindowMouseUp = () => {
+      if (dragFrom) {
+        dragFrom = null
+        m.dragging.enable()
+        updatePreview(null, null)
+      }
+    }
+
     // Frame the servers when the set of places changes, not on every refresh:
     // the operator may have moved the map.
     // (and once more when the detailed view turns out to be there, since
@@ -829,10 +1043,21 @@ export function NodeMap({
     }
     place()
     m.on("zoomend", place)
+    m.on("zoomend", drawPaths)
+    m.on("mousemove", onMouseMove)
+    m.on("mouseup", onMouseUp)
+    m.on("click", onMapClick)
+    window.addEventListener("mouseup", onWindowMouseUp)
     return () => {
       m.off("zoomend", place)
+      m.off("zoomend", drawPaths)
+      m.off("mousemove", onMouseMove)
+      m.off("mouseup", onMouseUp)
+      m.off("click", onMapClick)
+      window.removeEventListener("mouseup", onWindowMouseUp)
+      m.dragging.enable()
     }
-  }, [L, points, t, detail, tiles])
+  }, [L, points, t, detail, tiles, sel, cursor, cursorDashed, cursorColor, pathList])
 
   const fit = () => {
     if (!L || !map.current || points.length === 0) return

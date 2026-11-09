@@ -166,16 +166,47 @@ func (in Inbound) TrustedCert() bool {
 	return in.Protocol.UsesTLSCert() && (in.Settings.TLSMode == TLSACME || in.Settings.TLSMode == TLSFile)
 }
 
+// ExtraUser is a second credential of a client: the one that carries their
+// traffic out of an extra exit of their chain (the first exit reuses the
+// base UUID). Password-only protocols always use the base password.
+type ExtraUser struct {
+	Name string // sing-box user name of this credential, "c<id>-e<exit>"
+	UUID string
+}
+
 type Client struct {
 	ID       int64
 	Name     string
 	UUID     string
 	Password string
+	// Extras are the client's extra-exit credentials (empty: one exit).
+	Extras []ExtraUser
 }
 
 // UserName is the name a client carries inside sing-box. It is derived from
-// the immutable ID so traffic counters survive renames.
-func (c Client) UserName() string { return "c" + strconv.FormatInt(c.ID, 10) }
+// the immutable ID so traffic counters survive renames; an extra-exit user
+// is "c<id>-e<exit>" and parses back to the same id.
+func (c Client) UserName() string {
+	return "c" + strconv.FormatInt(c.ID, 10)
+}
+
+// User is one credential of a client as uuid-based inbounds see it.
+type User struct {
+	Name string
+	UUID string
+}
+
+// Users is this client as the set of users their uuid-based protocols see:
+// the base credential plus one per extra exit. Password-only protocols keep
+// using UserName/Password.
+func (c Client) Users() []User {
+	out := make([]User, 0, len(c.Extras)+1)
+	out = append(out, User{Name: c.UserName(), UUID: c.UUID})
+	for _, e := range c.Extras {
+		out = append(out, User{Name: e.Name, UUID: e.UUID})
+	}
+	return out
+}
 
 // Tag is the canonical sing-box tag for an inbound.
 func Tag(p Protocol, port int) string { return fmt.Sprintf("%s-%d", p, port) }

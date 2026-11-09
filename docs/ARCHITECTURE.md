@@ -113,8 +113,12 @@ everything else returns the decoy site.
 Proxies and clients: `inbounds` (public settings JSON + encrypted secret) and `clients`
 (credentials, subscription token, limit, expiry, traffic counters).
 Nodes and routing: `nodes` (roles, public settings, encrypted keys),
-`route_lists`, `route_rules`. The one OIDC provider is a setting, its client
-secret encrypted like the other secrets.
+`route_lists`, `route_rules`, `chains` (an ordered list of node IDs),
+`chain_links` (one VLESS + REALITY hop per consecutive pair, with its own
+port and keys) and `client_routes` (the chains a client has routes for,
+one credential each). A client is bound to an exit or to one or more
+chains; the two are mutually exclusive. The one OIDC provider is a setting,
+its client secret encrypted like the other secrets.
 
 ## 6. Nodes, routing and failover
 
@@ -123,8 +127,29 @@ secret encrypted like the other secrets.
   panel over mutually authenticated TLS; the panel sends it a complete
   sing-box configuration and polls it every 30 s.
 - **Exits**: a node of ours (VLESS + REALITY hop) or a proxy imported
-  from a share link. Each becomes an outbound. Every client is bound to one
-  exit; the route target `auto` sends traffic through it.
+  from a share link. Each becomes an outbound. A client is bound either to
+  one exit or to one or more chains; the route target `auto` sends traffic
+  through whichever it has.
+- **Chains**: a path of nodes, e.g. entry in Hong Kong and exit in Taiwan,
+  so clients near the entry do not have to reach the main server. Each hop
+  is a VLESS + REALITY inbound on the receiving node (its own port, keys
+  and short ID), imitating the same site as the legacy exit hops; the
+  sending side gets the matching outbound. Clients connect directly at an
+  entry node of the chain or through the main server, which forwards them
+  to the first hop. A chain carries optional backup entry and exit nodes:
+  when the primary one stops answering, traffic switches to the backup and
+  back when it returns. A chain may carry a display color (one of a fixed
+  palette): its lines take that color on the map and in the chains list.
+- **Routes**: a client may have several chains at once — branching from a
+  shared entry, e.g. one entry with exits in Helsinki and Amsterdam. Each
+  route gets its own credential (the first keeps the client's original one,
+  so old links keep working); on an entry node the users are routed to
+  their own hop by name (`c<client>` for a single route, `c<client>-<chain>`
+  with several). The subscription lists one server per working route,
+  named after its exit; a sing-box profile groups them into one urltest per
+  route under a `proxy` selector. A broken route disappears from the
+  subscription and returns when it heals; while every route is down the
+  client gets a stopgap exit, cleared when a route comes back.
 - **Routing**: text lists of sites and addresses, typed or downloaded daily,
   inlined as sing-box rule-sets. Ordered rules map a list to `direct`, an
   exit, `auto` or `block`; a default covers the rest.

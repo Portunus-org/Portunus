@@ -231,20 +231,30 @@ func (s *Store) DeleteRouteList(ctx context.Context, id int64) error {
 	return expectOne(res)
 }
 
-// RouteRuleRow sends what a list matches to a destination.
+// chainScope turns a chain id into NULL when there is no chain.
+func chainScope(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
+}
+
+// RouteRuleRow sends what a list matches to a destination. ChainID, when
+// set, limits the rule to the clients of one chain.
 type RouteRuleRow struct {
 	ID        int64
 	Position  int
 	ListID    int64
 	Action    string
 	NodeID    *int64
+	ChainID   int64
 	Enabled   bool
 	CreatedAt time.Time
 }
 
 func (s *Store) ListRouteRules(ctx context.Context) ([]*RouteRuleRow, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, position, list_id, action, node_id, enabled, created_at FROM route_rules ORDER BY position, id`)
+		`SELECT id, position, list_id, action, node_id, chain_id, enabled, created_at FROM route_rules ORDER BY position, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -254,13 +264,17 @@ func (s *Store) ListRouteRules(ctx context.Context) ([]*RouteRuleRow, error) {
 		var (
 			r       RouteRuleRow
 			node    sql.NullInt64
+			chain   sql.NullInt64
 			created int64
 		)
-		if err := rows.Scan(&r.ID, &r.Position, &r.ListID, &r.Action, &node, &r.Enabled, &created); err != nil {
+		if err := rows.Scan(&r.ID, &r.Position, &r.ListID, &r.Action, &node, &chain, &r.Enabled, &created); err != nil {
 			return nil, err
 		}
 		if node.Valid {
 			r.NodeID = &node.Int64
+		}
+		if chain.Valid {
+			r.ChainID = chain.Int64
 		}
 		r.CreatedAt = time.Unix(created, 0)
 		out = append(out, &r)
@@ -271,9 +285,9 @@ func (s *Store) ListRouteRules(ctx context.Context) ([]*RouteRuleRow, error) {
 // CreateRouteRule appends r after the existing rules.
 func (s *Store) CreateRouteRule(ctx context.Context, r *RouteRuleRow) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO route_rules (position, list_id, action, node_id, enabled, created_at)
-		 VALUES ((SELECT COALESCE(MAX(position), 0) + 1 FROM route_rules), ?, ?, ?, ?, ?)`,
-		r.ListID, r.Action, r.NodeID, r.Enabled, s.now().Unix())
+		`INSERT INTO route_rules (position, list_id, action, node_id, chain_id, enabled, created_at)
+		 VALUES ((SELECT COALESCE(MAX(position), 0) + 1 FROM route_rules), ?, ?, ?, ?, ?, ?)`,
+		r.ListID, r.Action, r.NodeID, chainScope(r.ChainID), r.Enabled, s.now().Unix())
 	if err != nil {
 		return err
 	}
@@ -283,8 +297,8 @@ func (s *Store) CreateRouteRule(ctx context.Context, r *RouteRuleRow) error {
 
 func (s *Store) UpdateRouteRule(ctx context.Context, r *RouteRuleRow) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE route_rules SET list_id = ?, action = ?, node_id = ?, enabled = ? WHERE id = ?`,
-		r.ListID, r.Action, r.NodeID, r.Enabled, r.ID)
+		`UPDATE route_rules SET list_id = ?, action = ?, node_id = ?, chain_id = ?, enabled = ? WHERE id = ?`,
+		r.ListID, r.Action, r.NodeID, chainScope(r.ChainID), r.Enabled, r.ID)
 	if err != nil {
 		return err
 	}

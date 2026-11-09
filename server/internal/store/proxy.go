@@ -131,23 +131,27 @@ type ClientRow struct {
 	Note         string
 	// ExitID is the exit the client is bound to (nil: none yet).
 	ExitID *int64
+	// ChainID is the chain the client's traffic travels through (nil: an
+	// exit is chosen for it instead). Mutually exclusive with ExitID.
+	ChainID *int64
 	// LastSeen is when traffic of the client was last counted (nil: never).
 	LastSeen  *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, exit_node_id, last_seen_at, created_at, updated_at`
+const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, exit_node_id, chain_id, last_seen_at, created_at, updated_at`
 
 func scanClient(row interface{ Scan(...any) error }) (*ClientRow, error) {
 	var (
 		c                ClientRow
 		expires, exit    sql.NullInt64
+		chain            sql.NullInt64
 		seen             sql.NullInt64
 		created, updated int64
 	)
 	err := row.Scan(&c.ID, &c.Name, &c.Enabled, &c.UUID, &c.Password, &c.SubToken, &c.TrafficLimit,
-		&expires, &c.Upload, &c.Download, &c.Note, &exit, &seen, &created, &updated)
+		&expires, &c.Upload, &c.Download, &c.Note, &exit, &chain, &seen, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -160,6 +164,9 @@ func scanClient(row interface{ Scan(...any) error }) (*ClientRow, error) {
 	}
 	if exit.Valid {
 		c.ExitID = &exit.Int64
+	}
+	if chain.Valid {
+		c.ChainID = &chain.Int64
 	}
 	if seen.Valid {
 		t := time.Unix(seen.Int64, 0)

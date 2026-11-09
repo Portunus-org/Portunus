@@ -142,6 +142,7 @@ func (s *Server) Handler(ui http.Handler) http.Handler {
 	s.routesProxy(mux)
 	s.routesSetup(mux)
 	s.routesRouting(mux)
+	s.routesChains(mux)
 	s.routesMap(mux)
 	s.routesSSO(mux)
 	s.routesAudit(mux)

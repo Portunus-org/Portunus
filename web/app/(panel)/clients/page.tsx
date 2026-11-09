@@ -33,6 +33,8 @@ export default function ClientsPage() {
   const { t, tp, locale } = useI18n()
   const canEdit = useCanEdit()
   const { data, reload } = useResource(api.clients, 10_000)
+  const { data: chainsData } = useResource(api.chains, 30_000)
+  const { data: nodesData } = useResource(api.nodes, 30_000)
   const [view, setView] = React.useState("all")
   const [query, setQuery] = React.useState("")
   const [selected, setSelected] = React.useState<Client | null>(null)
@@ -110,6 +112,28 @@ export default function ClientsPage() {
         col.accessor("status", {
           header: t("clients.col.status"),
           cell: ({ row }) => <ClientStatus client={row.original} />,
+        }),
+        col.accessor((c) => c.chainId ?? String(c.exitId ?? ""), {
+          id: "route",
+          header: t("clients.col.route"),
+          enableSorting: false,
+          cell: ({ row }) => {
+            const c = row.original
+            const chain = c.chainId != null ? chainsData?.find((x) => x.id === c.chainId) : undefined
+            if (chain) {
+              return (
+                <Badge variant="outline" className="gap-1.5 px-1.5 text-muted-foreground">
+                  <span
+                    className="size-2 shrink-0 rounded-full bg-foreground"
+                    style={chain.color ? { backgroundColor: chain.color } : undefined}
+                  />
+                  {chain.name}
+                </Badge>
+              )
+            }
+            const exit = nodesData?.find((n) => n.id === c.exitId)
+            return exit ? <span className="text-muted-foreground">{t("clients.col.routeVia", { name: exit.name })}</span> : null
+          },
         }),
         col.accessor(used, {
           id: "traffic",
@@ -207,7 +231,7 @@ export default function ClientsPage() {
           },
         }),
       ]),
-    [act, canEdit, confirm, open, t, tp, locale]
+    [act, canEdit, confirm, open, t, tp, locale, chainsData, nodesData]
   )
 
   // The table is built only when what it shows changes: opening a drawer
@@ -229,6 +253,7 @@ export default function ClientsPage() {
         initialHidden={["created"]}
         columnLabels={{
           status: t("clients.col.status"),
+          route: t("clients.col.route"),
           traffic: t("clients.col.traffic"),
           expires: t("clients.col.expires"),
           note: t("clients.col.note"),

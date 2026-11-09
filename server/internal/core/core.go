@@ -162,6 +162,7 @@ func New(st *store.Store, box *secrets.Box, mgr *singbox.Manager, o Options, log
 		nodeRuntime: nodeRuntime{
 			nodeStatus:  map[int64]NodeStatus{},
 			exitHealth:  map[int64]exitHealth{},
+			chainHealth: map[int64]exitHealth{},
 			backupSrc:   o.Backup,
 			standbySent: map[int64]time.Time{},
 			nodeClients: map[int64]*agent.Client{},
@@ -631,8 +632,19 @@ func (c *Core) ClientStatus(cl *store.ClientRow) ClientStatus {
 	return ClientActive
 }
 
-func toProxyClient(cl *store.ClientRow) proxy.Client {
-	return proxy.Client{ID: cl.ID, Name: cl.Name, UUID: cl.UUID, Password: cl.Password}
+// toProxyClient lifts a client row into the proxy view. When the client
+// travels a chain with several exits, every exit but the first gets a
+// credential of its own (derived from the client's uuid), so links and
+// stats can be told apart per exit.
+func toProxyClient(cl *store.ClientRow, ch *Chain) proxy.Client {
+	c := proxy.Client{ID: cl.ID, Name: cl.Name, UUID: cl.UUID, Password: cl.Password}
+	if ch != nil {
+		sinks := ch.sinks()
+		for _, s := range sinks[1:] {
+			c.Extras = append(c.Extras, proxy.ExtraUser{Name: fmt.Sprintf("c%d-e%d", cl.ID, s), UUID: exitCredential(cl, *ch, s)})
+		}
+	}
+	return c
 }
 
 func (c *Core) Clients(ctx context.Context) ([]*store.ClientRow, error) {
@@ -652,6 +664,10 @@ type ClientInput struct {
 	// Exit changes the exit the client is bound to: nil leaves it, 0 has
 	// one chosen anew.
 	Exit *int64
+	// Chain changes the chain the client travels through: nil leaves it,
+	// 0 means no chain (an exit may be used), anything else must be a
+	// stored chain. A client rides a chain or an exit, never both.
+	Chain *int64
 }
 
 func validateClient(in *ClientInput) error {
@@ -711,6 +727,14 @@ func (c *Core) CreateClient(ctx context.Context, in ClientInput) (*store.ClientR
 			return nil, invalid("exitId", "not_an_exit")
 		}
 	}
+	if in.Chain != nil && *in.Chain != 0 {
+		if in.Exit != nil && *in.Exit != 0 {
+			return nil, invalid("chainId", "route_conflict")
+		}
+		if _, err := c.store.ChainByID(ctx, *in.Chain); err != nil {
+			return nil, invalid("chainId", "unknown_chain")
+		}
+	}
 	if err := c.store.CreateClient(ctx, cl); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return nil, invalid("name", "taken")
@@ -719,6 +743,11 @@ func (c *Core) CreateClient(ctx context.Context, in ClientInput) (*store.ClientR
 	}
 	if in.Exit != nil && *in.Exit != 0 {
 		if err := c.setClientExit(ctx, cl, *in.Exit); err != nil {
+			return nil, err
+		}
+	}
+	if in.Chain != nil && *in.Chain != 0 {
+		if err := c.store.SetClientChain(ctx, cl.ID, in.Chain); err != nil {
 			return nil, err
 		}
 	}
@@ -735,6 +764,38 @@ func (c *Core) UpdateClient(ctx context.Context, id int64, in ClientInput) (*sto
 		return nil, err
 	}
 	cl.Name, cl.Enabled, cl.TrafficLimit, cl.ExpiresAt, cl.Note = in.Name, in.Enabled, in.TrafficLimit, in.ExpiresAt, in.Note
+	// The route: a client travels through its chain or an exit, never both.
+	switch {
+	case in.Chain != nil && *in.Chain != 0:
+		if in.Exit != nil && *in.Exit != 0 {
+			return nil, invalid("chainId", "route_conflict")
+		}
+		if _, err := c.store.ChainByID(ctx, *in.Chain); err != nil {
+			return nil, invalid("chainId", "unknown_chain")
+		}
+		if err := c.store.SetClientChain(ctx, id, in.Chain); err != nil {
+			return nil, err
+		}
+		cl.ChainID = in.Chain
+		if cl.ExitID != nil {
+			// The chain takes over the route.
+			if err := c.store.SetClientExit(ctx, id, nil); err != nil {
+				return nil, err
+			}
+			cl.ExitID = nil
+		}
+	case in.Chain != nil: // zero: no chain, an exit may be used.
+		if err := c.store.SetClientChain(ctx, id, nil); err != nil {
+			return nil, err
+		}
+		cl.ChainID = nil
+	case in.Exit != nil && cl.ChainID != nil:
+		// Any choice of an exit releases the chain.
+		if err := c.store.SetClientChain(ctx, id, nil); err != nil {
+			return nil, err
+		}
+		cl.ChainID = nil
+	}
 	if in.Exit != nil && (cl.ExitID == nil || *cl.ExitID != *in.Exit) {
 		if err := c.setClientExit(ctx, cl, *in.Exit); err != nil {
 			return nil, err
@@ -761,8 +822,11 @@ func (c *Core) RotateClient(ctx context.Context, id int64) (*store.ClientRow, er
 	if err := c.store.UpdateClient(ctx, cl); err != nil {
 		return nil, err
 	}
-	// New keys are a new start: the exit is chosen anew as well.
+	// New keys are a new start: the route is chosen anew as well.
 	if err := c.store.SetClientExit(ctx, id, nil); err != nil {
+		return nil, err
+	}
+	if err := c.store.SetClientChain(ctx, id, nil); err != nil {
 		return nil, err
 	}
 	c.Reconcile(ctx)
@@ -1171,10 +1235,22 @@ func (c *Core) activeClients(ctx context.Context) ([]proxy.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	chains, err := c.Chains(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chainByID := map[int64]*Chain{}
+	for i := range chains {
+		chainByID[chains[i].ID] = &chains[i]
+	}
 	var active []proxy.Client
 	for _, r := range rows {
 		if c.ClientStatus(r) == ClientActive {
-			active = append(active, toProxyClient(r))
+			var ch *Chain
+			if r.ChainID != nil {
+				ch = chainByID[*r.ChainID]
+			}
+			active = append(active, toProxyClient(r, ch))
 		}
 	}
 	return active, nil
@@ -1190,8 +1266,8 @@ func (c *Core) flushStatsLocked(ctx context.Context) {
 	}
 	var deltas []store.TrafficDelta
 	for _, u := range users {
-		id, err := strconv.ParseInt(strings.TrimPrefix(u.User, "c"), 10, 64)
-		if err != nil || (u.Uplink == 0 && u.Downlink == 0) {
+		id, ok := clientIDFromName(u.User)
+		if !ok || (u.Uplink == 0 && u.Downlink == 0) {
 			continue
 		}
 		deltas = append(deltas, store.TrafficDelta{ClientID: id, Upload: u.Uplink, Download: u.Downlink})

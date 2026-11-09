@@ -38,9 +38,9 @@ WORKDIR /src/sing-box
 # for CVEs in grpc (v2ray_api), x/crypto, x/mod and x/net that trivy reports in the
 # release's module graph. Pinned, so builds stay reproducible; drop an entry
 # once sing-box itself requires that version or newer.
-ARG SINGBOX_DEP_BUMPS="golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2"
+ARG SINGBOX_DEP_BUMPS="github.com/andybalholm/brotli@v1.2.8 github.com/go-chi/chi/v5@v5.5.0 github.com/klauspost/compress@v1.20.4 golang.org/x/crypto@v0.58.1-0.20261009181718-2f1f834330b2 golang.org/x/mod@v0.42.0 golang.org/x/net@v0.62.0 google.golang.org/grpc@v1.83.2"
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go get ${SINGBOX_DEP_BUMPS} && go mod tidy
+    go get ${SINGBOX_DEP_BUMPS}
 # Patched sing-quic: a stable stateless-reset key so Hysteria2/TUIC clients
 # reconnect immediately after a reload instead of after a 30 s idle timeout
 # (the key is derived from the master key by the panel). The patch targets one sing-quic version; the

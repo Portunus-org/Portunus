@@ -67,13 +67,28 @@ func serverConfig(inbounds []Inbound, clients []Client, statsAPI string, acme AC
 		}
 		ins = append(ins, v)
 	}
+	for _, l := range routing.Links {
+		// The same is true of a chain hop: the traffic was accounted for
+		// where it entered the chain.
+		v, err := serverInbound(l.inbound(), []Client{l.client()})
+		if err != nil {
+			return nil, fmt.Errorf("chain link %d inbound: %w", l.ID, err)
+		}
+		ins = append(ins, v)
+	}
 	if len(ins) == 0 {
 		return nil, nil
 	}
 
-	users := make([]string, 0, len(clients))
+	users := make([]string, 0, len(clients)*2)
 	for _, c := range clients {
+		// The base name is rendered for the password-only protocols, the
+		// extra-exit names for the uuid-based ones; track both so counters
+		// of every form reach the database.
 		users = append(users, c.UserName())
+		for _, e := range c.Extras {
+			users = append(users, e.Name)
+		}
 	}
 
 	cfg := obj{
@@ -151,8 +166,12 @@ func serverInbound(in Inbound, clients []Client) (obj, error) {
 
 	switch in.Protocol {
 	case VLESS:
+		// One user per credential: a client whose chain has several exits
+		// carries one for each.
 		for _, c := range clients {
-			users = append(users, obj{"name": c.UserName(), "uuid": c.UUID, "flow": vlessFlow})
+			for _, u := range c.Users() {
+				users = append(users, obj{"name": u.Name, "uuid": u.UUID, "flow": vlessFlow})
+			}
 		}
 		o["tls"] = obj{
 			"enabled":     true,
@@ -179,7 +198,9 @@ func serverInbound(in Inbound, clients []Client) (obj, error) {
 
 	case TUIC:
 		for _, c := range clients {
-			users = append(users, obj{"name": c.UserName(), "uuid": c.UUID, "password": c.Password})
+			for _, u := range c.Users() {
+				users = append(users, obj{"name": u.Name, "uuid": u.UUID, "password": c.Password})
+			}
 		}
 		o["congestion_control"] = "bbr"
 		o["tls"] = serverTLS(in, "h3")

@@ -70,6 +70,7 @@ export function DataTable<T extends RowData>({
   data,
   columns,
   getRowId,
+  title,
   views,
   view,
   onViewChange,
@@ -88,6 +89,8 @@ export function DataTable<T extends RowData>({
   data: T[]
   columns: ColumnDef<TableFeatures, T, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
   getRowId: (row: T) => string
+  /** Section heading shown on the left of the toolbar when there are no view tabs. */
+  title?: React.ReactNode
   views?: TableView[]
   view?: string
   onViewChange?: (v: string) => void
@@ -180,24 +183,33 @@ export function DataTable<T extends RowData>({
       <div className={cn("flex items-center justify-between gap-2", inset && "px-4 lg:px-6")}>
         {views && view && onViewChange ? (
           <Tabs value={view} onValueChange={changeView}>
-            <Label htmlFor="view-selector" className="sr-only">
-              {t("common.view")}
-            </Label>
-            <Select value={view} onValueChange={changeView}>
-              <SelectTrigger className="flex w-fit @4xl/main:hidden" size="sm" id="view-selector">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {views.map((v) => (
-                    <SelectItem key={v.value} value={v.value}>
-                      {v.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <TabsList className="hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1 @4xl/main:flex">
+            {views.length > 2 && (
+              <>
+                <Label htmlFor="view-selector" className="sr-only">
+                  {t("common.view")}
+                </Label>
+                <Select value={view} onValueChange={changeView}>
+                  <SelectTrigger className="flex w-fit @4xl/main:hidden" size="sm" id="view-selector">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {views.map((v) => (
+                        <SelectItem key={v.value} value={v.value}>
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+            <TabsList
+              className={cn(
+                "**:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1",
+                views.length > 2 && "hidden @4xl/main:flex"
+              )}
+            >
               {views.map((v) => (
                 <TabsTrigger key={v.value} value={v.value}>
                   {v.label}
@@ -206,6 +218,8 @@ export function DataTable<T extends RowData>({
               ))}
             </TabsList>
           </Tabs>
+        ) : title ? (
+          <h2 className="font-heading text-base font-medium">{title}</h2>
         ) : (
           <div />
         )}
@@ -292,7 +306,7 @@ export function DataTable<T extends RowData>({
                 )
               })
             ) : (
-              <div className="flex h-32 items-center justify-center rounded-lg border text-center text-sm text-muted-foreground">
+              <div className="flex min-h-32 items-center justify-center rounded-lg border p-4 text-center text-sm text-muted-foreground">
                 {empty ?? t("common.noResults")}
               </div>
             )}

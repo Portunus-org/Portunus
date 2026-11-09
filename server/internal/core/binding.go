@@ -64,6 +64,39 @@ func (c *Core) lostLocked(h exitHealth) bool {
 	return h.fails >= exitFailures && c.now().Sub(h.since) >= exitGrace
 }
 
+// noteChainMember records the outcome of an agent check of a node that is
+// in the path of a chain. As with exits, a node is given up on after
+// repeated failures, so that clients riding chains through it can be moved
+// to an exit. A node that never joined is not counted: until it joins,
+// being unreachable is expected. It reports whether the node has just been
+// given up on or just returned, so the caller can re-render the config.
+func (c *Core) noteChainMember(id int64, joined bool, ok bool) (changed bool) {
+	if !joined {
+		return false
+	}
+	c.nodeMu.Lock()
+	defer c.nodeMu.Unlock()
+	wasLost := c.lostLocked(c.chainHealth[id])
+	if ok {
+		delete(c.chainHealth, id)
+		return wasLost
+	}
+	h := c.chainHealth[id]
+	if h.fails == 0 {
+		h.since = c.now()
+	}
+	h.fails++
+	c.chainHealth[id] = h
+	return !wasLost && c.lostLocked(h)
+}
+
+// chainLost reports whether a node in the path of a chain has been given up on.
+func (c *Core) chainLost(id int64) bool {
+	c.nodeMu.Lock()
+	defer c.nodeMu.Unlock()
+	return c.lostLocked(c.chainHealth[id])
+}
+
 // exitState says whether an exit is failing its checks, and whether it has
 // done so for long enough to be given up on.
 func (c *Core) exitState(id int64) (failing, lost bool) {
@@ -74,7 +107,9 @@ func (c *Core) exitState(id int64) (failing, lost bool) {
 }
 
 // bindClients gives every client an exit and moves the clients of exits
-// that are gone. Callers hold applyMu.
+// that are gone. A client whose chain still has a usable route needs no
+// exit; when its chain is down it rides an exit for now, and returns to its
+// chain when one works again. Callers hold applyMu.
 func (c *Core) bindClients(ctx context.Context) error {
 	nodes, err := c.store.ListNodes(ctx)
 	if err != nil {
@@ -94,6 +129,36 @@ func (c *Core) bindClients(ctx context.Context) error {
 	clients, err := c.store.ListClients(ctx)
 	if err != nil {
 		return err
+	}
+	chains, err := c.Chains(ctx)
+	if err != nil {
+		return err
+	}
+	nodeByID := map[int64]*store.NodeRow{}
+	for _, n := range nodes {
+		nodeByID[n.ID] = n
+	}
+	unusable := func(id int64) bool {
+		n, ok := nodeByID[id]
+		if !ok || !n.Enabled {
+			return true
+		}
+		switch {
+		case n.Kind == NodeAgent && c.chainLost(id):
+			return true
+		case n.IsExit:
+			_, lost := c.exitState(id)
+			return lost
+		}
+		return false
+	}
+	isEntry := func(id int64) bool {
+		n, ok := nodeByID[id]
+		return ok && n.IsEntry
+	}
+	chainByID := map[int64]Chain{}
+	for _, ch := range chains {
+		chainByID[ch.ID] = ch
 	}
 	load := map[int64]int{}
 	for _, cl := range clients {
@@ -137,6 +202,22 @@ func (c *Core) bindClients(ctx context.Context) error {
 		return best, ok
 	}
 	for _, cl := range clients {
+		if cl.ChainID != nil {
+			ch, ok := chainByID[*cl.ChainID]
+			if ok && c.chainWorks(ch, unusable, isEntry) {
+				if cl.ExitID != nil {
+					// The chain came back: the client leaves its stopgap exit.
+					c.log.Info("client returned to its chain", "client", cl.Name, "from", *cl.ExitID)
+					load[*cl.ExitID]--
+					if err := c.store.SetClientExit(ctx, cl.ID, nil); err != nil {
+						return err
+					}
+					cl.ExitID = nil
+				}
+				continue
+			}
+			c.log.Info("client moved to a fallback exit: its chain is down", "client", cl.Name)
+		}
 		valid := cl.ExitID != nil && slices.Contains(exits, *cl.ExitID)
 		if valid {
 			if _, lost := c.exitState(*cl.ExitID); !lost {
@@ -164,18 +245,39 @@ func (c *Core) bindClients(ctx context.Context) error {
 }
 
 // bindings are the exits of the clients allowed to connect, as the server
-// self (0: the main one) has to route them.
+// self (0: the main one) has to route them. A client on a stopgap exit is
+// listed under every name its credentials carry, so whichever link it
+// presents reaches the exit.
 func (c *Core) bindings(ctx context.Context, self int64, exits []int64) ([]proxy.Binding, error) {
 	clients, err := c.store.ListClients(ctx)
 	if err != nil {
 		return nil, err
+	}
+	chains, err := c.Chains(ctx)
+	if err != nil {
+		return nil, err
+	}
+	chainByID := map[int64]Chain{}
+	for _, ch := range chains {
+		chainByID[ch.ID] = ch
 	}
 	var out []proxy.Binding
 	for _, id := range exits {
 		b := proxy.Binding{ExitID: id, Local: id == self}
 		for _, cl := range clients {
 			if cl.ExitID != nil && *cl.ExitID == id && c.ClientStatus(cl) == ClientActive {
-				b.Users = append(b.Users, toProxyClient(cl).UserName())
+				var ch *Chain
+				if cl.ChainID != nil {
+					c2, ok := chainByID[*cl.ChainID]
+					if ok {
+						ch = &c2
+					}
+				}
+				pc := toProxyClient(cl, ch)
+				b.Users = append(b.Users, pc.UserName())
+				for _, e := range pc.Extras {
+					b.Users = append(b.Users, e.Name)
+				}
 			}
 		}
 		if len(b.Users) > 0 {

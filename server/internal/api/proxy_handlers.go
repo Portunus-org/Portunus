@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -267,8 +268,10 @@ type clientDTO struct {
 	Download     int64             `json:"download"`
 	ExpiresAt    *time.Time        `json:"expiresAt"`
 	Note         string            `json:"note"`
-	// ExitID is the exit the client is bound to (null: no exits yet).
+	// ExitID is the exit the client is bound to (null: none or an auto one
+	// chosen by the panel). ChainID is the chain it travels through.
 	ExitID    *int64    `json:"exitId"`
+	ChainID   *int64    `json:"chainId"`
 	CreatedAt time.Time `json:"createdAt"`
 	// Online: traffic of the client is being counted right now, at these
 	// speeds in bytes per second. LastSeenAt is when it last was (null:
@@ -279,7 +282,7 @@ type clientDTO struct {
 	LastSeenAt *time.Time `json:"lastSeenAt"`
 }
 
-func (s *Server) toClientDTO(c *store.ClientRow) clientDTO {
+func (s *Server) toClientDTO(ctx context.Context, c *store.ClientRow) clientDTO {
 	var exp *time.Time
 	if c.ExpiresAt != nil {
 		t := c.ExpiresAt.UTC()
@@ -294,7 +297,7 @@ func (s *Server) toClientDTO(c *store.ClientRow) clientDTO {
 	return clientDTO{
 		ID: c.ID, Name: c.Name, Enabled: c.Enabled, Status: s.core.ClientStatus(c),
 		TrafficLimit: c.TrafficLimit, Upload: c.Upload, Download: c.Download,
-		ExpiresAt: exp, Note: c.Note, ExitID: c.ExitID, CreatedAt: c.CreatedAt.UTC(),
+		ExpiresAt: exp, Note: c.Note, ExitID: c.ExitID, ChainID: c.ChainID, CreatedAt: c.CreatedAt.UTC(),
 		Online: act.Online, DownRate: act.DownRate, UpRate: act.UpRate, LastSeenAt: seen,
 	}
 }
@@ -307,24 +310,28 @@ type clientRequest struct {
 	Note         string     `json:"note"`
 	// ExitID: absent keeps the exit, 0 has one chosen anew.
 	ExitID *int64 `json:"exitId"`
+	// ChainID: absent keeps the chain, 0 means no chain (an exit is used).
+	ChainID *int64 `json:"chainId"`
 }
 
 func (req clientRequest) input() core.ClientInput {
 	return core.ClientInput{
 		Name: req.Name, Enabled: req.Enabled == nil || *req.Enabled,
-		TrafficLimit: req.TrafficLimit, ExpiresAt: req.ExpiresAt, Note: req.Note, Exit: req.ExitID,
+		TrafficLimit: req.TrafficLimit, ExpiresAt: req.ExpiresAt, Note: req.Note,
+		Exit: req.ExitID, Chain: req.ChainID,
 	}
 }
 
 func (s *Server) handleListClients(w http.ResponseWriter, r *http.Request) {
-	cs, err := s.core.Clients(r.Context())
+	ctx := r.Context()
+	cs, err := s.core.Clients(ctx)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
 	out := make([]clientDTO, 0, len(cs))
 	for _, c := range cs {
-		out = append(out, s.toClientDTO(c))
+		out = append(out, s.toClientDTO(ctx, c))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -340,7 +347,7 @@ func (s *Server) handleCreateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAction(r, "client.create", c.Name, nil)
-	writeJSON(w, http.StatusCreated, s.toClientDTO(c))
+	writeJSON(w, http.StatusCreated, s.toClientDTO(r.Context(), c))
 }
 
 func (s *Server) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +366,7 @@ func (s *Server) handleUpdateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAction(r, "client.update", c.Name, nil)
-	writeJSON(w, http.StatusOK, s.toClientDTO(c))
+	writeJSON(w, http.StatusOK, s.toClientDTO(r.Context(), c))
 }
 
 // clientMutation handles the body-less POST actions on a client.
@@ -376,7 +383,7 @@ func (s *Server) clientMutation(action string, fn func(*http.Request, int64) (*s
 			return
 		}
 		s.auditAction(r, action, c.Name, nil)
-		writeJSON(w, http.StatusOK, s.toClientDTO(c))
+		writeJSON(w, http.StatusOK, s.toClientDTO(r.Context(), c))
 	}
 }
 
@@ -457,25 +464,24 @@ func (s *Server) handleClientAccess(w http.ResponseWriter, r *http.Request) {
 		out.SubscriptionURL = base + "/" + c.SubToken
 		out.SubscriptionQR, _ = qrsvg.Encode(out.SubscriptionURL)
 	}
-	points, err := s.core.EntryPoints(ctx)
+	links, err := s.core.ClientLinks(ctx, c)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
 	}
-	pc := proxy.Client{ID: c.ID, Name: c.Name, UUID: c.UUID, Password: c.Password}
-	for _, pt := range points {
-		for _, in := range pt.Inbounds {
-			if !in.Enabled {
-				continue
-			}
-			link := proxy.ShareLink(pt.Host, in, pc)
-			qr, err := qrsvg.Encode(link)
-			if err != nil {
-				s.internalError(w, r, err)
-				return
-			}
-			out.Links = append(out.Links, accessLink{InboundID: in.ID, Label: in.Label(), Name: in.Name, Host: pt.Host, Port: in.Port, Protocol: in.Protocol, URL: link, QR: qr})
+	for _, l := range links {
+		pc := proxy.Client{ID: c.ID, Name: c.Name, UUID: l.UUID, Password: c.Password}
+		link := proxy.ShareLink(l.Host, l.Inbound, pc)
+		qr, err := qrsvg.Encode(link)
+		if err != nil {
+			s.internalError(w, r, err)
+			return
 		}
+		label := l.Label
+		if label == "" {
+			label = l.Inbound.Label()
+		}
+		out.Links = append(out.Links, accessLink{InboundID: l.Inbound.ID, Label: label, Name: l.Inbound.Name, Host: l.Host, Port: l.Inbound.Port, Protocol: l.Inbound.Protocol, URL: link, QR: qr})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -701,7 +707,7 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, token
 		notFound()
 		return
 	}
-	points, err := s.core.EntryPoints(ctx)
+	links, err := s.core.ClientLinks(ctx, c)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
@@ -726,7 +732,13 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, token
 		format = "singbox"
 	}
 	if format == "singbox" {
-		cfg, err := proxy.ClientProfile(points, pc)
+		// Every link is one server of the profile: the client's own auto
+		// group picks between them, and each exit keeps its own credential.
+		servers := make([]proxy.ProfileServer, 0, len(links))
+		for _, l := range links {
+			servers = append(servers, proxy.ProfileServer{Host: l.Host, Inbound: l.Inbound, UUID: l.UUID, Label: l.Label})
+		}
+		cfg, err := proxy.ClientProfile(pc, servers)
 		if err != nil {
 			s.internalError(w, r, err)
 			return
@@ -737,16 +749,13 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, token
 		return
 	}
 
-	var links []string
-	for _, pt := range points {
-		for _, in := range pt.Inbounds {
-			if in.Enabled {
-				links = append(links, proxy.ShareLink(pt.Host, in, pc))
-			}
-		}
+	var linkURLs []string
+	for _, l := range links {
+		pc := proxy.Client{ID: c.ID, Name: c.Name, UUID: l.UUID, Password: c.Password}
+		linkURLs = append(linkURLs, proxy.ShareLink(l.Host, l.Inbound, pc))
 	}
 	h.Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(base64Std(strings.Join(links, "\n")))) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- base64 text/plain
+	w.Write([]byte(base64Std(strings.Join(linkURLs, "\n")))) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- base64 text/plain
 }
 
 func isSingBoxClient(ua string) bool {

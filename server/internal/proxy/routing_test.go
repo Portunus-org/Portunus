@@ -244,6 +244,99 @@ func TestParseShareLink(t *testing.T) {
 	}
 }
 
+// A rule limited to a chain's clients touches those clients only: their
+// traffic to the list goes where the rule says, everyone else is left to
+// the global rules.
+func TestScopedRules(t *testing.T) {
+	hop, err := NewHop(443, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ads, _ := ParseList(1, "ad.example")
+
+	// Scoped block: refuse the list for c1 only; nobody else meets a reject
+	// from it.
+	r := Routing{
+		Exits:       []Exit{{ID: 5, Outbound: hop.Outbound("203.0.113.20")}},
+		Rules:       []RouteRule{{List: ads, Action: RouteBlock, Users: []string{"c1"}}},
+		Default:     RouteNode,
+		DefaultExit: 5,
+	}
+	cfg, err := ServerConfig(testInbounds(t), testClients, "127.0.0.1:2054", ACMEOptions{}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	singBoxCheck(t, cfg)
+	rules, _ := routeRules(t, cfg)
+	scopedRejects := 0
+	for _, rule := range rules {
+		if rule["action"] != "reject" || rule["ip_is_private"] == true {
+			continue
+		}
+		users, _ := rule["auth_user"].([]any)
+		if len(users) == 0 {
+			t.Fatalf("unscoped reject: %v", rule)
+		}
+		if len(users) == 1 && users[0] == "c1" {
+			scopedRejects++
+		}
+	}
+	if scopedRejects == 0 {
+		t.Fatalf("no scoped reject for c1: %v", rules)
+	}
+
+	// Scoped direct: c1 leaves directly to the list, after resolving; the
+	// catch-all to the exit must not swallow that claim.
+	r = Routing{
+		Exits:       []Exit{{ID: 5, Outbound: hop.Outbound("203.0.113.20")}},
+		Rules:       []RouteRule{{List: ads, Action: RouteDirect, Users: []string{"c1"}}},
+		Default:     RouteNode,
+		DefaultExit: 5,
+	}
+	cfg, err = ServerConfig(testInbounds(t), testClients, "127.0.0.1:2054", ACMEOptions{}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	singBoxCheck(t, cfg)
+	rules, _ = routeRules(t, cfg)
+	resolve := -1
+	directForC1 := false
+	for i, rule := range rules {
+		if rule["action"] == "resolve" {
+			resolve = i
+		}
+		out, _ := rule["outbound"].(string)
+		if rule["action"] != "route" || out != "direct" || resolve == -1 || i <= resolve {
+			continue
+		}
+		users, _ := rule["auth_user"].([]any)
+		if len(users) == 1 && users[0] == "c1" {
+			directForC1 = true
+		}
+	}
+	if !directForC1 {
+		t.Fatalf("c1 does not leave directly to the list after resolving: %v", rules)
+	}
+	catchAllOK := false
+	for _, rule := range rules {
+		out, _ := rule["outbound"].(string)
+		if rule["action"] != "route" || out != ExitTag(5) {
+			continue
+		}
+		sub, _ := rule["rules"].([]any)
+		for _, s := range sub {
+			m, _ := s.(map[string]any)
+			users, _ := m["auth_user"].([]any)
+			if m["invert"] == true && len(users) == 1 && users[0] == "c1" {
+				catchAllOK = true
+			}
+		}
+	}
+	if !catchAllOK {
+		t.Fatalf("catch-all does not exclude the chain client's claim: %v", rules)
+	}
+}
+
 // "Through the client's exit": every client leaves through the exit it is
 // bound to, a client without one is refused, and on a server that is an exit
 // itself its own clients leave directly, after the private-address guard.

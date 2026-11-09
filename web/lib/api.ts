@@ -205,6 +205,8 @@ export interface Client {
   note: string
   /** The exit the client is bound to; null while there are no exits. */
   exitId: number | null
+  /** The chain the client travels through instead of an exit; null: none. */
+  chainId: number | null
   createdAt: string
   /** Connected and passing traffic right now, at these speeds in bytes per second. */
   online: boolean
@@ -229,6 +231,8 @@ export interface ClientInput {
   note: string
   /** Left out: keep the exit. 0: have one chosen anew. */
   exitId?: number
+  /** Left out: keep the chain. 0: no chain, an exit is used instead. */
+  chainId?: number
 }
 
 export interface ClientAccess {
@@ -462,6 +466,32 @@ export interface NodeInput {
   standby?: boolean
 }
 
+/** One directed link of a chain: from 0 (the main server) or a node, to a node. */
+export interface ChainEdge {
+  id: number
+  /** 0 = the main server. */
+  from: number
+  to: number
+}
+
+/** A link as sent to the server: no id of its own yet. */
+export type ChainEdgeInput = Omit<ChainEdge, "id">
+
+/** A graph of nodes: traffic enters at any source and leaves from any sink. */
+export interface Chain {
+  id: number
+  name: string
+  /** Display color of the chain's lines; empty means the default. */
+  color: string
+  edges: ChainEdge[]
+  /** Source nodes marked as backup entry points. */
+  backups: number[]
+  /** Active clients that travel through this chain. */
+  clients: number
+  createdAt: string
+  updatedAt: string
+}
+
 /** What to run on a new server. */
 export interface NodeJoin {
   image: string
@@ -508,6 +538,8 @@ export interface RouteListInput {
 export interface RouteRule extends RouteTarget {
   id: number
   listId: number
+  /** The chain the rule is limited to; absent for a global rule. */
+  chainId?: number
   enabled: boolean
 }
 
@@ -702,6 +734,23 @@ export const api = {
   createNode: (input: NodeInput) => request<Node>("POST", "/api/nodes", input),
   updateNode: (id: number, input: NodeInput) => request<Node>("PUT", `/api/nodes/${id}`, input),
   deleteNode: (id: number) => request<void>("DELETE", `/api/nodes/${id}`),
+
+  chains: () => request<Chain[]>("GET", "/api/chains"),
+  createChain: (input: { name: string; color?: string; edges: ChainEdgeInput[]; backups?: number[] }) =>
+    request<Chain>("POST", "/api/chains", {
+      name: input.name,
+      color: input.color ?? "",
+      edges: input.edges.map(({ from, to }) => ({ from, to })),
+      backups: input.backups ?? [],
+    }),
+  updateChain: (id: number, input: { name: string; color?: string; edges: ChainEdgeInput[]; backups?: number[] }) =>
+    request<Chain>("PUT", `/api/chains/${id}`, {
+      name: input.name,
+      color: input.color ?? "",
+      edges: input.edges.map(({ from, to }) => ({ from, to })),
+      backups: input.backups ?? [],
+    }),
+  deleteChain: (id: number) => request<void>("DELETE", `/api/chains/${id}`),
   /** The key that opens the copies of the panel kept on nodes. */
   recovery: () => request<{ key: string; commands: string[] }>("GET", "/api/recovery"),
   nodeJoin: (id: number) => request<NodeJoin>("GET", `/api/nodes/${id}/join`),
@@ -719,8 +768,8 @@ export const api = {
   updateRouteList: (id: number, input: RouteListInput) => request<RouteList>("PUT", `/api/routing/lists/${id}`, input),
   deleteRouteList: (id: number) => request<void>("DELETE", `/api/routing/lists/${id}`),
   refreshRouteList: (id: number) => request<RouteList>("POST", `/api/routing/lists/${id}/refresh`),
-  createRouteRule: (input: RouteTarget & { listId: number; enabled?: boolean }) => request<RouteRule>("POST", "/api/routing/rules", input),
-  updateRouteRule: (id: number, input: RouteTarget & { listId: number; enabled: boolean }) =>
+  createRouteRule: (input: RouteTarget & { listId: number; enabled?: boolean; chainId?: number }) => request<RouteRule>("POST", "/api/routing/rules", input),
+  updateRouteRule: (id: number, input: RouteTarget & { listId: number; enabled: boolean; chainId?: number }) =>
     request<void>("PUT", `/api/routing/rules/${id}`, input),
   deleteRouteRule: (id: number) => request<void>("DELETE", `/api/routing/rules/${id}`),
   orderRouteRules: (ids: number[]) => request<void>("PUT", "/api/routing/rules/order", { ids }),
