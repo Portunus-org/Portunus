@@ -5,6 +5,7 @@ import Link from "next/link"
 import { EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
 import { toast } from "@/lib/toast"
 
+import { ChainEdgeChips } from "@/components/chains/chain-edge-chips"
 import { ClientStatus } from "@/components/clients/client-status"
 import { useConfirm } from "@/components/confirm"
 import { CopyButton } from "@/components/copy-button"
@@ -23,14 +24,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useFormErrors } from "@/lib/form-errors"
-import { api, errorText, type Client, type ClientAccess, type Node } from "@/lib/api"
+import { api, errorText, type Chain, type Client, type ClientAccess, type ClientInput, type Node } from "@/lib/api"
 import { daysUntil, formatBytes, formatDate, fromDateInput, GiB, toDateInput } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { useSettingsWindow } from "@/lib/settings-dialog"
@@ -207,6 +208,9 @@ export function Access({ clientId, version = 0 }: { clientId: number; version?: 
           </div>
         ))}
       </div>
+      {access.links.length > 1 && (
+        <p className="text-xs text-muted-foreground">{t("clients.drawer.entriesHint")}</p>
+      )}
       {!access.subscriptionUrl && <p className="text-muted-foreground">{t("clients.drawer.subscriptionsOff")}</p>}
     </div>
   )
@@ -227,17 +231,32 @@ function ClientForm({
   const canEdit = useCanEdit()
   const [enabled, setEnabled] = React.useState(client?.enabled ?? true)
   const { errors, wrong, clear, fail, numbers } = useFormErrors()
-  // "0" has the panel choose an exit.
-  const bound = String(client?.exitId ?? 0)
-  const [exit, setExit] = React.useState(bound)
-  const [exits, setExits] = React.useState<Node[]>([])
+  // The client's route is either one chain or an exit. One select carries
+  // both: chain items are "c<id>", exits "xe<id>", the automatic one "x0".
+  const [chainVal, setChainVal] = React.useState(String(client?.chainId ?? 0))
+  const [exitVal, setExitVal] = React.useState(String(client?.exitId ?? 0))
+  // The one select shows whichever of the two is in effect.
+  const routeVal = chainVal !== "0" ? `c${chainVal}` : exitVal === "0" ? "x0" : `xe${exitVal}`
+
+  function onRouteChange(v: string) {
+    if (v.startsWith("c")) setChainVal(v.slice(1))
+    else if (v === "x0") {
+      setChainVal("0")
+      setExitVal("0")
+    } else {
+      setChainVal("0")
+      setExitVal(v.slice(2))
+    }
+  }
+  const [allNodes, setAllNodes] = React.useState<Node[]>([])
+  const [chains, setChains] = React.useState<Chain[]>([])
+  const exits = allNodes.filter((n) => n.isExit && n.enabled)
 
   React.useEffect(() => {
-    api.nodes().then(
-      (nodes) => setExits(nodes.filter((n) => n.isExit && n.enabled)),
-      () => {}
-    )
+    api.nodes().then(setAllNodes, () => {})
+    api.chains().then(setChains, () => {})
   }, [])
+
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -248,13 +267,27 @@ function ClientForm({
       wrong("limit", t("clients.form.limitInvalid"))
       return
     }
+    // Only the route fields that actually changed go to the server. Both
+    // may change at once: switching from a chain to an exit in one save.
+    const prevChain = client?.chainId ?? 0
+    const prevExit = client?.exitId ?? 0
+    const chainId = Number(chainVal)
+    const exitId = Number(exitVal)
+    const changes: Partial<ClientInput> = {}
+    if (chainId !== prevChain) {
+      // Picking or unpicking a chain takes over the route.
+      changes.chainId = chainId
+    }
+    if (chainId === 0 && exitId !== prevExit) {
+      changes.exitId = exitId
+    }
     const input = {
       name: String(f.get("name") ?? ""),
       enabled,
       trafficLimit: Math.round(gb * GiB),
       expiresAt: fromDateInput(String(f.get("expires") ?? "")),
       note: String(f.get("note") ?? ""),
-      ...(exit !== bound ? { exitId: Number(exit) } : {}),
+      ...changes,
     }
     if (!input.name.trim()) {
       wrong("name", t("error.required"))
@@ -267,7 +300,12 @@ function ClientForm({
       toast.success(t(client ? "clients.toast.saved" : "clients.toast.created"))
       onSubmitted(saved)
     } catch (err) {
-      fail(err, ["name", "limit", "expires", "exit", "note"], { trafficLimit: "limit", expiresAt: "expires", exitId: "exit" })
+      fail(err, ["name", "limit", "expires", "route", "note"], {
+        trafficLimit: "limit",
+        expiresAt: "expires",
+        exitId: "route",
+        chainId: "route",
+      })
     } finally {
       setPending(false)
     }
@@ -276,6 +314,60 @@ function ClientForm({
   return (
     <form id={formId} onSubmit={onSubmit} onInput={clear} className="flex flex-col gap-4" noValidate>
       <fieldset disabled={!canEdit} className="contents">
+        {(exits.length > 0 || chains.length > 0) && (
+          <FormField
+            id="route"
+            label={t("clients.form.route")}
+            hint={t("clients.form.routeHint")}
+            error={errors.route}
+          >
+            <Select value={routeVal} onValueChange={onRouteChange}>
+              <SelectTrigger id="route" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {chains.length > 0 && (
+                  <>
+                    <SelectGroup>
+                      <SelectLabel>{t("clients.form.routeChains")}</SelectLabel>
+                      {chains.map((c) => (
+                        <SelectItem key={c.id} value={`c${c.id}`}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-foreground"
+                              style={c.color ? { backgroundColor: c.color } : undefined}
+                            />
+                            <span>{c.name}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectSeparator />
+                  </>
+                )}
+                <SelectGroup>
+                  <SelectLabel>{t("clients.form.routeExits")}</SelectLabel>
+                  <SelectItem value="x0">{t(client?.exitId || client?.chainId ? "clients.form.exitAnew" : "clients.form.exitAuto")}</SelectItem>
+                  {exits.map((n) => (
+                    <SelectItem key={n.id} value={`xe${n.id}`}>
+                      {n.status.latencyMs === undefined ? n.name : t("clients.form.exitSpeed", { name: n.name, ms: n.status.latencyMs })}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {chainVal !== "0" &&
+              (() => {
+                const c = chains.find((x) => x.id === Number(chainVal))
+                if (!c) return null
+                return (
+                  <div className="mt-2">
+                    <ChainEdgeChips chain={c} nodes={allNodes} mainLabel={t("chains.main")} backupLabel={t("chains.backup")} />
+                  </div>
+                )
+              })()}
+          </FormField>
+        )}
         <FormField id="name" label={t("clients.form.name")} error={errors.name}>
           <Input id="name" name="name" defaultValue={client?.name} required maxLength={64} autoFocus={!client} />
         </FormField>
@@ -302,25 +394,6 @@ function ClientForm({
             />
           </FormField>
         </div>
-        {exits.length > 0 && (
-          <FormField id="exit" label={t("clients.form.exit")} hint={t("clients.form.exitHint")} error={errors.exit}>
-            <Select value={exit} onValueChange={setExit}>
-              <SelectTrigger id="exit" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="0">{t(client?.exitId ? "clients.form.exitAnew" : "clients.form.exitAuto")}</SelectItem>
-                  {exits.map((n) => (
-                    <SelectItem key={n.id} value={String(n.id)}>
-                      {n.status.latencyMs === undefined ? n.name : t("clients.form.exitSpeed", { name: n.name, ms: n.status.latencyMs })}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </FormField>
-        )}
         <FormField id="note" label={t("clients.form.note")} error={errors.note}>
           <Textarea id="note" name="note" rows={2} maxLength={500} defaultValue={client?.note} />
         </FormField>
@@ -407,7 +480,7 @@ export function ClientDrawer({
               </>
             )}
             <ClientForm
-              key={client ? `${client.id}:${client.exitId}` : "new"}
+              key={client ? `${client.id}:${client.exitId ?? 0}:${client.chainId ?? 0}` : "new"}
               client={client}
               formId="client-form"
               setPending={setPending}

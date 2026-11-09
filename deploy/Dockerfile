@@ -3,7 +3,7 @@
 # Base images are pinned by digest; bump tag and digest together.
 ARG NODE_IMAGE=node:26.9.0-alpine3.24@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070
 ARG GO_IMAGE=golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
-ARG RUNTIME_IMAGE=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+ARG RUNTIME_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 # --- frontend: Next.js static export --------------------------------------
 # The build stages run on the machine that builds (BUILDPLATFORM) and
@@ -38,9 +38,9 @@ WORKDIR /src/sing-box
 # for CVEs in grpc (v2ray_api), x/crypto, x/mod and x/net that trivy reports in the
 # release's module graph. Pinned, so builds stay reproducible; drop an entry
 # once sing-box itself requires that version or newer.
-ARG SINGBOX_DEP_BUMPS="golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2"
+ARG SINGBOX_DEP_BUMPS="github.com/andybalholm/brotli@v1.2.8 github.com/go-chi/chi/v5@v5.5.0 github.com/klauspost/compress@v1.20.4 golang.org/x/crypto@v0.58.1-0.20261009181718-2f1f834330b2 golang.org/x/mod@v0.42.0 golang.org/x/net@v0.62.0 google.golang.org/grpc@v1.83.2"
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go get ${SINGBOX_DEP_BUMPS} && go mod tidy
+    go get ${SINGBOX_DEP_BUMPS}
 # Patched sing-quic: a stable stateless-reset key so Hysteria2/TUIC clients
 # reconnect immediately after a reload instead of after a 30 s idle timeout
 # (the key is derived from the master key by the panel). The patch targets one sing-quic version; the

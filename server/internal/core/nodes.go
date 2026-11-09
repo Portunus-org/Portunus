@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -425,6 +426,23 @@ func (c *Core) DeleteNode(ctx context.Context, id int64) error {
 	} else if used {
 		return invalid("node", "node_in_use")
 	}
+	// A node the graph of a chain runs through cannot be deleted: such chains
+	// are removed first, and their clients unbound with them.
+	chains, err := c.Chains(ctx)
+	if err != nil {
+		return err
+	}
+	for _, ch := range chains {
+		in := slices.ContainsFunc(ch.Edges, func(e ChainEdge) bool { return e.FromNodeID == id || e.ToNodeID == id })
+		if !in && slices.Contains(ch.Backups, id) {
+			in = true
+		}
+		if in {
+			if err := c.DeleteChain(ctx, ch.ID); err != nil {
+				return err
+			}
+		}
+	}
 	if err := c.store.DeleteNode(ctx, id); err != nil {
 		return err
 	}
@@ -432,6 +450,7 @@ func (c *Core) DeleteNode(ctx context.Context, id int64) error {
 	c.nodeMu.Lock()
 	delete(c.nodeStatus, id)
 	delete(c.exitHealth, id)
+	delete(c.chainHealth, id)
 	c.nodeMu.Unlock()
 	c.Reconcile(ctx)
 	return nil
@@ -564,36 +583,6 @@ func (c *Core) entryInbounds(ctx context.Context, n *Node, inbounds []proxy.Inbo
 	return out, nil
 }
 
-// EntryPoints are the servers clients can connect to: the main one, then
-// every backup entry point that has joined.
-func (c *Core) EntryPoints(ctx context.Context) ([]proxy.EntryPoint, error) {
-	host, err := c.PublicHost(ctx)
-	if err != nil {
-		return nil, err
-	}
-	inbounds, err := c.Inbounds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	points := []proxy.EntryPoint{{Host: host, Inbounds: inbounds}}
-	nodes, err := c.Nodes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for i := range nodes {
-		n := &nodes[i]
-		if n.Kind != NodeAgent || !n.IsEntry || !n.Enabled || n.Settings.JoinedAt == nil {
-			continue
-		}
-		ins, err := c.entryInbounds(ctx, n, inbounds)
-		if err != nil {
-			return nil, err
-		}
-		points = append(points, proxy.EntryPoint{Host: n.Address, Inbounds: ins})
-	}
-	return points, nil
-}
-
 // ------------------------------------------------------------------- sync
 
 // Node states.
@@ -641,6 +630,9 @@ type nodeRuntime struct {
 	panelCertMu sync.Mutex
 	// exitHealth holds the exits that are failing their checks.
 	exitHealth map[int64]exitHealth
+	// chainHealth holds the nodes of chains that are failing their agent
+	// checks, so a broken chain gives its clients up to an exit.
+	chainHealth map[int64]exitHealth
 
 	// The sealed copy of the panel for standby nodes and when each got it.
 	backupSrc   backup.Source
@@ -793,6 +785,17 @@ func (c *Core) nodeConfig(ctx context.Context, n *Node, inbounds []proxy.Inbound
 			return nil, err
 		}
 		entry = &proxy.EntryConfig{Inbounds: ins, Clients: clients, Routing: routing, StatsAPI: agent.StatsAPI}
+	} else if links, outbounds, _, err := c.chainRouting(ctx, n.ID); err != nil {
+		return nil, err
+	} else if len(links) > 0 || len(outbounds) > 0 {
+		// A node that is not an entry point may still carry chain hops: the
+		// material ends on it, and its traffic leaves through the following
+		// hop. It serves no clients of its own.
+		routing := proxy.Routing{Links: links}
+		for _, o := range outbounds {
+			routing.ChainOutbounds = append(routing.ChainOutbounds, o)
+		}
+		entry = &proxy.EntryConfig{Routing: routing}
 	}
 	return proxy.NodeConfig(hop, entry)
 }
@@ -832,6 +835,11 @@ func (c *Core) syncNode(ctx context.Context, n *Node, inbounds []proxy.Inbound, 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	fail := func(state string, err error) {
+		// A chain node just given up on: re-render, so the chains that have
+		// a backup entry or exit can take it over now.
+		if c.noteChainMember(n.ID, n.Settings.JoinedAt != nil, false) {
+			c.Reconcile(ctx)
+		}
 		c.setNodeStatus(n.ID, func(st *NodeStatus) {
 			if state == NodeOffline && n.Settings.JoinedAt == nil {
 				state = NodePending
@@ -893,8 +901,8 @@ func (c *Core) syncNode(ctx context.Context, n *Node, inbounds []proxy.Inbound, 
 		if traffic, err := cl.Traffic(ctx); err == nil {
 			var deltas []store.TrafficDelta
 			for _, t := range traffic {
-				id, err := strconv.ParseInt(strings.TrimPrefix(t.User, "c"), 10, 64)
-				if err != nil || id == 0 || (t.Uplink == 0 && t.Downlink == 0) {
+				id, ok := clientIDFromName(t.User)
+				if !ok || (t.Uplink == 0 && t.Downlink == 0) {
 					continue
 				}
 				deltas = append(deltas, store.TrafficDelta{ClientID: id, Upload: t.Uplink, Download: t.Downlink})
@@ -911,6 +919,11 @@ func (c *Core) syncNode(ctx context.Context, n *Node, inbounds []proxy.Inbound, 
 		updateError = st.Updater.Error
 	}
 	copyAt := c.syncPanelCopy(ctx, n, cl, st.PanelCopy)
+	// A chain node just returned: re-render, so the chains switch back to
+	// their primary route.
+	if c.noteChainMember(n.ID, true, true) {
+		c.Reconcile(ctx)
+	}
 	c.setNodeStatus(n.ID, func(s *NodeStatus) {
 		s.CopyAt, s.Rejoin = copyAt, rejoin
 		s.Updater, s.Updating, s.UpdateError = st.Updater != nil, updating, updateError

@@ -309,6 +309,7 @@ type routeRuleDTO struct {
 	ListID  int64  `json:"listId"`
 	Action  string `json:"action"`
 	NodeID  *int64 `json:"nodeId,omitempty"`
+	ChainID int64  `json:"chainId,omitempty"`
 	Enabled bool   `json:"enabled"`
 }
 
@@ -338,7 +339,7 @@ func (s *Server) handleGetRouting(w http.ResponseWriter, r *http.Request) {
 		out.Lists = append(out.Lists, routeListToDTO(l))
 	}
 	for _, rule := range rules {
-		out.Rules = append(out.Rules, routeRuleDTO{ID: rule.ID, ListID: rule.ListID, Action: rule.Action, NodeID: rule.NodeID, Enabled: rule.Enabled})
+		out.Rules = append(out.Rules, routeRuleDTO{ID: rule.ID, ListID: rule.ListID, Action: rule.Action, NodeID: rule.NodeID, ChainID: rule.ChainID, Enabled: rule.Enabled})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -428,11 +429,12 @@ type routeRuleRequest struct {
 	ListID  int64  `json:"listId"`
 	Action  string `json:"action"`
 	NodeID  *int64 `json:"nodeId"`
+	ChainID int64  `json:"chainId"`
 	Enabled *bool  `json:"enabled"`
 }
 
 func (req routeRuleRequest) input() core.RouteRuleInput {
-	return core.RouteRuleInput{ListID: req.ListID, Action: req.Action, NodeID: req.NodeID, Enabled: req.Enabled == nil || *req.Enabled}
+	return core.RouteRuleInput{ListID: req.ListID, Action: req.Action, NodeID: req.NodeID, ChainID: req.ChainID, Enabled: req.Enabled == nil || *req.Enabled}
 }
 
 func (s *Server) handleCreateRouteRule(w http.ResponseWriter, r *http.Request) {
@@ -446,7 +448,7 @@ func (s *Server) handleCreateRouteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAction(r, "routing.rule.create", rule.Action, nil)
-	writeJSON(w, http.StatusCreated, routeRuleDTO{ID: rule.ID, ListID: rule.ListID, Action: rule.Action, NodeID: rule.NodeID, Enabled: rule.Enabled})
+	writeJSON(w, http.StatusCreated, routeRuleDTO{ID: rule.ID, ListID: rule.ListID, Action: rule.Action, NodeID: rule.NodeID, ChainID: rule.ChainID, Enabled: rule.Enabled})
 }
 
 func (s *Server) handleUpdateRouteRule(w http.ResponseWriter, r *http.Request) {

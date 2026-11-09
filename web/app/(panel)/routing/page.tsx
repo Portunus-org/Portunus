@@ -18,10 +18,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cardTap } from "@/lib/card-tap"
 import { cn } from "@/lib/utils"
@@ -54,7 +56,9 @@ export default function RoutingPage() {
   const canEdit = useCanEdit()
   const { data: routing, reload } = useResource(api.routing)
   const { data: nodeData } = useResource(api.nodes, 30_000)
+  const { data: chainData } = useResource(api.chains, 30_000)
   const nodes = React.useMemo(() => nodeData ?? [], [nodeData])
+  const chains = React.useMemo(() => chainData ?? [], [chainData])
   const targetLabel = useTargetLabel(nodes)
   const summary = useListSummary()
   const [confirm, confirmDialog] = useConfirm()
@@ -64,6 +68,20 @@ export default function RoutingPage() {
     rule: RouteRule | null
   } | null>(null)
   const [ruleOpen, setRuleOpen] = React.useState(false)
+  // Which chain's rules are on screen; null shows every rule. A chain card
+  // links here as #chain-<id> so its filters open straight away.
+  const [scopeFilter, setScopeFilter] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    const onHash = () => {
+      const m = /^#chain-(\d+)$/.exec(window.location.hash)
+      if (m) setScopeFilter(Number(m[1]))
+      history.replaceState(null, "", window.location.pathname)
+    }
+    onHash()
+    window.addEventListener("hashchange", onHash)
+    return () => window.removeEventListener("hashchange", onHash)
+  }, [])
   // Where all other traffic goes is chosen first and saved after: picking
   // an item in a list must not reroute everybody at once.
   const [pending, setPending] = React.useState<RouteTarget | null>(null)
@@ -94,21 +112,28 @@ export default function RoutingPage() {
   }
 
   const rules = routing.rules
+  const visibleRules = scopeFilter == null ? rules : rules.filter((r) => r.chainId === scopeFilter)
   const listById = new Map(routing.lists.map((l) => [l.id, l]))
-  const move = (index: number, by: number) => {
+  // Ordering is global, so a filtered view still moves the rule among all of them.
+  const move = (ruleId: number, by: number) => {
     const ids = rules.map((r) => r.id)
-    const [id] = ids.splice(index, 1)
-    ids.splice(index + by, 0, id)
+    const i = ids.indexOf(ruleId)
+    if (i < 0 || i + by < 0 || i + by >= ids.length) return
+    const [id] = ids.splice(i, 1)
+    ids.splice(i + by, 0, id)
     act(() => api.orderRouteRules(ids))
   }
   const hasExits = nodes.some((n) => n.isExit)
+  const showScope = chains.length > 0 || rules.some((r) => r.chainId != null)
   const chosen = pending ?? routing.default
   const changed = targetValue(chosen) !== targetValue(routing.default)
 
   // The parts of a rule, laid out as a table row on a wide screen and as
   // a card on a phone.
-  const ruleParts = (rule: RouteRule, i: number) => {
+  const ruleParts = (rule: RouteRule) => {
+    const i = rules.indexOf(rule)
     const list = listById.get(rule.listId)
+    const chain = rule.chainId != null ? chains.find((c) => c.id === rule.chainId) : undefined
     return {
       what: (
         <div className="grid min-w-0">
@@ -142,6 +167,22 @@ export default function RoutingPage() {
             ))}
         </div>
       ),
+      scope:
+        rule.chainId != null ? (
+          chain ? (
+            <Badge variant="outline" className="gap-1.5 px-1.5 text-muted-foreground">
+              <span
+                className="size-2 shrink-0 rounded-full bg-foreground"
+                style={chain.color ? { backgroundColor: chain.color } : undefined}
+              />
+              <span>{chain.name}</span>
+            </Badge>
+          ) : (
+            <StatusBadge tone="error">{t("routing.rule.scope.missing")}</StatusBadge>
+          )
+        ) : (
+          <span className="text-muted-foreground">{t("routing.rule.scope.global")}</span>
+        ),
       target: (
         <div className="flex flex-wrap items-center gap-2">
           {targetLabel(rule)}
@@ -158,6 +199,7 @@ export default function RoutingPage() {
               api.updateRouteRule(rule.id, {
                 action: rule.action,
                 nodeId: rule.nodeId,
+                chainId: rule.chainId,
                 listId: rule.listId,
                 enabled,
               })
@@ -169,7 +211,7 @@ export default function RoutingPage() {
         <>
           {canEdit && (
             <div className="flex justify-end">
-              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" disabled={i === 0} onClick={() => move(i, -1)}>
+              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" disabled={i === 0} onClick={() => move(rule.id, -1)}>
                 <ArrowUpIcon />
                 <span className="sr-only">{t("routing.rules.moveUp")}</span>
               </Button>
@@ -178,7 +220,7 @@ export default function RoutingPage() {
                 size="icon"
                 className="size-8 text-muted-foreground"
                 disabled={i === rules.length - 1}
-                onClick={() => move(i, 1)}
+                onClick={() => move(rule.id, 1)}
               >
                 <ArrowDownIcon />
                 <span className="sr-only">{t("routing.rules.moveDown")}</span>
@@ -282,14 +324,38 @@ export default function RoutingPage() {
             </CardAction>
           )}
         </CardHeader>
-        <CardContent>
-          {rules.length === 0 ? (
+        <CardContent className="grid gap-3">
+          {chains.length > 0 && (
+            <div className="grid gap-1.5">
+              <Tabs
+                value={scopeFilter == null ? "all" : String(scopeFilter)}
+                onValueChange={(v) => setScopeFilter(v === "all" ? null : Number(v))}
+              >
+                <TabsList className="flex-wrap">
+                  <TabsTrigger value="all">{t("routing.rules.filter.all")}</TabsTrigger>
+                  {chains.map((c) => (
+                    <TabsTrigger key={c.id} value={String(c.id)}>
+                      <span
+                        className="size-2 shrink-0 rounded-full bg-foreground"
+                        style={c.color ? { backgroundColor: c.color } : undefined}
+                      />
+                      <span>{c.name}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              {scopeFilter != null && (
+                <p className="text-xs text-muted-foreground">{t("chains.stage.filterHint")}</p>
+              )}
+            </div>
+          )}
+          {visibleRules.length === 0 ? (
             <Empty className="border">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <SplitIcon />
                 </EmptyMedia>
-                <EmptyTitle>{t("routing.rules.empty")}</EmptyTitle>
+                <EmptyTitle>{scopeFilter != null ? t("routing.rules.noneForScope") : t("routing.rules.empty")}</EmptyTitle>
                 <EmptyDescription>{t("routing.rules.emptyText")}</EmptyDescription>
               </EmptyHeader>
               {canEdit && (
@@ -303,8 +369,8 @@ export default function RoutingPage() {
             </Empty>
           ) : isMobile ? (
             <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
-              {rules.map((rule, i) => {
-                const part = ruleParts(rule, i)
+              {visibleRules.map((rule) => {
+                const part = ruleParts(rule)
                 return (
                   <div
                     key={rule.id}
@@ -317,15 +383,26 @@ export default function RoutingPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 gap-3">
-                        <span className="pt-0.5 text-muted-foreground tabular-nums">{i + 1}</span>
+                        <span className="pt-0.5 text-muted-foreground tabular-nums">{rules.indexOf(rule) + 1}</span>
                         {part.what}
                       </div>
                       <div className="-mt-1 -mr-2 shrink-0">{part.controls}</div>
                     </div>
-                    <div className="flex items-center justify-between gap-3 pl-6">
-                      {part.target}
-                      {part.toggle}
-                    </div>
+                    {showScope ? (
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 pl-6">
+                        <dt className="text-muted-foreground">{t("routing.rule.scope")}</dt>
+                        <dd className="flex min-w-0 justify-end text-right">{part.scope}</dd>
+                        <dt className="text-muted-foreground">{t("routing.rules.col.target")}</dt>
+                        <dd className="flex min-w-0 justify-end text-right">{part.target}</dd>
+                        <dt className="text-muted-foreground">{t("routing.rules.col.enabled")}</dt>
+                        <dd className="flex min-w-0 justify-end text-right">{part.toggle}</dd>
+                      </dl>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3 pl-6">
+                        {part.target}
+                        {part.toggle}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -337,18 +414,20 @@ export default function RoutingPage() {
                   <TableRow>
                     <TableHead className="w-10" />
                     <TableHead>{t("routing.rules.col.what")}</TableHead>
+                    {showScope && <TableHead>{t("routing.rule.scope")}</TableHead>}
                     <TableHead>{t("routing.rules.col.target")}</TableHead>
                     <TableHead className="w-16">{t("routing.rules.col.enabled")}</TableHead>
                     <TableHead className="w-24" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rules.map((rule, i) => {
-                    const part = ruleParts(rule, i)
+                  {visibleRules.map((rule) => {
+                    const part = ruleParts(rule)
                     return (
                       <TableRow key={rule.id} className={rule.enabled ? undefined : "text-muted-foreground"}>
-                        <TableCell className="text-muted-foreground tabular-nums">{i + 1}</TableCell>
+                        <TableCell className="text-muted-foreground tabular-nums">{rules.indexOf(rule) + 1}</TableCell>
                         <TableCell>{part.what}</TableCell>
+                        {showScope && <TableCell>{part.scope}</TableCell>}
                         <TableCell>{part.target}</TableCell>
                         <TableCell>{part.toggle}</TableCell>
                         <TableCell>{part.controls}</TableCell>
@@ -370,6 +449,8 @@ export default function RoutingPage() {
           rule={ruleDrawer.rule}
           list={ruleDrawer.rule ? (listById.get(ruleDrawer.rule.listId) ?? null) : null}
           nodes={nodes}
+          chains={chains}
+          initialScope={scopeFilter ?? 0}
           onSaved={reload}
         />
       )}

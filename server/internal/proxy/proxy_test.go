@@ -82,7 +82,7 @@ func TestServerConfig(t *testing.T) {
 }
 
 func TestClientProfile(t *testing.T) {
-	cfg, err := ClientProfile([]EntryPoint{{Host: "203.0.113.10", Inbounds: testInbounds(t)}}, testClients[0])
+	cfg, err := ClientProfile(testClients[0], []ProfileServer{{Host: "203.0.113.10", Inbound: testInbounds(t)[0], UUID: testClients[0].UUID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,11 @@ func TestClientProfile(t *testing.T) {
 func TestClientProfileUniqueTags(t *testing.T) {
 	ins := testInbounds(t)
 	ins[0].Name, ins[1].Name, ins[2].Name = "Main", "Main", "proxy"
-	cfg, err := ClientProfile([]EntryPoint{{Host: "203.0.113.10", Inbounds: ins}, {Host: "203.0.113.11", Inbounds: ins}}, testClients[0])
+	cfg, err := ClientProfile(testClients[0], []ProfileServer{
+		{Host: "203.0.113.10", Inbound: ins[0], UUID: testClients[0].UUID},
+		{Host: "203.0.113.10", Inbound: ins[1], UUID: testClients[0].UUID},
+		{Host: "203.0.113.11", Inbound: ins[2], UUID: testClients[0].UUID, Label: "AMS"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

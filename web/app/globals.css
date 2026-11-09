@@ -200,15 +200,21 @@
 .leaflet-tooltip.portunus-map-label::before {
   display: none;
 }
-.portunus-map-link {
-  stroke: var(--foreground);
-  stroke-width: 1.5;
-  stroke-opacity: 0.45;
+.portunus-map-chain {
+  /* A chain's own color, when it has one; otherwise the panel foreground. */
+  stroke: var(--chain-stroke, var(--foreground));
+  stroke-width: 2;
+  stroke-opacity: 0.7;
   fill: none;
 }
-.portunus-map-link-idle {
-  stroke-dasharray: 4 5;
-  stroke-opacity: 0.3;
+.portunus-map-chain-draft {
+  stroke-dasharray: 6 6;
+  stroke-opacity: 0.5;
+}
+/* A link that cannot carry traffic now: one of the servers on it is down. */
+.portunus-map-chain-blocked {
+  stroke-width: 1;
+  stroke-opacity: 0.2;
 }
 /* The land of the built-in map: one canvas under everything Leaflet draws. */
 .portunus-map-world {

@@ -179,21 +179,30 @@ func validListDomain(d string) bool {
 }
 
 // RouteRule sends what List matches to Action (and Exit, for RouteNode).
+// Users, when set, limits the rule to those clients: a rule written for one
+// chain is sent only to the credentials of that chain's clients.
 type RouteRule struct {
 	List   RouteList
 	Action string
 	ExitID int64
+	Users  []string
 }
 
 // Binding ties clients to the exit their traffic leaves through under
 // RouteAuto. One client keeps one exit, on every server it may enter
-// through, so the address sites see for it stays the same.
+// through, so the address sites see for it stays the same. A client bound
+// to a chain instead is bound to its next hop (Outbound), which plays the
+// part of the exit.
 type Binding struct {
 	ExitID int64
 	// Users are the clients' names inside sing-box (Client.UserName).
 	Users []string
 	// Local: this server is that exit, so the traffic simply leaves here.
 	Local bool
+	// Outbound, when set, is the tag to route through instead of the
+	// exit's own: a chain hop (ClinkTag). It takes the place of
+	// ExitTag(ExitID) in target; ExitID is then unused.
+	Outbound string
 }
 
 // Routing is everything that decides where traffic leaves.
@@ -209,6 +218,12 @@ type Routing struct {
 	// Bindings say which exit RouteAuto means for which client. A client
 	// in none of them is refused there.
 	Bindings []Binding
+	// Links are chain hops that end on this server; the traffic arriving
+	// through one leaves through its Next (see ChainLink).
+	Links []ChainLink
+	// ChainOutbounds are the outbounds those hops and the clients bound to
+	// chains leave through, tagged already (ClinkTag).
+	ChainOutbounds []any
 	// ControlAPI, when set, enables sing-box's local control API (used to
 	// read exit latency); ControlSecret protects it.
 	ControlAPI    string
@@ -216,6 +231,20 @@ type Routing struct {
 	// hop: this server also accepts traffic from the other servers (it is
 	// an exit). Set by NodeConfig.
 	hop bool
+}
+
+// intersect keeps the names both lists hold, in the order of the first.
+func intersect(a, b []string) []string {
+	var out []string
+	for _, x := range a {
+		for _, y := range b {
+			if x == y {
+				out = append(out, x)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // rejectTag marks a destination that must not be served: an exit that no
@@ -279,7 +308,23 @@ func (r Routing) apply(cfg obj) {
 		ob["tag"] = ExitTag(e.ID)
 		outbounds = append(outbounds, ob)
 	}
+	outbounds = append(outbounds, r.ChainOutbounds...)
 	cfg["outbounds"] = outbounds
+
+	// known holds every outbound tag this configuration has; rules that
+	// point elsewhere fail closed (see target and ChainLink.Next).
+	known := make(map[string]bool, len(r.Exits)+len(r.ChainOutbounds)+1)
+	known["direct"] = true
+	for _, e := range r.Exits {
+		known[ExitTag(e.ID)] = true
+	}
+	for _, o := range r.ChainOutbounds {
+		if m, ok := o.(map[string]any); ok {
+			if t, ok := m["tag"].(string); ok {
+				known[t] = true
+			}
+		}
+	}
 
 	var (
 		sets      []any
@@ -301,6 +346,23 @@ func (r Routing) apply(cfg obj) {
 			hop(obj{"action": "resolve"}),
 			hop(obj{"ip_is_private": true, "action": "reject"}),
 			hop(obj{"action": "route", "outbound": "direct"}),
+		)
+	}
+	for _, l := range r.Links {
+		// What the previous node of a chain sent here was routed where it
+		// entered: this hop only has to carry it on, or let it leave.
+		link := func(o obj) obj {
+			o["inbound"] = []string{LinkTag(l.ID)}
+			return o
+		}
+		next := l.Next
+		if !known[next] {
+			next = rejectTag
+		}
+		rules = append(rules,
+			link(obj{"action": "resolve"}),
+			link(obj{"ip_is_private": true, "action": "reject"}),
+			routeAction(link(obj{}), next),
 		)
 	}
 	for _, rule := range r.Rules {
@@ -336,6 +398,14 @@ func (r Routing) apply(cfg obj) {
 		}
 	}
 
+	// scoped gives a match the clients a rule is meant for, when it is not
+	// meant for all of them.
+	scoped := func(m obj, users []string) obj {
+		if len(users) > 0 {
+			m["auth_user"] = users
+		}
+		return m
+	}
 	// notDirect narrows a match to what nothing earlier claimed for leaving
 	// directly: that is decided after resolving, in the second pass.
 	notDirect := func(match obj) obj {
@@ -353,19 +423,28 @@ func (r Routing) apply(cfg obj) {
 	// refuses it for clients without one. Before resolving (early), clients
 	// whose exit is this very server are left for the second pass: their
 	// traffic leaves directly, so it has to be resolved and guarded first.
-	bound := func(match func() obj, early bool) {
+	// only, when set, narrows it to the clients of one chain.
+	bound := func(match func() obj, early bool, only []string) {
 		var local []any
 		for _, b := range r.Bindings {
-			if len(b.Users) == 0 {
+			users := b.Users
+			if len(only) > 0 {
+				users = intersect(users, only)
+				if len(users) == 0 {
+					continue
+				}
+			}
+			if len(users) == 0 {
 				continue
 			}
 			m := match()
-			m["auth_user"] = b.Users
+			m["auth_user"] = users
+			out := b.outbound(r, known)
 			switch {
 			case !b.Local && early:
-				rules = append(rules, routeAction(notDirect(m), r.target(RouteNode, b.ExitID)))
+				rules = append(rules, routeAction(notDirect(m), out))
 			case !b.Local:
-				rules = append(rules, routeAction(m, r.target(RouteNode, b.ExitID)))
+				rules = append(rules, routeAction(m, out))
 			case early:
 				m["invert"] = true
 				local = append(local, m)
@@ -382,12 +461,19 @@ func (r Routing) apply(cfg obj) {
 		set := func() obj { return obj{"rule_set": []string{rule.List.tag()}} }
 		switch out := r.target(rule.Action, rule.ExitID); out {
 		case "direct":
-			direct = append(direct, rule.List.tag())
+			if len(rule.Users) == 0 {
+				direct = append(direct, rule.List.tag())
+			} else {
+				// A chain's own exception: only its clients leave for these
+				// destinations directly, so hold them back from the rules
+				// below until addresses are known.
+				claims = append(claims, obj{"auth_user": rule.Users, "rule_set": []string{rule.List.tag()}, "invert": true})
+			}
 		case boundTag:
-			bound(set, true)
-			rules = append(rules, routeAction(notDirect(set()), rejectTag))
+			bound(set, true, rule.Users)
+			rules = append(rules, routeAction(notDirect(scoped(set(), rule.Users)), rejectTag))
 		default:
-			rules = append(rules, routeAction(notDirect(set()), out))
+			rules = append(rules, routeAction(notDirect(scoped(set(), rule.Users)), out))
 		}
 	}
 
@@ -397,7 +483,7 @@ func (r Routing) apply(cfg obj) {
 		// needs an address: do not resolve it here.
 		switch {
 		case final == boundTag:
-			bound(everything, true)
+			bound(everything, true, nil)
 			rules = append(rules, routeAction(notDirect(everything()), rejectTag))
 		case len(claims) > 0:
 			rules = append(rules, routeAction(notDirect(everything()), final))
@@ -422,13 +508,13 @@ func (r Routing) apply(cfg obj) {
 		set := func() obj { return obj{"rule_set": []string{rule.List.tag()}} }
 		out := r.target(rule.Action, rule.ExitID)
 		if out == boundTag {
-			bound(set, false)
+			bound(set, false, rule.Users)
 			out = rejectTag
 		}
-		rules = append(rules, routeAction(set(), out))
+		rules = append(rules, routeAction(scoped(set(), rule.Users), out))
 	}
 	if final == boundTag {
-		bound(everything, false)
+		bound(everything, false, nil)
 		final = rejectTag
 	}
 	if final == rejectTag {
@@ -454,6 +540,66 @@ func (r Routing) apply(cfg obj) {
 		}
 		exp["clash_api"] = obj{"external_controller": r.ControlAPI, "secret": r.ControlSecret}
 	}
+}
+
+// ChainLink is one hop of a chain that ends on this server: a VLESS +
+// REALITY inbound on it with a single user, and the outbound (Next) the
+// traffic leaves through next. It looks like TLS to a real site, the same
+// as a client connection.
+type ChainLink struct {
+	ID       int64
+	Port     int
+	Settings Settings
+	Secret   Secret
+	UUID     string
+	// Next is the outbound tag of the following hop (ClinkTag), or
+	// "direct" when this link ends the chain.
+	Next string
+}
+
+// NewChainLink generates the material of a chain hop on port.
+func NewChainLink(port int, realityServer string) (ChainLink, error) {
+	set, sec, err := Provision(VLESS, ProvisionOptions{RealityServer: realityServer})
+	if err != nil {
+		return ChainLink{}, err
+	}
+	return ChainLink{Port: port, Settings: set, Secret: sec, UUID: NewUUID()}, nil
+}
+
+// LinkTag is the inbound tag of a chain hop.
+func LinkTag(id int64) string { return fmt.Sprintf("hop-%d", id) }
+
+// ClinkTag is the outbound tag of a chain hop as seen from the node that
+// sends traffic through it.
+func ClinkTag(id int64) string { return fmt.Sprintf("clink-%d", id) }
+
+func (l ChainLink) inbound() Inbound {
+	return Inbound{Tag: LinkTag(l.ID), Protocol: VLESS, Port: l.Port, Enabled: true, Settings: l.Settings, Secret: l.Secret}
+}
+
+// client is the single user of the hop's inbound; it counts no traffic.
+func (l ChainLink) client() Client { return Client{ID: 0, Name: "chain", UUID: l.UUID} }
+
+// Outbound is how the previous node reaches this one at address.
+func (l ChainLink) Outbound(address string) map[string]any {
+	ob := ClientOutbound(address, l.inbound(), l.client())
+	delete(ob, "tag")
+	// UDP (QUIC, DNS, calls) through the TCP hop.
+	ob["packet_encoding"] = "xudp"
+	return ob
+}
+
+// outbound is the tag a binding routes through: its own override (a chain
+// hop) or the exit's. A chain hop that no longer exists refuses the traffic
+// instead of sending it out directly.
+func (b Binding) outbound(r Routing, known map[string]bool) string {
+	if b.Outbound != "" {
+		if !known[b.Outbound] {
+			return rejectTag
+		}
+		return b.Outbound
+	}
+	return r.target(RouteNode, b.ExitID)
 }
 
 // HopSettings and HopSecret describe the link from the panel's servers to

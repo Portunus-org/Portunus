@@ -387,11 +387,14 @@ func (c *Core) listClient() *http.Client {
 
 // ------------------------------------------------------------------ rules
 
-// RouteRuleInput is one rule as the operator sets it.
+// RouteRuleInput is one rule as the operator sets it. ChainID, when set,
+// scopes the rule to one chain: it is served at that chain's entry points
+// only, for that chain's clients.
 type RouteRuleInput struct {
 	ListID  int64
 	Action  string
 	NodeID  *int64
+	ChainID int64
 	Enabled bool
 }
 
@@ -412,6 +415,20 @@ func (c *Core) validateRouteTarget(ctx context.Context, action string, nodeID *i
 	return invalid("action", "unsupported")
 }
 
+func (c *Core) validateRouteChain(ctx context.Context, chainID int64) error {
+	if chainID == 0 {
+		return nil
+	}
+	chains, err := c.Chains(ctx)
+	if err != nil {
+		return err
+	}
+	if _, ok := chainByID(chains, chainID); !ok {
+		return invalid("chain", "required")
+	}
+	return nil
+}
+
 func (c *Core) RouteRules(ctx context.Context) ([]*store.RouteRuleRow, error) {
 	return c.store.ListRouteRules(ctx)
 }
@@ -426,7 +443,10 @@ func (c *Core) CreateRouteRule(ctx context.Context, in RouteRuleInput) (*store.R
 	if in.Action != proxy.RouteNode {
 		in.NodeID = nil
 	}
-	row := &store.RouteRuleRow{ListID: in.ListID, Action: in.Action, NodeID: in.NodeID, Enabled: in.Enabled}
+	if err := c.validateRouteChain(ctx, in.ChainID); err != nil {
+		return nil, err
+	}
+	row := &store.RouteRuleRow{ListID: in.ListID, Action: in.Action, NodeID: in.NodeID, ChainID: in.ChainID, Enabled: in.Enabled}
 	if err := c.store.CreateRouteRule(ctx, row); err != nil {
 		return nil, err
 	}
@@ -444,7 +464,10 @@ func (c *Core) UpdateRouteRule(ctx context.Context, id int64, in RouteRuleInput)
 	if in.Action != proxy.RouteNode {
 		in.NodeID = nil
 	}
-	if err := c.store.UpdateRouteRule(ctx, &store.RouteRuleRow{ID: id, ListID: in.ListID, Action: in.Action, NodeID: in.NodeID, Enabled: in.Enabled}); err != nil {
+	if err := c.validateRouteChain(ctx, in.ChainID); err != nil {
+		return err
+	}
+	if err := c.store.UpdateRouteRule(ctx, &store.RouteRuleRow{ID: id, ListID: in.ListID, Action: in.Action, NodeID: in.NodeID, ChainID: in.ChainID, Enabled: in.Enabled}); err != nil {
 		return err
 	}
 	c.Reconcile(ctx)
@@ -587,6 +610,7 @@ func (c *Core) routing(ctx context.Context, self int64) (proxy.Routing, error) {
 		}
 		return action, node
 	}
+	var scoped map[int64][]string
 	for _, rule := range rules {
 		if !rule.Enabled {
 			continue
@@ -596,11 +620,40 @@ func (c *Core) routing(ctx context.Context, self int64) (proxy.Routing, error) {
 			node = *rule.NodeID
 		}
 		action, node := local(rule.Action, node)
-		r.Rules = append(r.Rules, proxy.RouteRule{List: parsed[rule.ListID], Action: action, ExitID: node})
+		pRule := proxy.RouteRule{List: parsed[rule.ListID], Action: action, ExitID: node}
+		if rule.ChainID != 0 {
+			// A chain-scoped rule is served at the chain's entry points only,
+			// for that chain's clients' credentials.
+			if scoped == nil {
+				var err error
+				scoped, err = c.chainEntryNames(ctx, self)
+				if err != nil {
+					return r, err
+				}
+			}
+			names := scoped[rule.ChainID]
+			if len(names) == 0 {
+				continue // not an entry of that chain, or no one rides it
+			}
+			pRule.Users = names
+		}
+		r.Rules = append(r.Rules, pRule)
 	}
 	r.Default, r.DefaultExit = local(c.DefaultRoute(ctx))
 	if self == 0 {
 		r.ControlAPI, r.ControlSecret = c.controlAPI, c.controlSecret()
 	}
+	// The chain part: hops that end here, outbounds the traffic leaves
+	// through, and the clients bound to chains. Entry points serve client
+	// inbounds; so does the main server.
+	links, outbounds, chainBindings, err := c.chainRouting(ctx, self)
+	if err != nil {
+		return r, err
+	}
+	r.Links = links
+	for _, o := range outbounds {
+		r.ChainOutbounds = append(r.ChainOutbounds, o)
+	}
+	r.Bindings = append(r.Bindings, chainBindings...)
 	return r, nil
 }

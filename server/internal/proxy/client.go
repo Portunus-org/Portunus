@@ -173,74 +173,80 @@ func ClientOutbound(host string, in Inbound, c Client) obj {
 	return o
 }
 
-const urlTestURL = "https://www.gstatic.com/generate_204"
+// URLTestURL is the probe every auto group checks: a tiny request that
+// costs nothing and answers from most networks.
+const URLTestURL = "https://www.gstatic.com/generate_204"
 
-// EntryPoint is a server clients connect to, with the inbounds as they are
-// served there (a backup entry has its own certificates and labels).
-type EntryPoint struct {
-	Host     string
-	Inbounds []Inbound
+// ProfileServer is one server a client can connect to in a sing-box profile:
+// where to enter, with which credential, and what it is called.
+type ProfileServer struct {
+	Host    string
+	Inbound Inbound
+	// UUID is the credential of this connection; password-only protocols use
+	// the client's password instead.
+	UUID  string
+	Label string // shown to the user ("HEL", "SPB → HEL")
 }
 
 // ClientProfile renders a complete sing-box client configuration: a TUN
-// inbound, one outbound per server inbound, an `auto` urltest group that
-// picks the fastest live one (client-side failover), and a `proxy` selector
-// for manual choice.
-//
-// points are the servers the client can enter through: the main one first,
-// then backup entry points. All of them go into `auto`, so a client moves to
-// a backup by itself when the main server stops answering.
-func ClientProfile(points []EntryPoint, c Client) ([]byte, error) {
+// inbound, one outbound per server, a urltest group that picks the fastest
+// live connection (client-side failover), and a `proxy` selector for manual
+// choice. With one server it is exactly the classic profile.
+func ClientProfile(c Client, servers []ProfileServer) ([]byte, error) {
 	var (
 		tags      []string
 		outbounds []any
+		groups    []any
 		used      = map[string]bool{"proxy": true, "auto": true, "direct": true, "remote": true, "local": true}
 	)
-	for _, pt := range points {
-		for _, in := range pt.Inbounds {
-			if !in.Enabled {
-				continue
-			}
-			ob := ClientOutbound(pt.Host, in, c)
-			// Tags must be unique in a sing-box config, but inbound names are
-			// free text: two may match, or collide with the group tags below.
-			tag := ob["tag"].(string)
-			for n := 2; used[tag]; n++ {
-				tag = fmt.Sprintf("%s %d", ob["tag"], n)
-			}
-			used[tag] = true
-			ob["tag"] = tag
-			tags = append(tags, tag)
-			outbounds = append(outbounds, ob)
+	for _, s := range servers {
+		in := s.Inbound
+		if !in.Enabled {
+			continue
 		}
+		ob := ClientOutbound(s.Host, in, Client{ID: c.ID, Name: c.Name, UUID: s.UUID, Password: c.Password})
+		// Tags must be unique in a sing-box config, but inbound names are free
+		// text: two may match, or collide with the group tags below.
+		tag := ob["tag"].(string)
+		for n := 2; used[tag]; n++ {
+			tag = fmt.Sprintf("%s %d", ob["tag"], n)
+		}
+		used[tag] = true
+		ob["tag"] = tag
+		tags = append(tags, tag)
+		outbounds = append(outbounds, ob)
 	}
-
-	groups := []any{
-		obj{
-			"type":      "selector",
-			"tag":       "proxy",
-			"outbounds": append([]string{"auto"}, tags...),
-			"default":   "auto",
-		},
-		obj{
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("no servers to render")
+	}
+	selector := tags
+	defaultTag := tags[0]
+	if len(tags) > 1 {
+		groups = append(groups, obj{
 			"type":      "urltest",
 			"tag":       "auto",
 			"outbounds": tags,
-			"url":       urlTestURL,
-			// How soon a dead entry point is noticed: with backup entries
-			// this is how long a client is offline when the main server
-			// goes down. A check is one tiny request per entry.
+			"url":       URLTestURL,
+			// How soon a dead connection is noticed. A check is one tiny
+			// request per server.
 			"interval": "30s",
-			// Stay on the entry in use for as long as it answers, however
-			// fast the others are: what leaves an entry directly carries its
-			// address, and that should not change without need. The first
-			// entry, the main server, is where a client starts.
+			// Stay on the connection in use for as long as it answers, however
+			// fast the others are: what leaves directly carries its address,
+			// and that should not change without need.
 			"tolerance": 5000,
-			// Connections stuck on the entry that died are dropped, so apps
+			// Connections stuck on a dead server are dropped, so apps
 			// reconnect through the new one at once.
 			"interrupt_exist_connections": true,
-		},
+		})
+		selector = append([]string{"auto"}, tags...)
+		defaultTag = "auto"
 	}
+	groups = append([]any{obj{
+		"type":      "selector",
+		"tag":       "proxy",
+		"outbounds": selector,
+		"default":   defaultTag,
+	}}, groups...)
 	outbounds = append(groups, outbounds...)
 	outbounds = append(outbounds, obj{"type": "direct", "tag": "direct"})
 
