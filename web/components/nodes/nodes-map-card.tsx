@@ -141,7 +141,7 @@ function sinksOf(edges: ChainEdgeDraft[]): number[] {
   const inn = new Set<number>()
   for (const e of edges) {
     out.add(e.from)
-    if (e.to !== 0) inn.add(e.to)
+    inn.add(e.to)
   }
   return [...inn].filter((id) => !out.has(id)).sort((a, b) => a - b)
 }
@@ -152,9 +152,37 @@ function relaysOf(edges: ChainEdgeDraft[]): number[] {
   const inn = new Set<number>()
   for (const e of edges) {
     if (e.from !== 0) out.add(e.from)
-    if (e.to !== 0) inn.add(e.to)
+    inn.add(e.to)
   }
   return [...out].filter((id) => inn.has(id)).sort((a, b) => a - b)
+}
+
+function hasCycleDraft(edges: ChainEdgeDraft[]): boolean {
+  const adj = new Map<number, number[]>()
+  for (const e of edges) {
+    adj.set(e.from, [...(adj.get(e.from) ?? []), e.to])
+  }
+  const visited = new Set<number>()
+  const inStack = new Set<number>()
+  function dfs(u: number): boolean {
+    visited.add(u)
+    inStack.add(u)
+    for (const v of adj.get(u) ?? []) {
+      if (!visited.has(v)) {
+        if (dfs(v)) return true
+      } else if (inStack.has(v)) {
+        return true
+      }
+    }
+    inStack.delete(u)
+    return false
+  }
+  for (const k of adj.keys()) {
+    if (!visited.has(k)) {
+      if (dfs(k)) return true
+    }
+  }
+  return false
 }
 
 function pointToNodeId(id: string): number | null {
@@ -283,11 +311,6 @@ export function NodesMapCard({
       setFrom(null)
       return
     }
-    if (b === 0) {
-      setError(t("chains.error.toMain"))
-      setFrom(null)
-      return
-    }
     if (a > 0 && byId.get(a)?.kind === "link") {
       setError(t("chains.linkSource"))
       setFrom(null)
@@ -300,6 +323,11 @@ export function NodesMapCard({
     }
     const exists = draft.edges.some((e) => e.from === a && e.to === b)
     const nextEdges = exists ? draft.edges : [...draft.edges, { from: a, to: b }]
+    if (hasCycleDraft(nextEdges)) {
+      setError(t("chains.error.cycle"))
+      setFrom(null)
+      return
+    }
     const nextSources = new Set(sourcesOf(nextEdges))
     let nextBackups = draft.backups.filter((id) => nextSources.has(id) && byId.get(id)?.isEntry)
     if (lineMode === "backup" && a > 0) {
@@ -423,11 +451,17 @@ export function NodesMapCard({
       const live = liveOf(c.edges, (id) => id === 0 || byId.get(id)?.status.state === "online")
       const srcs = sourcesOf(c.edges)
       if (c.edges.some((e) => e.from === 0)) srcs.push(0)
-      const primaryLive = srcs.some(
-        (s) => !c.backups.includes(s) && c.edges.some((e) => e.from === s && live.has(`${e.from}|${e.to}`))
-      )
+      const sinks = sinksOf(c.edges)
+      const mainDirect = sinks.includes(0) && srcs.length > 0 && srcs.every((s) => c.backups.includes(s))
+      if (mainDirect) srcs.push(0)
+      const primaryLive = mainDirect
+        ? true
+        : srcs.some(
+            (s) => !c.backups.includes(s) && c.edges.some((e) => e.from === s && live.has(`${e.from}|${e.to}`))
+          )
+      const hasPrimaryEdges = c.edges.some((e) => !c.backups.includes(e.from))
       for (const e of c.edges) {
-        if (primaryLive && c.backups.includes(e.from)) continue
+        if (hasPrimaryEdges && primaryLive && c.backups.includes(e.from)) continue
         const a = locOf(e.from)
         const b = locOf(e.to)
         if (!a || !b || (a[0] === b[0] && a[1] === b[1])) continue
@@ -450,7 +484,14 @@ export function NodesMapCard({
   const entryIds = React.useMemo(() => {
     if (!draft) return []
     const res: number[] = []
-    if (draft.edges.some((e) => e.from === 0)) res.push(0)
+    if (draft.edges.some((e) => e.from === 0)) {
+      res.push(0)
+    } else {
+      const sinks = sinksOf(draft.edges)
+      if (sinks.includes(0) && sources.length > 0 && sources.every((s) => draft.backups.includes(s))) {
+        res.push(0)
+      }
+    }
     for (const s of sources) res.push(s)
     return res
   }, [draft, sources])

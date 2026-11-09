@@ -428,3 +428,103 @@ func TestBoundExits(t *testing.T) {
 		})
 	}
 }
+
+// TestChainIntermediateHopNoResolve ensures that intermediate hops in a chain
+// forward traffic immediately to the next hop without local DNS resolution,
+// while exit sinks resolve and guard against private addresses.
+func TestChainIntermediateHopNoResolve(t *testing.T) {
+	hop1, err := NewHop(10443, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hop2, err := NewHop(10444, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	intermediateHop := ChainLink{ID: 10, Port: hop1.Port, Settings: hop1.Settings, Secret: hop1.Secret, UUID: hop1.UUID, Next: "clink-2"}
+	exitHop := ChainLink{ID: 20, Port: hop2.Port, Settings: hop2.Settings, Secret: hop2.Secret, UUID: hop2.UUID, Next: "direct"}
+
+	r := Routing{
+		Links:          []ChainLink{intermediateHop, exitHop},
+		ChainOutbounds: []any{map[string]any{"type": "direct", "tag": "clink-2"}},
+		Default:        RouteDirect,
+	}
+	cfg, err := ServerConfig(testInbounds(t), testClients, "127.0.0.1:2054", ACMEOptions{}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	singBoxCheck(t, cfg)
+	rules, _ := routeRules(t, cfg)
+
+	// Intermediate link 10 should route directly to clink-2 without resolve
+	for _, rule := range rules {
+		in, _ := rule["inbound"].([]any)
+		if len(in) == 1 && in[0] == LinkTag(10) {
+			if rule["action"] == "resolve" {
+				t.Fatalf("intermediate hop should not resolve DNS locally: %v", rule)
+			}
+			if rule["ip_is_private"] == true {
+				t.Fatalf("intermediate hop should not check private IPs: %v", rule)
+			}
+			if rule["action"] == "route" && rule["outbound"] != "clink-2" {
+				t.Fatalf("intermediate hop expected outbound clink-2, got: %v", rule)
+			}
+		}
+	}
+
+	// Exit link 20 should have resolve + private check before direct route
+	exitResolved := false
+	for _, rule := range rules {
+		in, _ := rule["inbound"].([]any)
+		if len(in) == 1 && in[0] == LinkTag(20) {
+			if rule["action"] == "resolve" {
+				exitResolved = true
+			}
+		}
+	}
+	if !exitResolved {
+		t.Fatal("exit hop must resolve before routing direct")
+	}
+}
+
+// TestChainBindingUnderDefaultDirect ensures that clients bound to a chain
+// have their traffic routed to the chain outbound even when Default is RouteDirect.
+func TestChainBindingUnderDefaultDirect(t *testing.T) {
+	r := Routing{
+		ChainOutbounds: []any{map[string]any{"type": "direct", "tag": "clink-1"}},
+		Bindings: []Binding{
+			{Users: []string{"c1"}, Outbound: "clink-1"},
+		},
+		Default: RouteDirect,
+	}
+	cfg, err := ServerConfig(testInbounds(t), testClients, "127.0.0.1:2054", ACMEOptions{}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	singBoxCheck(t, cfg)
+	rules, _ := routeRules(t, cfg)
+
+	resolveIdx := -1
+	routedC1Early := false
+	for i, rule := range rules {
+		if rule["action"] == "resolve" {
+			resolveIdx = i
+		}
+		users, _ := rule["auth_user"].([]any)
+		if len(users) == 0 {
+			if sub, ok := rule["rules"].([]any); ok {
+				users, _ = sub[len(sub)-1].(map[string]any)["auth_user"].([]any)
+			}
+		}
+		if rule["action"] == "route" && rule["outbound"] == "clink-1" {
+			for _, u := range users {
+				if u == "c1" && (resolveIdx == -1 || i < resolveIdx) {
+					routedC1Early = true
+				}
+			}
+		}
+	}
+	if !routedC1Early {
+		t.Fatalf("client c1 bound to chain was not routed to clink-1 before resolve: %v", rules)
+	}
+}

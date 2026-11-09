@@ -89,8 +89,11 @@ func TestChainValidation(t *testing.T) {
 	if _, err := c.CreateChain(ctx, ChainInput{Name: "x", Edges: []EdgeInput{{From: 0, To: 999999}}}); code(err) != "edges:unknown" {
 		t.Fatalf("unknown node: %v", err)
 	}
-	if _, err := c.CreateChain(ctx, ChainInput{Name: "x", Edges: []EdgeInput{{From: a, To: 0}}}); code(err) != "edges:unknown" {
-		t.Fatalf("edge into main: %v", err)
+	if _, err := c.CreateChain(ctx, ChainInput{Name: "x", Edges: []EdgeInput{{From: 0, To: 0}}}); code(err) != "edges:self_loop" {
+		t.Fatalf("self loop 0->0: %v", err)
+	}
+	if _, err := c.CreateChain(ctx, ChainInput{Name: "to-main", Edges: []EdgeInput{{From: a, To: 0}}}); err != nil {
+		t.Fatalf("edge into main must be valid: %v", err)
 	}
 	if _, err := c.CreateChain(ctx, ChainInput{Name: "x", Edges: []EdgeInput{{From: a, To: b}, {From: b, To: a}}}); code(err) != "edges:cycle" {
 		t.Fatalf("cycle: %v", err)
@@ -714,5 +717,176 @@ func TestChainConfigRendering(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config lacks %s", want)
 		}
+	}
+}
+
+// TestChainToMainServer verifies that an entry node can send traffic to the
+// main server as its exit (e.g. domestic VPS -> foreign main server).
+func TestChainToMainServer(t *testing.T) {
+	c, ids := newChainCore(t)
+	ctx := context.Background()
+	a := ids["a"] // entry agent
+
+	if err := c.SetPublicHost(ctx, "main.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateInbound(ctx, InboundInput{Protocol: "vless", Port: 443, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	nodeA, _ := c.Node(ctx, a)
+	nodeA.Settings.JoinedAt = &now
+	if err := c.saveNode(ctx, nodeA); err != nil {
+		t.Fatal(err)
+	}
+
+	ch, err := c.CreateChain(ctx, ChainInput{Name: "ToMain", Edges: []EdgeInput{{From: a, To: 0}}})
+	if err != nil {
+		t.Fatalf("create chain: %v", err)
+	}
+	edges := chainEdges(t, c, ch.ID)
+	if len(edges) != 1 || edges[0].FromNodeID != a || edges[0].ToNodeID != 0 {
+		t.Fatalf("unexpected edges: %+v", edges)
+	}
+	e := edges[0]
+
+	cl, err := c.CreateClient(ctx, ClientInput{Name: "c1", Enabled: true, Chain: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := proxy.Client{ID: cl.ID}.UserName()
+
+	// 1. Client links: should point to the entry node 'a'.
+	links, err := c.ClientLinks(ctx, &store.ClientRow{ID: cl.ID, UUID: cl.UUID, ChainID: &ch.ID})
+	if err != nil {
+		t.Fatalf("client links: %v", err)
+	}
+	if len(links) == 0 {
+		t.Fatal("no client links returned")
+	}
+	for _, l := range links {
+		if l.Host != "203.0.113.10" {
+			t.Fatalf("expected host 203.0.113.10, got %s", l.Host)
+		}
+	}
+
+	// 2. Routing on entry node 'a': should have an outbound to the main server,
+	// and the client should be bound to that outbound.
+	ra, err := c.routing(ctx, a)
+	if err != nil {
+		t.Fatalf("routing a: %v", err)
+	}
+	tag := proxy.ClinkTag(e.ID)
+	bound := false
+	for _, b := range ra.Bindings {
+		if len(b.Users) == 1 && b.Users[0] == user && b.Outbound == tag {
+			bound = true
+		}
+	}
+	if !bound {
+		t.Fatalf("entry node 'a' does not bind client to main hop: %+v", ra.Bindings)
+	}
+
+	// 3. Routing on main server (0): should have an incoming Link with Next == "direct".
+	r0, err := c.routing(ctx, 0)
+	if err != nil {
+		t.Fatalf("routing 0: %v", err)
+	}
+	foundLink := false
+	for _, l := range r0.Links {
+		if l.ID == e.ID {
+			foundLink = true
+			if l.Next != "direct" {
+				t.Fatalf("main link next = %q, want 'direct'", l.Next)
+			}
+		}
+	}
+	if !foundLink {
+		t.Fatalf("main server missing incoming link for edge %d: %+v", e.ID, r0.Links)
+	}
+}
+
+// TestChainBackupToMainServer verifies that when a chain has only backup entries
+// leading into the main server (Selectel --backup--> Main), the main server is
+// treated as the direct primary entry and also the exit.
+func TestChainBackupToMainServer(t *testing.T) {
+	c, ids := newChainCore(t)
+	ctx := context.Background()
+	a := ids["a"] // entry agent
+
+	if err := c.SetPublicHost(ctx, "main.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateInbound(ctx, InboundInput{Protocol: "vless", Port: 443, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	nodeA, _ := c.Node(ctx, a)
+	nodeA.Settings.JoinedAt = &now
+	if err := c.saveNode(ctx, nodeA); err != nil {
+		t.Fatal(err)
+	}
+
+	ch, err := c.CreateChain(ctx, ChainInput{
+		Name:    "BackupToMain",
+		Edges:   []EdgeInput{{From: a, To: 0}},
+		Backups: []int64{a},
+	})
+	if err != nil {
+		t.Fatalf("create chain: %v", err)
+	}
+
+	cl, err := c.CreateClient(ctx, ClientInput{Name: "c1", Enabled: true, Chain: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := proxy.Client{ID: cl.ID}.UserName()
+
+	// 1. Client links: should include both the main server (primary) and node 'a' (backup).
+	links, err := c.ClientLinks(ctx, &store.ClientRow{ID: cl.ID, UUID: cl.UUID, ChainID: &ch.ID})
+	if err != nil {
+		t.Fatalf("client links: %v", err)
+	}
+	if len(links) < 2 {
+		t.Fatalf("expected at least 2 links (main + backup), got %d: %+v", len(links), links)
+	}
+	hasMain := false
+	hasBackup := false
+	for _, l := range links {
+		if l.Host == "main.example.com" {
+			hasMain = true
+		}
+		if l.Host == "203.0.113.10" {
+			hasBackup = true
+		}
+	}
+	if !hasMain || !hasBackup {
+		t.Fatalf("expected both main and backup hosts, got %+v", links)
+	}
+
+	// 2. Routing on main server (0): client is bound locally (traffic leaves directly).
+	r0, err := c.routing(ctx, 0)
+	if err != nil {
+		t.Fatalf("routing 0: %v", err)
+	}
+	if !boundLocal(r0, user) {
+		t.Fatalf("main server missing local binding for client: %+v", r0.Bindings)
+	}
+
+	// 3. Routing on node 'a': client is bound to the hop to main server.
+	ra, err := c.routing(ctx, a)
+	if err != nil {
+		t.Fatalf("routing a: %v", err)
+	}
+	e := chainEdges(t, c, ch.ID)[0]
+	tag := proxy.ClinkTag(e.ID)
+	bound := false
+	for _, b := range ra.Bindings {
+		if len(b.Users) == 1 && b.Users[0] == user && b.Outbound == tag {
+			bound = true
+		}
+	}
+	if !bound {
+		t.Fatalf("entry node 'a' does not bind client to main hop: %+v", ra.Bindings)
 	}
 }

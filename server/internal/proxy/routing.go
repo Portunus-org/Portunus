@@ -359,11 +359,13 @@ func (r Routing) apply(cfg obj) {
 		if !known[next] {
 			next = rejectTag
 		}
-		rules = append(rules,
-			link(obj{"action": "resolve"}),
-			link(obj{"ip_is_private": true, "action": "reject"}),
-			routeAction(link(obj{}), next),
-		)
+		if next == "direct" {
+			rules = append(rules,
+				link(obj{"action": "resolve"}),
+				link(obj{"ip_is_private": true, "action": "reject"}),
+			)
+		}
+		rules = append(rules, routeAction(link(obj{}), next))
 	}
 	for _, rule := range r.Rules {
 		if rule.List.Empty() {
@@ -477,7 +479,37 @@ func (r Routing) apply(cfg obj) {
 		}
 	}
 
+	// chainBound routes clients bound to a chain (ExitID == 0) through their
+	// chain even when the global default route is not RouteAuto (for instance,
+	// when the panel has no standalone exit nodes and Default is "direct").
+	chainBound := func(early bool) {
+		var local []any
+		for _, b := range r.Bindings {
+			if b.ExitID != 0 || len(b.Users) == 0 {
+				continue
+			}
+			m := everything()
+			m["auth_user"] = b.Users
+			out := b.outbound(r, known)
+			switch {
+			case !b.Local && early:
+				rules = append(rules, routeAction(notDirect(m), out))
+			case !b.Local:
+				rules = append(rules, routeAction(m, out))
+			case early:
+				m["invert"] = true
+				local = append(local, m)
+			default:
+				rules = append(rules, routeAction(m, "direct"))
+			}
+		}
+		claims = append(claims, local...)
+	}
+
 	final := r.target(r.Default, r.DefaultExit)
+	if final != boundTag && !needsAddr {
+		chainBound(true)
+	}
 	if final != "direct" && !needsAddr {
 		// Everything else leaves through an exit (or is refused) and no rule
 		// needs an address: do not resolve it here.
@@ -516,6 +548,8 @@ func (r Routing) apply(cfg obj) {
 	if final == boundTag {
 		bound(everything, false, nil)
 		final = rejectTag
+	} else {
+		chainBound(false)
 	}
 	if final == rejectTag {
 		rules = append(rules, obj{"network": []string{"tcp", "udp"}, "action": "reject"})

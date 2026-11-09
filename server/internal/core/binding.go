@@ -139,6 +139,9 @@ func (c *Core) bindClients(ctx context.Context) error {
 		nodeByID[n.ID] = n
 	}
 	unusable := func(id int64) bool {
+		if id == 0 {
+			return false
+		}
 		n, ok := nodeByID[id]
 		if !ok || !n.Enabled {
 			return true

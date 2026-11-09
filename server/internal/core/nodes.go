@@ -317,11 +317,16 @@ func (c *Core) CreateNode(ctx context.Context, in NodeInput) (Node, error) {
 }
 
 // hopCamouflage is the site hops between servers imitate: the one the
-// operator already chose for VLESS, if any.
+// operator already chose for VLESS, if any (excluding the panel's own domain,
+// which only works with the local panel loopback on the main server).
 func (c *Core) hopCamouflage(ctx context.Context) string {
+	pa, _ := c.PanelAccess(ctx)
 	ins, _ := c.Inbounds(ctx)
 	for _, in := range ins {
 		if in.Protocol == proxy.VLESS && in.Settings.RealityServer != "" {
+			if pa.Enabled && strings.EqualFold(in.Settings.RealityServer, pa.Domain) {
+				continue
+			}
 			return in.Settings.RealityServer
 		}
 	}
@@ -535,11 +540,20 @@ func (c *Core) entryInbounds(ctx context.Context, n *Node, inbounds []proxy.Inbo
 		changed bool
 		ca      *proxy.CA
 	)
+	pa, _ := c.PanelAccess(ctx)
 	for _, in := range inbounds {
 		if !in.Enabled {
 			continue
 		}
 		in.Name = in.Label() + " (" + n.Name + ")"
+		if in.Protocol == proxy.VLESS && pa.Enabled && strings.EqualFold(in.Settings.RealityServer, pa.Domain) {
+			cam := c.hopCamouflage(ctx)
+			if cam == "" {
+				cam = proxy.DefaultRealityServer
+			}
+			in.Settings.RealityServer = cam
+			in.Settings.RealityServerPort = 443
+		}
 		if in.Protocol.UsesTLSCert() {
 			key := strconv.FormatInt(in.ID, 10)
 			cert, ok := n.Settings.EntryCerts[key]
