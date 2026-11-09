@@ -160,6 +160,9 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		nodesByID[n.ID] = n
 	}
 	unusable := func(id int64) bool {
+		if id == 0 {
+			return false
+		}
 		n, ok := nodesByID[id]
 		return !ok || c.nodeUnusable(n)
 	}
@@ -218,7 +221,7 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 	slices.Sort(primary)
 	slices.Sort(backup)
 	var entryIDs []int64
-	if ch.isSource(0) {
+	if ch.isSource(0) || ch.mainIsDirectEntry() {
 		entryIDs = append(entryIDs, 0)
 	}
 	entryIDs = append(entryIDs, primary...)
@@ -255,13 +258,18 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		// Structural reachability: links stay put while nodes flap; the
 		// panel re-binds the traffic automatically.
 		reach := ch.sinksFrom(id, func(int64) bool { return true })
+		if id == 0 && ch.mainIsDirectEntry() {
+			reach[0] = true
+		}
 		firstSink := true
 		for _, s := range ch.sinks() {
 			if !reach[s] {
 				continue
 			}
 			label := nodesByID[s].Name
-			if multi {
+			if s == 0 {
+				label = entryName
+			} else if multi && entryName != "" {
 				label = fmt.Sprintf("%s → %s", entryName, label)
 			}
 			add(p, exitCredential(cl, *ch, s), label, !firstSink)

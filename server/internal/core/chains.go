@@ -102,22 +102,36 @@ func (ch Chain) inEdges(to int64) []ChainEdge {
 }
 
 // isSource reports whether id is an independent way into the chain: the
-// main server when it has outgoing edges, or a node with outgoing edges and
-// no incoming ones at all. A node fed only by the main server is a hop,
-// not a source — clients reach it through the main server.
+// main server when it has outgoing edges and no incoming ones, or a node with
+// outgoing edges and no incoming ones at all. A node fed only by the main
+// server is a hop, not a source — clients reach it through the main server.
 func (ch Chain) isSource(id int64) bool {
-	if len(ch.outEdges(id)) == 0 {
-		return false
-	}
-	if id == 0 {
-		return true
-	}
-	return len(ch.inEdges(id)) == 0
+	return len(ch.outEdges(id)) > 0 && len(ch.inEdges(id)) == 0
 }
 
 // isSink reports whether traffic can leave the chain from id.
 func (ch Chain) isSink(id int64) bool {
-	return id != 0 && len(ch.outEdges(id)) == 0 && len(ch.inEdges(id)) > 0
+	return len(ch.outEdges(id)) == 0 && len(ch.inEdges(id)) > 0
+}
+
+// mainIsDirectEntry reports whether the main server (0) is a sink of the
+// chain whose only incoming sources are marked as backups: clients then
+// enter the main server directly by default, and use the backup sources to
+// hop into it when the main server cannot be reached directly.
+func (ch Chain) mainIsDirectEntry() bool {
+	if !ch.isSink(0) {
+		return false
+	}
+	srcs := ch.sources()
+	if len(srcs) == 0 {
+		return false
+	}
+	for _, s := range srcs {
+		if !slices.Contains(ch.Backups, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // sources are the real source nodes, in id order.
@@ -189,13 +203,11 @@ func (ch Chain) sinksFrom(id int64, ok func(int64) bool) map[int64]bool {
 	return out
 }
 
-// hasCycle reports whether the edges over real nodes contain a cycle.
+// hasCycle reports whether the edges of the graph contain a cycle.
 func hasCycle(edges []EdgeInput) bool {
 	adj := map[int64][]int64{}
 	for _, e := range edges {
-		if e.From != 0 && e.To != 0 {
-			adj[e.From] = append(adj[e.From], e.To)
-		}
+		adj[e.From] = append(adj[e.From], e.To)
 	}
 	const (
 		white, gray, black = 0, 1, 2
@@ -248,10 +260,7 @@ func (c *Core) validateChain(ctx context.Context, in ChainInput) (map[int64]Node
 	nodes := map[int64]Node{}
 	pairs := map[string]bool{}
 	for _, e := range in.Edges {
-		if e.To == 0 {
-			return nil, invalid("edges", "unknown") // the head must be a node
-		}
-		if e.From != 0 && e.From == e.To {
+		if e.From == e.To {
 			return nil, invalid("edges", "self_loop")
 		}
 		key := strconv.FormatInt(e.From, 10) + "|" + strconv.FormatInt(e.To, 10)
@@ -340,8 +349,8 @@ func (c *Core) freeChainPort(ctx context.Context, n Node) (int, error) {
 			anyEntry = true
 		}
 	}
-	// Entry points all serve the same client inbounds on their hosts.
-	if n.IsEntry || anyEntry {
+	// Entry points and the main server all serve the same client inbounds.
+	if n.ID == 0 || n.IsEntry || anyEntry {
 		inbounds, err := c.Inbounds(ctx)
 		if err != nil {
 			return 0, err
@@ -349,6 +358,28 @@ func (c *Core) freeChainPort(ctx context.Context, n Node) (int, error) {
 		for _, in := range inbounds {
 			if in.Enabled {
 				used[in.Port] = true
+			}
+		}
+	}
+	if n.ID == 0 {
+		for _, r := range c.reserved {
+			used[r.Port] = true
+		}
+		if p := c.PanelPort(ctx); p != 0 {
+			used[p] = true
+		}
+		if c.subListen == "" {
+			if p := c.SubscriptionPort(ctx); p != 0 {
+				used[p] = true
+			}
+		}
+		if p := c.acmeListenPort(ctx); p != 0 {
+			used[p] = true
+		}
+		if c.hostPorts != nil {
+			tcp, _ := c.hostPorts()
+			for p := range tcp {
+				used[p] = true
 			}
 		}
 	}
@@ -642,7 +673,7 @@ func (c *Core) chainEntryNames(ctx context.Context, self int64) (map[int64][]str
 	}
 	out := map[int64][]string{}
 	for _, ch := range chains {
-		if !entry || len(ch.outEdges(self)) == 0 {
+		if !entry || (len(ch.outEdges(self)) == 0 && !ch.isSink(self)) {
 			continue
 		}
 		names, err := c.chainClientNames(ctx, ch)
@@ -710,7 +741,23 @@ func (c *Core) chainRouting(ctx context.Context, self int64) (links []proxy.Chai
 		}
 	}
 
+	mainHost, err := c.PublicHost(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if mainHost == "" {
+		mainHost = "127.0.0.1"
+	}
+	addrOf := func(id int64) string {
+		if id == 0 {
+			return mainHost
+		}
+		return nodes[id].Address
+	}
 	unusable := func(id int64) bool {
+		if id == 0 {
+			return false
+		}
 		n, ok := nodes[id]
 		return !ok || c.nodeUnusable(n)
 	}
@@ -798,7 +845,7 @@ func (c *Core) chainRouting(ctx context.Context, self int64) (links []proxy.Chai
 			if !e.ready() {
 				continue
 			}
-			outbounds = append(outbounds, tagged(edgeOutbound(e, nodes[e.ToNodeID].Address), proxy.ClinkTag(e.ID)))
+			outbounds = append(outbounds, tagged(edgeOutbound(e, addrOf(e.ToNodeID)), proxy.ClinkTag(e.ID)))
 		}
 		if autoNeeded {
 			outbounds = append(outbounds, map[string]any{
@@ -855,7 +902,7 @@ func tagged(ob map[string]any, tag string) map[string]any {
 // reaches some sink through usable nodes.
 func (c *Core) chainWorks(ch Chain, unusable func(int64) bool, isEntry func(int64) bool) bool {
 	ok := func(id int64) bool { return !unusable(id) }
-	if len(ch.outEdges(0)) > 0 && len(ch.sinksFrom(0, ok)) > 0 {
+	if (len(ch.outEdges(0)) > 0 || ch.mainIsDirectEntry()) && len(ch.sinksFrom(0, ok)) > 0 {
 		return true
 	}
 	seen := map[int64]bool{}

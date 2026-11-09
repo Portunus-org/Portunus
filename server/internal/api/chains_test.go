@@ -30,8 +30,16 @@ func TestChains(t *testing.T) {
 	if resp, body := e.do(t, "POST", "/api/chains", map[string]any{"name": "Ghost", "edges": []map[string]int64{{"from": 0, "to": hkID}, {"from": hkID, "to": 99}}}, h); resp.StatusCode != http.StatusBadRequest || body["field"] != "edges" || body["code"] != "unknown" {
 		t.Fatalf("ghost chain: %d %v", resp.StatusCode, body)
 	}
-	if resp, body := e.do(t, "POST", "/api/chains", map[string]any{"name": "BackToMain", "edges": []map[string]int64{{"from": 0, "to": hkID}, {"from": hkID, "to": 0}}}, h); resp.StatusCode != http.StatusBadRequest || body["field"] != "edges" || body["code"] != "unknown" {
-		t.Fatalf("main as target: %d %v", resp.StatusCode, body)
+	if resp, body := e.do(t, "POST", "/api/chains", map[string]any{"name": "Cycle", "edges": []map[string]int64{{"from": 0, "to": hkID}, {"from": hkID, "to": 0}}}, h); resp.StatusCode != http.StatusBadRequest || body["field"] != "edges" || body["code"] != "cycle" {
+		t.Fatalf("cycle: %d %v", resp.StatusCode, body)
+	}
+	resp, toMain := e.do(t, "POST", "/api/chains", map[string]any{"name": "ToMain", "edges": []map[string]int64{{"from": hkID, "to": 0}}}, h)
+	if resp.StatusCode != http.StatusCreated || len(toMain["edges"].([]any)) != 1 {
+		t.Fatalf("main as target: %d %v", resp.StatusCode, toMain)
+	}
+	toMainID := int64(toMain["id"].(float64))
+	if resp, _ := e.do(t, "DELETE", "/api/chains/"+strconv.FormatInt(toMainID, 10), nil, h); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete toMain: %d", resp.StatusCode)
 	}
 
 	// Create the graph.
