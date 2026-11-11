@@ -104,8 +104,10 @@ jobs:
           fetch-depth: 0 # the whole history, for the secret scan
       - name: Go modules (govulncheck, only what the code reaches)
         run: |
-          docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc \
-            'go run "$0" -tags noui ./...' "$GOVULNCHECK"
+          docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc '
+            for i in 1 2 3; do go mod download && break || sleep 2; done
+            go run "$0" -tags noui ./...
+          ' "$GOVULNCHECK"
       - name: Web packages (pnpm audit)
         run: |
           docker run --rm -v "$PWD:/src" -w /src/web "$NODE_IMAGE" sh -euc '
