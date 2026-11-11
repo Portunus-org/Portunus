@@ -32,7 +32,7 @@ concurrency:
 env:
   # The images the release builds with (deploy/Dockerfile) and the tools,
   # each pinned by digest.
-  GO_IMAGE: golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+  GO_IMAGE: golang:1.27.4-alpine3.24@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
   NODE_IMAGE: node:26.9.0-alpine3.24@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070
   TRIVY_IMAGE: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
   SEMGREP_IMAGE: semgrep/semgrep@sha256:acaac22ffc7b7cc5926de0751b223bce0b2491c33d18422fa72f632c78d81198
@@ -104,8 +104,10 @@ jobs:
           fetch-depth: 0 # the whole history, for the secret scan
       - name: Go modules (govulncheck, only what the code reaches)
         run: |
-          docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc \
-            'go run "$0" -tags noui ./...' "$GOVULNCHECK"
+          docker run --rm -v "$PWD:/src" -w /src/server "$GO_IMAGE" sh -euc '
+            for i in 1 2 3; do go mod download && break || sleep 2; done
+            go run "$0" -tags noui ./...
+          ' "$GOVULNCHECK"
       - name: Web packages (pnpm audit)
         run: |
           docker run --rm -v "$PWD:/src" -w /src/web "$NODE_IMAGE" sh -euc '

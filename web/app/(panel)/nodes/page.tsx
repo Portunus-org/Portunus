@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowRightIcon, EllipsisVerticalIcon, PencilIcon, PlusIcon, PowerIcon, RefreshCwIcon, ServerIcon, SplitIcon, TerminalIcon, Trash2Icon } from "lucide-react"
+import { ArrowRightIcon, EllipsisVerticalIcon, MapPinIcon, PencilIcon, PlusIcon, PowerIcon, RefreshCwIcon, RotateCcwIcon, ServerIcon, TerminalIcon, Trash2Icon } from "lucide-react"
 import { toast } from "@/lib/toast"
 
 import { ChainColorPicker } from "@/components/chains/chain-color-picker"
@@ -50,6 +50,7 @@ export default function NodesPage() {
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [drawerKey, setDrawerKey] = React.useState(0)
   const [chainDraft, setChainDraft] = React.useState<ChainDraft | null>(null)
+  const [movingMain, setMovingMain] = React.useState(false)
   const [ruleDrawer, setRuleDrawer] = React.useState<{
     key: number
     rule: RouteRule | null
@@ -59,6 +60,23 @@ export default function NodesPage() {
   const [ruleOpen, setRuleOpen] = React.useState(false)
   const [checking, setChecking] = React.useState(false)
   const [confirm, confirmDialog] = useConfirm()
+
+  const startMovingMain = React.useCallback(() => {
+    setTab("nodes")
+    setChainDraft(null)
+    setDrawerOpen(false)
+    setMovingMain(true)
+  }, [])
+
+  const resetMainLocation = React.useCallback(async () => {
+    try {
+      await api.setServerLocation(null)
+      toast.success(t("nodes.location.saved"))
+      reloadTopology()
+    } catch (err) {
+      toast.error(errorText(err, t))
+    }
+  }, [reloadTopology, t])
 
   const nodes = React.useMemo(() => data ?? [], [data])
   const chainList = React.useMemo(() => chains ?? [], [chains])
@@ -78,6 +96,7 @@ export default function NodesPage() {
   }, [routingData?.rules])
 
   const open = React.useCallback((node: Node, join = false) => {
+    setMovingMain(false)
     React.startTransition(() => {
       setSelected({ node, join })
       setDrawerKey((k) => k + 1)
@@ -86,6 +105,7 @@ export default function NodesPage() {
   }, [])
 
   const openChainEditor = React.useCallback((chain: Chain | null) => {
+    setMovingMain(false)
     setDrawerOpen(false)
     setTab("chains")
     if (chain) {
@@ -179,7 +199,11 @@ export default function NodesPage() {
           header: t("nodes.col.name"),
           enableHiding: false,
           cell: ({ row }) => (
-            <Button variant="link" className="w-fit px-0 text-left text-foreground" onClick={() => open(row.original)}>
+            <Button
+              variant="link"
+              className="w-fit px-0 text-left text-foreground"
+              onClick={() => (row.original.id === 0 ? startMovingMain() : open(row.original))}
+            >
               {row.original.name}
             </Button>
           ),
@@ -189,19 +213,29 @@ export default function NodesPage() {
           cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{getValue()}</span>,
         }),
         col.accessor(
-          (n) => [n.isExit && "exit", n.isEntry && "entry", n.standby && "standby", n.kind === "link" && "link"].filter(Boolean).join(","),
+          (n) =>
+            n.id === 0
+              ? "main"
+              : [n.isExit && "exit", n.isEntry && "entry", n.standby && "standby", n.kind === "link" && "link"]
+                  .filter(Boolean)
+                  .join(","),
           {
             id: "roles",
             header: t("nodes.col.roles"),
             enableSorting: false,
             cell: ({ row }) => (
               <div className="flex flex-wrap gap-1.5 in-[dd]:justify-end">
+                {row.original.id === 0 && (
+                  <Badge variant="outline" className="px-1.5 text-muted-foreground">
+                    {t("nodes.role.main")}
+                  </Badge>
+                )}
                 {row.original.isExit && (
                   <Badge variant="outline" className="px-1.5 text-muted-foreground">
                     {t("nodes.role.exit")}
                   </Badge>
                 )}
-                {row.original.isEntry && (
+                {row.original.isEntry && row.original.id !== 0 && (
                   <Badge variant="outline" className="px-1.5 text-muted-foreground">
                     {t("nodes.role.entry")}
                   </Badge>
@@ -248,6 +282,30 @@ export default function NodesPage() {
           cell: ({ row }) => {
             const n = row.original
             if (!isAdmin) return null
+            if (n.id === 0) {
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="flex size-8 text-muted-foreground data-[state=open]:bg-muted" size="icon">
+                      <EllipsisVerticalIcon />
+                      <span className="sr-only">{t("common.actions")}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem onSelect={startMovingMain}>
+                      <MapPinIcon />
+                      {t("nodes.map.moveMain")}
+                    </DropdownMenuItem>
+                    {topology?.main?.location?.manual && (
+                      <DropdownMenuItem onSelect={resetMainLocation}>
+                        <RotateCcwIcon />
+                        {t("nodes.location.reset")}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            }
             return (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -308,7 +366,7 @@ export default function NodesPage() {
           },
         }),
       ]),
-    [act, confirm, isAdmin, open, t]
+    [act, confirm, isAdmin, open, resetMainLocation, startMovingMain, t, topology?.main?.location?.manual]
   )
 
   const chainColumns = React.useMemo(
@@ -387,17 +445,6 @@ export default function NodesPage() {
                 ) : (
                   <span className="text-xs text-muted-foreground">{t("chains.stage.noFilters")}</span>
                 )}
-                {isAdmin && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    onClick={() => openRuleForChain(null, c.id)}
-                  >
-                    <PlusIcon />
-                    {t("chains.stage.addFilter")}
-                  </Button>
-                )}
               </div>
             )
           },
@@ -424,10 +471,6 @@ export default function NodesPage() {
                     <PencilIcon />
                     {t("common.edit")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => openRuleForChain(null, c.id)}>
-                    <SplitIcon />
-                    {t("chains.stage.addFilter")}
-                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={() => confirmDeleteChain(c)}>
                     <Trash2Icon />
@@ -451,17 +494,44 @@ export default function NodesPage() {
     </Button>
   )
 
+  const main = topology?.main
+  const mainHost = main?.host
+  const mainLoc = main?.location
+  const mainNode: Node | null = React.useMemo(() => {
+    if (!mainHost) return null
+    return {
+      id: 0,
+      name: t("nodes.map.state.main"),
+      kind: "agent",
+      address: mainHost,
+      isExit: false,
+      isEntry: true,
+      enabled: true,
+      joined: true,
+      standby: false,
+      location: mainLoc ?? undefined,
+      clients: 0,
+      createdAt: "",
+      status: { state: "online" },
+    }
+  }, [mainHost, mainLoc, t])
+
+  const tableNodes = React.useMemo(
+    () => (mainNode ? [mainNode, ...nodes] : nodes),
+    [mainNode, nodes]
+  )
+
   const tableViews = React.useMemo(
     () => [
-      { value: "nodes", label: t("nodes.title"), count: nodes.length },
+      { value: "nodes", label: t("nodes.title"), count: tableNodes.length },
       { value: "chains", label: t("chains.title"), count: chainList.length },
     ],
-    [chainList.length, nodes.length, t]
+    [chainList.length, tableNodes.length, t]
   )
 
   return (
     <>
-      {data && nodes.length === 0 ? (
+      {data && tableNodes.length === 0 ? (
         <div className="px-4 lg:px-6">
           <Empty className="border">
             <EmptyHeader>
@@ -498,13 +568,28 @@ export default function NodesPage() {
                 mapStyle={topology?.map}
                 nodes={nodes}
                 canEdit={isAdmin}
+                movingMain={movingMain}
+                onMovingMainChange={setMovingMain}
                 onChanged={() => {
                   reload()
                   reloadTopology()
                 }}
+                onOpenNode={
+                  isAdmin
+                    ? (id) => {
+                        if (id === 0) {
+                          startMovingMain()
+                        } else {
+                          const n = nodes.find((x) => x.id === id)
+                          if (n) open(n)
+                        }
+                      }
+                    : undefined
+                }
                 chains={chainList}
                 draft={chainDraft}
                 onDraftChange={(next) => {
+                  if (next) setMovingMain(false)
                   setChainDraft(next)
                   if (next) setTab("chains")
                 }}
@@ -524,11 +609,17 @@ export default function NodesPage() {
             <DataTable
               views={tableViews}
               view={tab}
-              onViewChange={(v) => setTab(v as "nodes" | "chains")}
-              data={nodes}
+              onViewChange={(v) => {
+                if (v === "chains") setMovingMain(false)
+                setTab(v as "nodes" | "chains")
+              }}
+              data={tableNodes}
               columns={columns}
               getRowId={(n) => String(n.id)}
-              onRowClick={(n) => open(n)}
+              onRowClick={(n) => {
+                if (n.id === 0) startMovingMain()
+                else open(n)
+              }}
               columnLabels={{
                 address: t("nodes.col.address"),
                 roles: t("nodes.col.roles"),
@@ -588,7 +679,10 @@ export default function NodesPage() {
           tiles={topology?.tiles ?? false}
           mapStyle={topology?.map}
           nodes={nodes}
-          onSaved={reload}
+          onSaved={() => {
+            reload()
+            reloadTopology()
+          }}
         />
       )}
       {ruleDrawer && (

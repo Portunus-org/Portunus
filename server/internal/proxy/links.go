@@ -57,7 +57,7 @@ func ParseShareLink(link string) (*ImportedOutbound, error) {
 		} else if net.ParseIP(host) == nil {
 			t["server_name"] = host
 		}
-		if insecure() {
+		if insecure() || q.Get("pinSHA256") != "" || q.Get("pinnedCA256") != "" || q.Get("pcs") != "" {
 			t["insecure"] = true
 		}
 		if alpn := q.Get("alpn"); alpn != "" {

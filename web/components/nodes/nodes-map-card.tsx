@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowRightIcon, GitBranchIcon, MapPinIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react"
+import { ArrowRightIcon, CheckIcon, MapPinIcon, PlusIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react"
 import { toast } from "@/lib/toast"
 
 import { ChainColorSelect } from "@/components/chains/chain-color-picker"
@@ -204,7 +204,10 @@ export function NodesMapCard({
   mapStyle,
   nodes,
   canEdit,
+  movingMain = false,
+  onMovingMainChange,
   onChanged,
+  onOpenNode,
   chains,
   draft,
   onDraftChange,
@@ -221,7 +224,10 @@ export function NodesMapCard({
   main: { host: string; location: GeoLocation | null } | undefined
   nodes: Node[]
   canEdit: boolean
-  onChanged: () => void
+  movingMain?: boolean
+  onMovingMainChange?: (moving: boolean) => void
+  onChanged?: () => void
+  onOpenNode?: (id: number) => void
   chains: Chain[]
   draft: ChainDraft | null
   onDraftChange: (draft: ChainDraft | null) => void
@@ -236,13 +242,71 @@ export function NodesMapCard({
   const targetLabel = useTargetLabel(nodes)
   const cardRef = React.useRef<HTMLDivElement>(null)
 
-  // Moving the main server: a click only shows where it would go, and it
-  // goes there when that is saved. A stray click must not move a server.
-  const [moving, setMoving] = React.useState(false)
+  // Moving main server state
   const [pick, setPick] = React.useState<{ lat: number; lon: number } | null>(null)
-  const stopMoving = () => {
-    setMoving(false)
+  const [savingMain, setSavingMain] = React.useState(false)
+  const [prevMovingMain, setPrevMovingMain] = React.useState(false)
+
+  if (prevMovingMain !== movingMain) {
+    setPrevMovingMain(movingMain)
+    if (movingMain) {
+      setPick(null)
+    }
+  }
+
+  React.useEffect(() => {
+    if (movingMain) {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [movingMain])
+
+  React.useEffect(() => {
+    if (!movingMain) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation()
+        setPick(null)
+        onMovingMainChange?.(false)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [movingMain, onMovingMainChange])
+
+  async function saveMainLocation() {
+    if (!pick) return
+    setSavingMain(true)
+    try {
+      await api.setServerLocation(pick)
+      toast.success(t("nodes.location.saved"))
+      setPick(null)
+      onMovingMainChange?.(false)
+      onChanged?.()
+    } catch (err) {
+      toast.error(errorText(err, t))
+    } finally {
+      setSavingMain(false)
+    }
+  }
+
+  async function resetMainLocation() {
+    setSavingMain(true)
+    try {
+      await api.setServerLocation(null)
+      toast.success(t("nodes.location.saved"))
+      setPick(null)
+      onMovingMainChange?.(false)
+      onChanged?.()
+    } catch (err) {
+      toast.error(errorText(err, t))
+    } finally {
+      setSavingMain(false)
+    }
+  }
+
+  function cancelMovingMain() {
     setPick(null)
+    onMovingMainChange?.(false)
   }
 
   // Editor state when draft !== null
@@ -283,17 +347,6 @@ export function NodesMapCard({
   const byId = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
   const listById = React.useMemo(() => new Map(lists.map((l) => [l.id, l])), [lists])
   const unplaced = nodes.filter((n) => !n.location)
-
-  async function moveMain(location: { lat: number; lon: number }) {
-    stopMoving()
-    try {
-      await api.setServerLocation(location)
-      toast.success(t("nodes.location.saved"))
-      onChanged()
-    } catch (err) {
-      toast.error(errorText(err, t))
-    }
-  }
 
   const nameOf = (id: number) => (id === 0 ? t("chains.main") : byId.get(id)?.name ?? "?")
 
@@ -509,13 +562,55 @@ export function NodesMapCard({
   return (
     <Card ref={cardRef}>
       <CardHeader>
-        <CardTitle>{draft ? (draft.id == null ? t("chains.new") : t("chains.editTitle")) : t("nodes.map.title")}</CardTitle>
+        <CardTitle>
+          {movingMain
+            ? t("nodes.map.moveMainTitle")
+            : draft
+              ? draft.id == null
+                ? t("chains.new")
+                : t("chains.editTitle")
+              : t("nodes.map.title")}
+        </CardTitle>
         <CardDescription>
-          {draft ? t("chains.drawHint") : moving ? t("nodes.map.pickHint") : t("nodes.map.description")}
+          {movingMain
+            ? t("nodes.map.pickHint")
+            : draft
+              ? t("chains.drawHint")
+              : t("nodes.map.description")}
         </CardDescription>
-        {canEdit && (
+        {canEdit && (movingMain || draft) && (
           <CardAction className="flex items-center gap-2">
-            {draft ? (
+            {movingMain ? (
+              <>
+                {main?.location?.manual && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={resetMainLocation}
+                    disabled={savingMain}
+                  >
+                    <RotateCcwIcon />
+                    <span className="hidden sm:inline">{t("nodes.location.reset")}</span>
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={cancelMovingMain}
+                  disabled={savingMain}
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!pick || savingMain}
+                  onClick={saveMainLocation}
+                >
+                  <CheckIcon />
+                  {savingMain ? t("common.saving") : t("common.save")}
+                </Button>
+              </>
+            ) : draft ? (
               <>
                 {editingChainObj && onDeleteChain && (
                   <Button
@@ -536,45 +631,41 @@ export function NodesMapCard({
                   {t(draft.id == null ? "chains.create" : "common.save")}
                 </Button>
               </>
-            ) : moving ? (
-              <>
-                <Button size="sm" disabled={!pick} onClick={() => pick && moveMain(pick)}>
-                  {t("nodes.location.save")}
-                </Button>
-                <Button variant="outline" size="sm" onClick={stopMoving}>
-                  {t("common.cancel")}
-                </Button>
-              </>
-            ) : (
-              <>
-                {nodes.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      onDraftChange({
-                        id: null,
-                        name: "",
-                        color: "",
-                        edges: [],
-                        backups: [],
-                      })
-                    }
-                  >
-                    <GitBranchIcon />
-                    <span className="sr-only lg:not-sr-only">{t("chains.new")}</span>
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" onClick={() => setMoving(true)}>
-                  <MapPinIcon />
-                  <span className="sr-only lg:not-sr-only">{t("nodes.map.moveMain")}</span>
-                </Button>
-              </>
-            )}
+            ) : null}
           </CardAction>
         )}
       </CardHeader>
       <CardContent className="grid gap-3">
+        {movingMain && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3.5 py-2 text-xs">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <MapPinIcon className="size-4 shrink-0 text-foreground" />
+              <span>
+                {pick
+                  ? t("nodes.location.unsaved")
+                  : main?.location?.manual
+                    ? t("nodes.location.manual")
+                    : main?.location
+                      ? t("nodes.location.auto", {
+                          place: [main.location.city, main.location.country].filter(Boolean).join(", "),
+                        })
+                      : t("nodes.location.none")}
+              </span>
+            </div>
+            {pick && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="h-6 text-muted-foreground hover:text-foreground"
+                onClick={() => setPick(null)}
+              >
+                <RotateCcwIcon className="size-3" />
+                {t("nodes.location.undo")}
+              </Button>
+            )}
+          </div>
+        )}
         {draft && (
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -620,17 +711,24 @@ export function NodesMapCard({
           points={points}
           tiles={tiles}
           mapStyle={mapStyle}
-          onPick={moving && !draft ? setPick : undefined}
+          onPick={movingMain && !draft ? setPick : undefined}
           cursor={draft && from !== null ? (from === 0 ? "main" : `n${from}`) : undefined}
           cursorDashed={lineMode === "backup"}
           cursorColor={draft?.color || undefined}
           onPointClick={
-            draft
-              ? (id) => {
-                  const n = pointToNodeId(id)
-                  if (n !== null) pickNode(n)
-                }
-              : undefined
+            movingMain
+              ? undefined
+              : draft
+                ? (id) => {
+                    const n = pointToNodeId(id)
+                    if (n !== null) pickNode(n)
+                  }
+                : onOpenNode
+                  ? (id) => {
+                      const n = pointToNodeId(id)
+                      if (n !== null) onOpenNode(n)
+                    }
+                  : undefined
           }
           onConnect={
             draft

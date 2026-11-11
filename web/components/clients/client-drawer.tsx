@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
+import { ArrowRightIcon, EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
 import { toast } from "@/lib/toast"
 
 import { ChainEdgeChips } from "@/components/chains/chain-edge-chips"
@@ -93,6 +93,28 @@ function Usage({ client }: { client: Client }) {
   )
 }
 
+function ConnectionLabel({ label }: { label: string }) {
+  const { t } = useI18n()
+  const arrowMatch = label.includes(" → ") ? " → " : label.includes(" -> ") ? " -> " : null
+  if (!arrowMatch) {
+    return <span>{label === "Main" ? t("chains.main") : label}</span>
+  }
+  const parts = label.split(arrowMatch)
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {parts.map((p, idx) => {
+        const text = p === "Main" ? t("chains.main") : p
+        return (
+          <React.Fragment key={idx}>
+            {idx > 0 && <ArrowRightIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+            <span>{text}</span>
+          </React.Fragment>
+        )
+      })}
+    </span>
+  )
+}
+
 /**
  * How a client connects: the QR code, and the subscription and the links of
  * every connection to copy or to show as a code. Also used by the first
@@ -115,7 +137,7 @@ export function Access({ clientId, version = 0 }: { clientId: number; version?: 
           : a.links[0]
             ? {
                 svg: a.links[0].qr,
-                label: a.links[0].name || protocols[a.links[0].protocol].label,
+                label: a.links[0].label || a.links[0].name || protocols[a.links[0].protocol].label,
               }
             : null
         setQr(first)
@@ -168,8 +190,7 @@ export function Access({ clientId, version = 0 }: { clientId: number; version?: 
       : []),
     ...access.links.map((l, i) => ({
       key: `l${i}`,
-      // Links to a backup entry are named after it by the server.
-      label: l.host === access.publicHost ? l.name || protocols[l.protocol].label : l.label,
+      label: l.label || l.name || protocols[l.protocol].label,
       sub: t("clients.drawer.linkSub", {
         transport: protocols[l.protocol].transport,
         port: l.port,
@@ -184,14 +205,14 @@ export function Access({ clientId, version = 0 }: { clientId: number; version?: 
       {qr && (
         <div className="flex flex-col items-center gap-2">
           <QR svg={qr.svg} label={qr.label} />
-          <span className="text-muted-foreground">{qr.label}</span>
+          <span className="text-muted-foreground"><ConnectionLabel label={qr.label} /></span>
         </div>
       )}
       <div className="divide-y overflow-hidden rounded-lg border">
         {rows.map((r) => (
           <div key={r.key} className={cn("flex items-center gap-2 px-3 py-2", qr?.label === r.label && "bg-muted/50")}>
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{r.label}</div>
+              <div className="truncate font-medium"><ConnectionLabel label={r.label} /></div>
               <div className="truncate text-xs text-muted-foreground">{r.sub}</div>
             </div>
             <Button

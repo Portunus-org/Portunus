@@ -15,7 +15,7 @@ import { useI18n } from "@/lib/i18n"
 // The periods to look at: how many steps back and how long a step is.
 const ranges = {
   day: { steps: 24, hours: 1 },
-  week: { steps: 7, hours: 24 },
+  week: { steps: 7 * 24, hours: 1 },
   month: { steps: 30, hours: 24 },
 } as const
 type Range = keyof typeof ranges
@@ -31,7 +31,7 @@ const ANIMATION_MS = 600
  */
 export const TrafficHistory = React.memo(function TrafficHistory({ points }: { points: TrafficPoint[] }) {
   const { t, locale } = useI18n()
-  const [range, setRange] = React.useState<Range>("week")
+  const [range, setRange] = React.useState<Range>("day")
   const config = React.useMemo(
     () =>
       ({
@@ -80,13 +80,29 @@ export const TrafficHistory = React.memo(function TrafficHistory({ points }: { p
     return () => clearTimeout(timer)
   }, [shown])
 
-  const label = (at: number, long = false) =>
-    range === "day"
-      ? new Intl.DateTimeFormat(
-          locale,
-          long ? { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }
-        ).format(at)
-      : new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(at)
+  const label = (at: number, long = false) => {
+    if (long) {
+      if (range === "day" || range === "week") {
+        return new Intl.DateTimeFormat(locale, {
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(at)
+      }
+      return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(at)
+    }
+    if (range === "day") {
+      return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(at)
+    }
+    return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(at)
+  }
+
+  const ticks = React.useMemo(() => {
+    if (range !== "week") return undefined
+    const midnights = data.filter((r) => new Date(r.at).getHours() === 0).map((r) => r.at)
+    return midnights.length > 0 ? midnights : undefined
+  }, [data, range])
 
   return (
     <Card className="@container/card">
@@ -144,6 +160,7 @@ export const TrafficHistory = React.memo(function TrafficHistory({ points }: { p
                 axisLine={false}
                 tickMargin={8}
                 minTickGap={32}
+                ticks={ticks}
                 tickFormatter={(at: number) => label(at)}
               />
               <ChartTooltip

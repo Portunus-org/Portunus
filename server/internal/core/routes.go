@@ -60,6 +60,13 @@ type ClientLink struct {
 // the rest carry the client's password, which does not vary per exit.
 var uuidProtocols = map[proxy.Protocol]bool{proxy.VLESS: true, proxy.TUIC: true}
 
+func (c *Core) mainServerName(ctx context.Context) string {
+	if loc := c.ServerLocation(ctx); loc != nil && loc.City != "" {
+		return loc.City
+	}
+	return "Main"
+}
+
 // ClientLinks renders the client's connections. With a chain there is one
 // link per dialable entry (the main server when it feeds the chain, then the
 // primary sources in id order, then the backup-marked ones) aimed at each
@@ -244,7 +251,6 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		return out, fallback()
 	}
 
-	multi := len(pointIdx) > 1
 	for _, id := range entryIDs {
 		idx, ok := pointIdx[id]
 		if !ok {
@@ -254,6 +260,8 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		entryName := ""
 		if id != 0 {
 			entryName = nodesByID[id].Name
+		} else {
+			entryName = c.mainServerName(ctx)
 		}
 		// Structural reachability: links stay put while nodes flap; the
 		// panel re-binds the traffic automatically.
@@ -266,11 +274,15 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 			if !reach[s] {
 				continue
 			}
-			label := nodesByID[s].Name
+			sinkName := ""
 			if s == 0 {
-				label = entryName
-			} else if multi && entryName != "" {
-				label = fmt.Sprintf("%s → %s", entryName, label)
+				sinkName = c.mainServerName(ctx)
+			} else {
+				sinkName = nodesByID[s].Name
+			}
+			label := sinkName
+			if entryName != "" && entryName != sinkName {
+				label = fmt.Sprintf("%s → %s", entryName, sinkName)
 			}
 			add(p, exitCredential(cl, *ch, s), label, !firstSink)
 			firstSink = false

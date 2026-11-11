@@ -97,7 +97,8 @@ func TestClientProfileUniqueTags(t *testing.T) {
 	cfg, err := ClientProfile(testClients[0], []ProfileServer{
 		{Host: "203.0.113.10", Inbound: ins[0], UUID: testClients[0].UUID},
 		{Host: "203.0.113.10", Inbound: ins[1], UUID: testClients[0].UUID},
-		{Host: "203.0.113.11", Inbound: ins[2], UUID: testClients[0].UUID, Label: "AMS"},
+		{Host: "203.0.113.11", Inbound: ins[2], UUID: testClients[0].UUID},
+		{Host: "203.0.113.12", Inbound: ins[3], UUID: testClients[0].UUID, Label: "AMS"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +118,7 @@ func TestClientProfileUniqueTags(t *testing.T) {
 		}
 		seen[o.Tag] = true
 	}
-	if !seen["Main"] || !seen["Main 2"] || !seen["proxy 2"] {
+	if !seen["Main"] || !seen["Main 2"] || !seen["proxy 2"] || !seen["AMS"] {
 		t.Fatalf("tags: %v", seen)
 	}
 	singBoxCheck(t, cfg)

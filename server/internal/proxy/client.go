@@ -16,11 +16,16 @@ func (in Inbound) pinned() bool { return !in.TrustedCert() && !in.Settings.Stric
 
 // ShareLink returns the URI a client app imports for one inbound
 // (vless://, hysteria2://, trojan://, tuic://, ss://). host is the public
-// address of this node.
-func ShareLink(host string, in Inbound, c Client) string {
+// address of this node. An optional label overrides the fragment (the
+// connection name shown to the user in client apps).
+func ShareLink(host string, in Inbound, c Client, label ...string) string {
 	addr := net.JoinHostPort(host, strconv.Itoa(in.Port))
 	q := url.Values{}
-	u := url.URL{Host: addr, Fragment: in.Label()}
+	frag := in.Label()
+	if len(label) > 0 && label[0] != "" {
+		frag = label[0]
+	}
+	u := url.URL{Host: addr, Fragment: frag}
 
 	// userinfo is the credential, already percent-encoded with
 	// escapeUserinfo: url.URL would leave sub-delimiters such as + and =
@@ -45,8 +50,9 @@ func ShareLink(host string, in Inbound, c Client) string {
 		userinfo = escapeUserinfo(c.Password)
 		q.Set("sni", in.Settings.ServerName)
 		if in.pinned() {
-			q.Set("insecure", "1")
 			q.Set("pinSHA256", in.Settings.CertSHA256)
+			q.Set("pinnedCA256", in.Settings.CertSHA256)
+			q.Set("pcs", in.Settings.CertSHA256)
 		}
 		if in.Settings.ObfsPassword != "" {
 			q.Set("obfs", "salamander")
@@ -72,7 +78,13 @@ func ShareLink(host string, in Inbound, c Client) string {
 		q.Set("security", "tls")
 		q.Set("sni", in.Settings.ServerName)
 		if in.pinned() {
-			q.Set("allowInsecure", "1")
+			if in.Settings.CertSHA256 != "" {
+				q.Set("pinSHA256", in.Settings.CertSHA256)
+				q.Set("pinnedCA256", in.Settings.CertSHA256)
+				q.Set("pcs", in.Settings.CertSHA256)
+			} else {
+				q.Set("allowInsecure", "1")
+			}
 		}
 
 	case Shadowsocks:
@@ -204,12 +216,15 @@ func ClientProfile(c Client, servers []ProfileServer) ([]byte, error) {
 		if !in.Enabled {
 			continue
 		}
+		tag := s.Label
+		if tag == "" {
+			tag = in.Label()
+		}
 		ob := ClientOutbound(s.Host, in, Client{ID: c.ID, Name: c.Name, UUID: s.UUID, Password: c.Password})
 		// Tags must be unique in a sing-box config, but inbound names are free
 		// text: two may match, or collide with the group tags below.
-		tag := ob["tag"].(string)
 		for n := 2; used[tag]; n++ {
-			tag = fmt.Sprintf("%s %d", ob["tag"], n)
+			tag = fmt.Sprintf("%s %d", tag, n)
 		}
 		used[tag] = true
 		ob["tag"] = tag
