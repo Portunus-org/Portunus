@@ -471,7 +471,7 @@ func (s *Server) handleClientAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, l := range links {
 		pc := proxy.Client{ID: c.ID, Name: c.Name, UUID: l.UUID, Password: c.Password}
-		link := proxy.ShareLink(l.Host, l.Inbound, pc)
+		link := proxy.ShareLink(l.Host, l.Inbound, pc, l.Label)
 		qr, err := qrsvg.Encode(link)
 		if err != nil {
 			s.internalError(w, r, err)
@@ -752,7 +752,7 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, token
 	var linkURLs []string
 	for _, l := range links {
 		pc := proxy.Client{ID: c.ID, Name: c.Name, UUID: l.UUID, Password: c.Password}
-		linkURLs = append(linkURLs, proxy.ShareLink(l.Host, l.Inbound, pc))
+		linkURLs = append(linkURLs, proxy.ShareLink(l.Host, l.Inbound, pc, l.Label))
 	}
 	h.Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(base64Std(strings.Join(linkURLs, "\n")))) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- base64 text/plain

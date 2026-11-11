@@ -131,7 +131,9 @@ export function NodeDrawer({
                 <Value label={t("nodes.col.latency")}>{t("nodes.latency", { ms: node.status.latencyMs })}</Value>
               )}
               {node.status.version && <Value label={t("nodes.drawer.version")}>{node.status.version}</Value>}
-              {node.status.checkedAt && <Value label={t("nodes.drawer.checked")}>{formatDateTime(node.status.checkedAt, locale)}</Value>}
+              {node.status.checkedAt && (
+                <Value label={t("nodes.drawer.checked")}>{formatDateTime(node.status.checkedAt, locale)}</Value>
+              )}
               {node.enabled && node.status.error && (
                 <Value label={t("nodes.drawer.error")}>
                   <span className="text-destructive">{node.status.error}</span>
@@ -206,8 +208,8 @@ export function NodeDrawer({
               </fieldset>
               <FormError>{errors.form}</FormError>
             </form>
-
             <Separator />
+
             <div className="grid gap-3">
               <span className="font-medium">{t("nodes.location.title")}</span>
               {mapReady ? (
@@ -267,14 +269,16 @@ export function NodeDrawer({
         </ScrollArea>
 
         <DrawerFooter>
-          {isAdmin && (
-            <Button type="submit" form="node-form" disabled={pending}>
-              {pending ? t("common.saving") : t("common.save")}
-            </Button>
-          )}
-          <DrawerClose asChild>
-            <Button variant="outline">{t(isAdmin ? "common.cancel" : "common.close")}</Button>
-          </DrawerClose>
+          <div className="flex items-center justify-end gap-2">
+            <DrawerClose asChild>
+              <Button variant="outline">{t(isAdmin ? "common.cancel" : "common.close")}</Button>
+            </DrawerClose>
+            {isAdmin && (
+              <Button type="submit" form="node-form" disabled={pending}>
+                {pending ? t("common.saving") : t("common.save")}
+              </Button>
+            )}
+          </div>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
