@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  ArchiveIcon,
   ArrowLeftIcon,
   ChevronRightIcon,
   XIcon,
@@ -20,6 +21,7 @@ import {
 import { toast } from "@/lib/toast"
 
 import { AuditCard } from "@/components/audit-card"
+import { BackupCard } from "@/components/backup-card"
 import { CAInstall } from "@/components/ca-install"
 import { CopyButton } from "@/components/copy-button"
 import { PanelAccessCard } from "@/components/panel-access-card"
@@ -494,7 +496,7 @@ function CACard() {
   )
 }
 
-type SectionId = "server" | "domain" | "access" | "accounts" | "sso" | "audit" | "updates" | "singbox" | "about"
+type SectionId = "server" | "domain" | "access" | "accounts" | "sso" | "audit" | "backup" | "updates" | "singbox" | "about"
 
 // Sections that were merged into others, for links to them.
 const mergedSections: Record<string, SectionId> = { subscriptions: "server", certificates: "domain", ca: "domain" }
@@ -588,6 +590,17 @@ const sections: Section[] = [
     title: "audit.title",
     description: "audit.description",
     settings: [["audit-table", "audit.title"]],
+    adminOnly: true,
+  },
+  {
+    id: "backup",
+    icon: <ArchiveIcon />,
+    title: "backup.section",
+    description: "backup.description",
+    settings: [
+      ["backup-download", "backup.title"],
+      ["backup-file", "backup.restore.title"],
+    ],
     adminOnly: true,
   },
   {
@@ -746,6 +759,9 @@ export function SettingsDialog() {
     case "audit":
       body = <AuditCard />
       break
+    case "backup":
+      body = <BackupCard onRestored={reload} />
+      break
     case "updates":
       body = update ? (
         <UpdateCard
@@ -827,7 +843,12 @@ export function SettingsDialog() {
   // On a phone the window takes the whole screen and works like the
   // settings of a phone app: a list of the sections in groups, and a
   // section on a screen of its own with a way back.
-  const groups: SectionId[][] = [["server", "domain", "access"], ["accounts", "sso", "audit"], ["updates", "singbox"], ["about"]]
+  const groups: SectionId[][] = [
+    ["server", "domain", "access"],
+    ["accounts", "sso", "audit"],
+    ["backup", "updates", "singbox"],
+    ["about"],
+  ]
   const subtitle: Partial<Record<SectionId, string>> = {
     server: settings?.publicHost,
     domain: settings ? settings.domain || t("domain.none") : undefined,

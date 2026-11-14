@@ -781,6 +781,60 @@ export const api = {
   restartSingbox: () => request<void>("POST", "/api/singbox/restart"),
   singboxLogs: () => request<{ lines: string[] }>("GET", "/api/singbox/logs"),
   singboxConfig: () => request<{ config: unknown }>("GET", "/api/singbox/config"),
+
+  downloadBackup: async (): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch("/api/backup", { credentials: "same-origin", cache: "no-store" })
+    if (!res.ok) {
+      let code = "http_" + res.status
+      let field: string | undefined
+      let detail: string | undefined
+      try {
+        const data = (await res.json()) as { error?: string; field?: string; code?: string; message?: string }
+        if (data.error) code = data.error
+        field = data.field
+        detail = data.code ?? data.message
+      } catch {
+        // non-JSON error body
+      }
+      throw new ApiError(res.status, code, undefined, field, detail)
+    }
+    const disp = res.headers.get("Content-Disposition") ?? ""
+    const m = /filename="?([^";]+)"?/i.exec(disp)
+    const filename = m?.[1] || `portunus-backup-${new Date().toISOString().slice(0, 10)}.tgz`
+    const blob = await res.blob()
+    return { blob, filename }
+  },
+
+  restoreBackup: async (file: Blob, recoveryKey?: string): Promise<SessionInfo> => {
+    const headers: Record<string, string> = { "Content-Type": "application/octet-stream" }
+    if (csrfToken) headers["X-Portunus-CSRF"] = csrfToken
+    if (recoveryKey?.trim()) headers["X-Recovery-Key"] = recoveryKey.trim()
+
+    const res = await fetch("/api/backup/restore", {
+      method: "POST",
+      headers,
+      body: file,
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+    if (!res.ok) {
+      let code = "http_" + res.status
+      let field: string | undefined
+      let detail: string | undefined
+      try {
+        const data = (await res.json()) as { error?: string; field?: string; code?: string; message?: string }
+        if (data.error) code = data.error
+        field = data.field
+        detail = data.code ?? data.message
+      } catch {
+        // non-JSON error body
+      }
+      throw new ApiError(res.status, code, undefined, field, detail)
+    }
+    const session = (await res.json()) as SessionInfo
+    if (session.csrfToken) setCsrfToken(session.csrfToken)
+    return session
+  },
 }
 
 /** A readable sentence for an API error, for toasts and inline messages. */

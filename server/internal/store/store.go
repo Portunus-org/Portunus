@@ -409,3 +409,93 @@ func (s *Store) Snapshot(ctx context.Context, to string) error {
 	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, to)
 	return err
 }
+
+// ReplaceFrom atomically replaces the contents of all data tables with those
+// from the migrated SQLite file at from. Because s.db has a pool size of one,
+// holding its connection serialises all other queries until whileLocked and
+// COMMIT complete.
+func (s *Store) ReplaceFrom(ctx context.Context, from string, whileLocked func() error) (retErr error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	rows, err := conn.QueryContext(ctx, `SELECT name FROM main.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'schema_migrations' ORDER BY name`)
+	if err != nil {
+		return err
+	}
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		names = append(names, name)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	uncancel := context.WithoutCancel(ctx)
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	defer conn.ExecContext(uncancel, `PRAGMA foreign_keys = ON`)
+
+	if _, err := conn.ExecContext(ctx, `ATTACH DATABASE ? AS incoming`, from); err != nil {
+		return err
+	}
+	defer conn.ExecContext(uncancel, `DETACH DATABASE incoming`)
+
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			conn.ExecContext(uncancel, `ROLLBACK`)
+		}
+	}()
+
+	for _, name := range names {
+		if _, err := conn.ExecContext(ctx, `DELETE FROM main."`+name+`"`); err != nil {
+			return err
+		}
+		if name == "sessions" {
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO main."`+name+`" SELECT * FROM incoming."`+name+`"`); err != nil {
+			return err
+		}
+	}
+
+	fkRows, err := conn.QueryContext(ctx, `PRAGMA main.foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	badFK := fkRows.Next()
+	fkErr := fkRows.Err()
+	fkRows.Close()
+	if fkErr != nil {
+		return fkErr
+	}
+	if badFK {
+		return errors.New("foreign key check failed")
+	}
+
+	if whileLocked != nil {
+		if err := whileLocked(); err != nil {
+			return err
+		}
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}

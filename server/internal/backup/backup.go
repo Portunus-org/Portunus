@@ -77,11 +77,11 @@ func Write(ctx context.Context, w io.Writer, src Source) error {
 		switch {
 		case rel == ".":
 			return nil
-		case d.IsDir() && rel == "cache": // map tiles: fetched again when needed
+		case d.IsDir() && (rel == "cache" || strings.HasPrefix(rel, "backup-")): // map tiles and temporary directories
 			return filepath.SkipDir
 		case d.IsDir():
 			return tw.WriteHeader(&tar.Header{Name: rel + "/", Typeflag: tar.TypeDir, Mode: 0o700})
-		case !d.Type().IsRegular(), strings.HasPrefix(rel, dbName), strings.HasPrefix(rel, "backup-"):
+		case !d.Type().IsRegular(), strings.HasPrefix(rel, dbName), strings.HasPrefix(rel, "backup-"), rel == "initial-admin-password":
 			return nil
 		}
 		return add(path, rel)
