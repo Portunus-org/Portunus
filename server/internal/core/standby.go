@@ -4,16 +4,27 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
 	"errors"
+	"io"
+	"io/fs"
+	"log/slog"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Portunus-org/Portunus/server/internal/agent"
 	"github.com/Portunus-org/Portunus/server/internal/backup"
+	"github.com/Portunus-org/Portunus/server/internal/db"
 	"github.com/Portunus-org/Portunus/server/internal/proxy"
+	"github.com/Portunus-org/Portunus/server/internal/secrets"
+	"github.com/Portunus-org/Portunus/server/internal/singbox"
+	"github.com/Portunus-org/Portunus/server/internal/store"
 )
 
 // Standby: the panel lives on one server. So that losing that server is
@@ -215,4 +226,243 @@ func (c *Core) PromoteNode(ctx context.Context, id int64) (Node, error) {
 		}
 	}
 	return n, c.store.DeleteNode(ctx, id)
+}
+
+// WriteBackup writes a complete tar.gz backup of the panel's database, master
+// key and certificate directories to w.
+func (c *Core) WriteBackup(ctx context.Context, w io.Writer) error {
+	if c.backupSrc.DataDir == "" {
+		return errors.New("backups are not configured")
+	}
+	if !c.offline {
+		c.applyMu.Lock()
+		if c.mgr.Status().PID != 0 {
+			c.flushStatsLocked(ctx)
+		}
+		c.applyMu.Unlock()
+	}
+	src := c.backupSrc
+	src.Snapshot = c.store.Snapshot
+	return backup.Write(ctx, w, src)
+}
+
+// RestoreBackup validates a backup archive (plain .tar.gz or sealed with a
+// recovery key) and replaces the panel's database, master key and certificate
+// storage in place.
+func (c *Core) RestoreBackup(ctx context.Context, archive []byte, recoveryKey string) error {
+	if c.backupSrc.DataDir == "" {
+		return errors.New("backups are not configured")
+	}
+	if len(archive) == 0 {
+		return invalid("file", "bad_backup")
+	}
+	if backup.Sealed(archive) {
+		key := strings.TrimSpace(recoveryKey)
+		if key == "" {
+			return invalid("key", "key_required")
+		}
+		opened, err := backup.Open(archive, key)
+		if err != nil {
+			return invalid("key", "wrong_key")
+		}
+		archive = opened
+	}
+
+	tmpDir, err := os.MkdirTemp(c.backupSrc.DataDir, "backup-restore-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := backup.Unpack(bytes.NewReader(archive), tmpDir); err != nil {
+		return invalid("file", "bad_backup")
+	}
+	dbName := filepath.Base(c.backupSrc.DBPath)
+	keyName := filepath.Base(c.backupSrc.MasterKeyPath)
+	tmpKeyPath := filepath.Join(tmpDir, keyName)
+	tmpDBPath := filepath.Join(tmpDir, dbName)
+	if _, err := os.Stat(tmpKeyPath); err != nil {
+		return invalid("file", "bad_backup")
+	}
+	if _, err := os.Stat(tmpDBPath); err != nil {
+		return invalid("file", "bad_backup")
+	}
+	tmpBox, _, err := secrets.LoadOrCreate(tmpKeyPath)
+	if err != nil {
+		return invalid("file", "bad_backup")
+	}
+
+	discardLog := slog.New(slog.DiscardHandler)
+	tmpSQL, err := db.Open(ctx, tmpDBPath, discardLog)
+	if errors.Is(err, db.ErrNewer) {
+		return invalid("file", "newer_version")
+	}
+	if err != nil {
+		return invalid("file", "bad_backup")
+	}
+
+	mustChange, err := validateRestoredDB(ctx, tmpSQL, tmpBox, tmpDir, discardLog)
+	if err != nil {
+		tmpSQL.Close()
+		return err
+	}
+	_, _ = tmpSQL.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	if err := tmpSQL.Close(); err != nil {
+		return invalid("file", "bad_backup")
+	}
+
+	if !c.offline {
+		_ = c.mgr.Apply(ctx, nil)
+	}
+
+	err = c.store.ReplaceFrom(ctx, tmpDBPath, func() error {
+		if err := tmpBox.Save(c.backupSrc.MasterKeyPath); err != nil {
+			return err
+		}
+		c.box.Replace(tmpBox)
+		return c.replaceBackupFiles(tmpDir, dbName, keyName, mustChange)
+	})
+	if err != nil {
+		return err
+	}
+	_ = c.MarkSetupCompleted(ctx)
+
+	caMu.Lock()
+	c.ca = nil
+	caMu.Unlock()
+
+	c.sso.mu.Lock()
+	c.sso.provider = nil
+	c.sso.key = ""
+	c.sso.mu.Unlock()
+
+	c.online.mu.Lock()
+	clear(c.online.seen)
+	clear(c.online.read)
+	c.online.mu.Unlock()
+
+	c.nodeMu.Lock()
+	for id, cl := range c.nodeClients {
+		cl.Close()
+		delete(c.nodeClients, id)
+	}
+	clear(c.nodeStatus)
+	clear(c.exitHealth)
+	clear(c.chainHealth)
+	c.nodeMu.Unlock()
+
+	c.standbyMu.Lock()
+	c.standbyBlob = nil
+	c.standbyAt = time.Time{}
+	clear(c.standbySent)
+	c.standbyCfg = [sha256.Size]byte{}
+	c.standbyMu.Unlock()
+
+	c.geoMu.Lock()
+	clear(c.geoTried)
+	c.geoMu.Unlock()
+
+	if !c.offline {
+		if key, err := os.ReadFile(filepath.Join(c.backupSrc.DataDir, "sing-box", "quic-reset.key")); err == nil && len(key) == 32 {
+			c.mgr.Env = []string{"QUIC_GO_STATELESS_RESET_KEY=" + base64.StdEncoding.EncodeToString(key)}
+		}
+		c.renewPrivateCertificates(ctx)
+		c.Reconcile(ctx)
+		c.KickNodes()
+	}
+	return nil
+}
+
+func validateRestoredDB(ctx context.Context, sqlDB *sql.DB, box *secrets.Box, tmpDir string, log *slog.Logger) (bool, error) {
+	st := store.New(sqlDB)
+	ok, err := st.IntegrityCheck(ctx)
+	if err != nil || !ok {
+		return false, invalid("file", "bad_backup")
+	}
+	users, err := st.Users(ctx)
+	if err != nil {
+		return false, invalid("file", "bad_backup")
+	}
+	hasAdmin := false
+	mustChange := false
+	for _, u := range users {
+		if u.Role == store.RoleAdmin && !u.Disabled {
+			hasAdmin = true
+		}
+		if u.MustChangePassword {
+			mustChange = true
+		}
+	}
+	if !hasAdmin {
+		return false, invalid("file", "bad_backup")
+	}
+	tmpCore := New(st, box, singbox.New("", tmpDir, log), Options{Offline: true}, log)
+	if _, err := tmpCore.Inbounds(ctx); err != nil {
+		return false, invalid("file", "bad_backup")
+	}
+	if _, err := tmpCore.Nodes(ctx); err != nil {
+		return false, invalid("file", "bad_backup")
+	}
+	if _, err := tmpCore.Chains(ctx); err != nil {
+		return false, invalid("file", "bad_backup")
+	}
+	for _, key := range []string{settingCAKey, settingPanelKey, settingSSOSecret, settingRecoveryKey, settingCloudflareToken, settingAccessKey} {
+		sealed, err := st.Setting(ctx, key)
+		if err != nil {
+			return false, invalid("file", "bad_backup")
+		}
+		if sealed != "" {
+			if _, err := box.Open(sealed, "setting:"+key); err != nil {
+				return false, invalid("file", "bad_backup")
+			}
+		}
+	}
+	return mustChange, nil
+}
+
+func (c *Core) replaceBackupFiles(tmpDir, dbName, keyName string, mustChange bool) error {
+	for _, sub := range []string{
+		filepath.Join(c.backupSrc.DataDir, "sing-box", "acme"),
+		filepath.Join(c.backupSrc.DataDir, "sing-box", "panel-cert"),
+		filepath.Join(c.backupSrc.DataDir, "panel-acme"),
+	} {
+		_ = os.RemoveAll(sub)
+	}
+	for _, dir := range []string{c.acme.StorageDir, c.panelCertDir, c.panelACMEDir} {
+		if dir != "" {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return err
+			}
+		}
+	}
+	if !mustChange {
+		_ = os.Remove(filepath.Join(c.backupSrc.DataDir, "initial-admin-password"))
+	}
+	return filepath.WalkDir(tmpDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(tmpDir, path)
+		if err != nil || rel == "." {
+			return err
+		}
+		if rel == keyName || strings.HasPrefix(rel, dbName) || rel == "initial-admin-password" {
+			return nil
+		}
+		dst := filepath.Join(c.backupSrc.DataDir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o700)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, data, 0o600)
+	})
 }

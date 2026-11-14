@@ -61,6 +61,9 @@ func (s *Server) routesProxy(mux *http.ServeMux) {
 	mux.Handle("POST /api/singbox/restart", op(s.handleSingBoxRestart))
 	mux.Handle("GET /api/singbox/logs", admin(s.handleSingBoxLogs))
 	mux.Handle("GET /api/singbox/config", admin(s.handleSingBoxConfig))
+
+	mux.Handle("GET /api/backup", admin(s.handleDownloadBackup))
+	mux.Handle("POST /api/backup/restore", admin(s.handleRestoreBackup))
 }
 
 func pathID(r *http.Request) (int64, bool) {

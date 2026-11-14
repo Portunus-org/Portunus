@@ -44,13 +44,12 @@ export function useResource<T>(fetcher: () => Promise<T>, intervalMs?: number) {
         (e) => alive && setError(e)
       )
     load()
-    if (!intervalMs) return () => void (alive = false)
-    const t = setInterval(load, intervalMs)
     const onShow = () => !document.hidden && load()
     document.addEventListener("visibilitychange", onShow)
+    const t = intervalMs ? setInterval(load, intervalMs) : undefined
     return () => {
       alive = false
-      clearInterval(t)
+      if (t !== undefined) clearInterval(t)
       document.removeEventListener("visibilitychange", onShow)
     }
   }, [intervalMs, setData])

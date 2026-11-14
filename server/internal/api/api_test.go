@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Portunus-org/Portunus/server/internal/auth"
+	"github.com/Portunus-org/Portunus/server/internal/backup"
 	"github.com/Portunus-org/Portunus/server/internal/config"
 	"github.com/Portunus-org/Portunus/server/internal/core"
 	"github.com/Portunus-org/Portunus/server/internal/db"
@@ -95,6 +96,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		ACME:         core.ACMEPaths{DataDirectory: "acme", StorageDir: filepath.Join(cfg.DataDir, "sing-box", "acme")},
 		PanelCertDir: filepath.Join(cfg.DataDir, "sing-box", "panel-cert"),
 		PanelACMEDir: filepath.Join(cfg.DataDir, "panel-acme"),
+		Backup:       backup.Source{DataDir: cfg.DataDir, DBPath: cfg.DBPath(), MasterKeyPath: cfg.MasterKeyPath()},
 	}, log)
 
 	api := New(cfg, log, st, as, c, mgr)
