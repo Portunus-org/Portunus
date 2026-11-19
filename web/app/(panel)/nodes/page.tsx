@@ -224,7 +224,7 @@ export default function NodesPage() {
             header: t("nodes.col.roles"),
             enableSorting: false,
             cell: ({ row }) => (
-              <div className="flex flex-wrap gap-1.5 in-[dd]:justify-end">
+              <div className="flex min-w-0 max-w-full flex-wrap gap-1.5 in-[dd]:justify-end">
                 {row.original.id === 0 && (
                   <Badge variant="outline" className="px-1.5 text-muted-foreground">
                     {t("nodes.role.main")}
@@ -425,7 +425,10 @@ export default function NodesPage() {
             const c = row.original
             const cRules = rulesByChain.get(c.id) ?? []
             return (
-              <div className="flex flex-wrap items-center gap-1.5 in-[dd]:justify-end" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 in-[dd:not([data-stacked])]:justify-end"
+                onClick={(e) => e.stopPropagation()}
+              >
                 {cRules.length > 0 ? (
                   cRules.map((rule) => {
                     const list = listById.get(rule.listId)
@@ -433,12 +436,15 @@ export default function NodesPage() {
                       <Badge
                         key={rule.id}
                         variant="secondary"
-                        className={cn("max-w-full cursor-pointer gap-1 overflow-hidden", !rule.enabled && "opacity-50")}
+                        className={cn(
+                          "h-auto min-h-5 max-w-full min-w-0 shrink cursor-pointer flex-wrap justify-start gap-x-1 gap-y-0.5 py-0.5 whitespace-normal text-left",
+                          !rule.enabled && "opacity-50"
+                        )}
                         onClick={() => isAdmin && openRuleForChain(rule, c.id)}
                       >
-                        <span className="truncate">{list?.name ?? "?"}</span>
+                        <span>{list?.name ?? "?"}</span>
                         <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{targetLabel(rule)}</span>
+                        <span>{targetLabel(rule)}</span>
                       </Badge>
                     )
                   })
@@ -652,6 +658,7 @@ export default function NodesPage() {
                 filters: t("chains.col.filters"),
                 clients: t("nodes.col.clients"),
               }}
+              stackedColumns={["filters"]}
               toolbar={
                 isAdmin &&
                 nodes.length > 0 && (

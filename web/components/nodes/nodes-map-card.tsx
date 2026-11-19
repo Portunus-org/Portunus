@@ -561,7 +561,7 @@ export function NodesMapCard({
 
   return (
     <Card ref={cardRef}>
-      <CardHeader>
+      <CardHeader className={canEdit && (movingMain || draft) ? "max-sm:grid-cols-1!" : undefined}>
         <CardTitle>
           {movingMain
             ? t("nodes.map.moveMainTitle")
@@ -579,7 +579,7 @@ export function NodesMapCard({
               : t("nodes.map.description")}
         </CardDescription>
         {canEdit && (movingMain || draft) && (
-          <CardAction className="flex items-center gap-2">
+          <CardAction className="flex flex-wrap items-center gap-2 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-auto max-sm:justify-self-start max-sm:pt-1">
             {movingMain ? (
               <>
                 {main?.location?.manual && (
@@ -635,7 +635,7 @@ export function NodesMapCard({
           </CardAction>
         )}
       </CardHeader>
-      <CardContent className="grid gap-3">
+      <CardContent className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
         {movingMain && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3.5 py-2 text-xs">
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -685,7 +685,7 @@ export function NodesMapCard({
               variant="outline"
               size="sm"
               spacing={0}
-              className="w-full sm:w-auto"
+              className="h-auto w-full min-w-0 items-stretch sm:w-auto sm:items-center"
               value={lineMode}
               onValueChange={(v) => {
                 if (v === "main" || v === "backup") {
@@ -695,11 +695,17 @@ export function NodesMapCard({
                 }
               }}
             >
-              <ToggleGroupItem value="main" className="flex-1 gap-2 px-3 sm:flex-initial">
+              <ToggleGroupItem
+                value="main"
+                className="h-auto min-h-8 min-w-0 flex-1 gap-1.5 px-2.5 py-1.5 whitespace-normal text-center leading-tight sm:h-8 sm:flex-initial sm:px-3 sm:py-0 sm:whitespace-nowrap"
+              >
                 <span className="h-0.5 w-3.5 shrink-0 rounded-full bg-current" />
                 <span>{t("chains.line.main")}</span>
               </ToggleGroupItem>
-              <ToggleGroupItem value="backup" className="flex-1 gap-2 px-3 sm:flex-initial">
+              <ToggleGroupItem
+                value="backup"
+                className="h-auto min-h-8 min-w-0 flex-1 gap-1.5 px-2.5 py-1.5 whitespace-normal text-center leading-tight sm:h-8 sm:flex-initial sm:px-3 sm:py-0 sm:whitespace-nowrap"
+              >
                 <span className="w-3.5 shrink-0 border-t-2 border-dashed border-current" />
                 <span>{t("chains.line.backup")}</span>
               </ToggleGroupItem>
@@ -744,7 +750,7 @@ export function NodesMapCard({
         />
 
         {draft ? (
-          <div className="grid gap-3">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
             {unplaced.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span>{t("chains.unplaced")}</span>
@@ -773,17 +779,20 @@ export function NodesMapCard({
             )}
 
             {draft.edges.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
                 {draft.edges.map((e) => {
                   const backup = draft.backups.includes(e.from)
                   return (
                     <Badge
                       key={`${e.from}-${e.to}`}
                       variant="outline"
-                      className={cn("gap-1 pr-1", backup && "border-dashed text-muted-foreground")}
+                      className={cn(
+                        "h-auto min-h-5 max-w-full min-w-0 shrink flex-wrap gap-1 py-0.5 pr-1 whitespace-normal text-left",
+                        backup && "border-dashed text-muted-foreground"
+                      )}
                     >
                       <span>{nameOf(e.from)}</span>
-                      <ArrowRightIcon className="size-3 text-muted-foreground" />
+                      <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
                       <span>{nameOf(e.to)}</span>
                       {backup && <span className="text-muted-foreground">{t("chains.backup")}</span>}
                       <Button
@@ -809,20 +818,20 @@ export function NodesMapCard({
             )}
             {error && <p className="text-xs text-destructive">{error}</p>}
 
-            <div className="grid gap-2.5 rounded-lg border bg-muted/30 p-3">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-lg border bg-muted/30 p-3">
               <span className="text-xs font-medium text-muted-foreground">{t("chains.stage.title")}</span>
               <div
                 className={cn(
-                  "grid gap-2",
+                  "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2",
                   relayIds.length > 0
                     ? "lg:grid-cols-[1fr_auto_1.3fr_auto_1fr_auto_1fr] lg:items-stretch"
                     : "lg:grid-cols-[1fr_auto_1.4fr_auto_1fr] lg:items-stretch"
                 )}
               >
                 {/* Stage 1: Entry */}
-                <div className="grid content-start gap-1.5 rounded-md border bg-card p-2.5">
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-1.5 rounded-md border bg-card p-2.5">
                   <span className="text-xs font-medium">{t("chains.stage.entry")}</span>
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex min-w-0 max-w-full flex-wrap gap-1">
                     {entryIds.length > 0 ? (
                       entryIds.map((id) => {
                         const isBackup = draft.backups.includes(id)
@@ -830,7 +839,10 @@ export function NodesMapCard({
                           <Badge
                             key={id}
                             variant="outline"
-                            className={cn(isBackup && "border-dashed text-muted-foreground")}
+                            className={cn(
+                              "h-auto min-h-5 max-w-full min-w-0 shrink flex-wrap py-0.5 whitespace-normal text-left",
+                              isBackup && "border-dashed text-muted-foreground"
+                            )}
                           >
                             <span>{nameOf(id)}</span>
                             {isBackup && <span className="text-muted-foreground">{t("chains.backup")}</span>}
@@ -849,8 +861,8 @@ export function NodesMapCard({
                 </div>
 
                 {/* Stage 2: Traffic Filtering at Entry */}
-                <div className="grid content-start gap-1.5 rounded-md border bg-card p-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-1.5 rounded-md border bg-card p-2.5">
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-medium">{t("chains.stage.filter")}</span>
                     {(onOpenRule || onOpenDraftRule) && (
                       <Button
@@ -870,7 +882,7 @@ export function NodesMapCard({
                       </Button>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
                     {draft.id != null ? (
                       chainRules.length > 0 ? (
                         chainRules.map((rule) => {
@@ -879,12 +891,15 @@ export function NodesMapCard({
                             <Badge
                               key={rule.id}
                               variant="secondary"
-                              className={cn("max-w-full cursor-pointer gap-1 overflow-hidden", !rule.enabled && "opacity-50")}
+                              className={cn(
+                                "h-auto min-h-5 max-w-full min-w-0 shrink cursor-pointer flex-wrap justify-start gap-x-1 gap-y-0.5 py-0.5 whitespace-normal text-left",
+                                !rule.enabled && "opacity-50"
+                              )}
                               onClick={() => draft.id != null && onOpenRule?.(rule, draft.id)}
                             >
-                              <span className="truncate">{list?.name ?? "?"}</span>
+                              <span>{list?.name ?? "?"}</span>
                               <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
-                              <span className="truncate">{targetLabel(rule)}</span>
+                              <span>{targetLabel(rule)}</span>
                             </Badge>
                           )
                         })
@@ -896,12 +911,12 @@ export function NodesMapCard({
                         <Badge
                           key={dr.key}
                           variant="secondary"
-                          className="max-w-full cursor-pointer gap-1 overflow-hidden pr-1"
+                          className="h-auto min-h-5 max-w-full min-w-0 shrink cursor-pointer flex-wrap justify-start gap-x-1 gap-y-0.5 py-0.5 pr-1 whitespace-normal text-left"
                           onClick={() => onOpenDraftRule?.(dr)}
                         >
-                          <span className="truncate">{dr.source.name || "?"}</span>
+                          <span>{dr.source.name || "?"}</span>
                           <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{targetLabel(dr.target)}</span>
+                          <span>{targetLabel(dr.target)}</span>
                           <Button
                             type="button"
                             variant="ghost"
@@ -932,11 +947,15 @@ export function NodesMapCard({
                     <div className="hidden items-center justify-center lg:flex">
                       <ArrowRightIcon className="size-4 text-muted-foreground" />
                     </div>
-                    <div className="grid content-start gap-1.5 rounded-md border bg-card p-2.5">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-1.5 rounded-md border bg-card p-2.5">
                       <span className="text-xs font-medium">{t("chains.stage.transit")}</span>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex min-w-0 max-w-full flex-wrap gap-1">
                         {relayIds.map((id) => (
-                          <Badge key={id} variant="outline">
+                          <Badge
+                            key={id}
+                            variant="outline"
+                            className="h-auto min-h-5 max-w-full min-w-0 shrink flex-wrap py-0.5 whitespace-normal text-left"
+                          >
                             {nameOf(id)}
                           </Badge>
                         ))}
@@ -950,12 +969,16 @@ export function NodesMapCard({
                 </div>
 
                 {/* Stage 3: Exit */}
-                <div className="grid content-start gap-1.5 rounded-md border bg-card p-2.5">
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-1.5 rounded-md border bg-card p-2.5">
                   <span className="text-xs font-medium">{t("chains.stage.exit")}</span>
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex min-w-0 max-w-full flex-wrap gap-1">
                     {exitIds.length > 0 ? (
                       exitIds.map((id) => (
-                        <Badge key={id} variant="outline">
+                        <Badge
+                          key={id}
+                          variant="outline"
+                          className="h-auto min-h-5 max-w-full min-w-0 shrink flex-wrap py-0.5 whitespace-normal text-left"
+                        >
                           {nameOf(id)}
                         </Badge>
                       ))

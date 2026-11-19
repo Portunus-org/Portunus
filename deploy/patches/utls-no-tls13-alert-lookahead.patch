@@ -1,0 +1,22 @@
+diff -ruN utls-a/conn.go utls-b/conn.go
+--- a/conn.go	2026-11-15 18:59:52.814235620 +0300
++++ b/conn.go	2026-11-15 19:00:30.068468550 +0300
+@@ -1461,6 +1461,7 @@
+ 	// have already tried to reuse the HTTP connection for a new request.
+ 	// See https://golang.org/cl/76400046 and https://golang.org/issue/3514
+ 	if n != 0 && c.input.Len() == 0 && c.rawInput.Len() > 0 &&
++		c.vers != VersionTLS13 &&
+ 		recordType(c.rawInput.Bytes()[0]) == recordTypeAlert {
+ 		if err := c.readRecord(); err != nil {
+ 			return n, err // will be io.EOF on closeNotify
+diff -ruN utls-a/u_conn.go utls-b/u_conn.go
+--- a/u_conn.go	2026-11-15 18:59:52.822415932 +0300
++++ b/u_conn.go	2026-11-15 19:00:30.068547134 +0300
+@@ -892,6 +892,7 @@
+ 	// have already tried to reuse the HTTP connection for a new request.
+ 	// See https://golang.org/cl/76400046 and https://golang.org/issue/3514
+ 	if n != 0 && c.input.Len() == 0 && c.rawInput.Len() > 0 &&
++		c.vers != VersionTLS13 &&
+ 		recordType(c.rawInput.Bytes()[0]) == recordTypeAlert {
+ 		if err := c.readRecord(); err != nil {
+ 			return n, err // will be io.EOF on closeNotify
