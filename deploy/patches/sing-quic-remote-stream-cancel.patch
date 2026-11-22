@@ -1,0 +1,61 @@
+diff -ruN sing-quic-a/hysteria/service.go sing-quic-b/hysteria/service.go
+--- a/hysteria/service.go	2026-11-15 18:59:52.802105644 +0300
++++ b/hysteria/service.go	2026-11-15 19:00:30.068238396 +0300
+@@ -314,10 +314,10 @@
+ 		return os.ErrInvalid
+ 	}
+ 	c.responseWritten = true
+-	return WriteServerResponse(c.Stream, ServerResponse{
++	return qtls.WrapError(WriteServerResponse(c.Stream, ServerResponse{
+ 		OK:      false,
+ 		Message: err.Error(),
+-	})
++	}))
+ }
+ 
+ func (c *serverConn) HandshakeSuccess() error {
+@@ -325,9 +325,9 @@
+ 		return nil
+ 	}
+ 	c.responseWritten = true
+-	return WriteServerResponse(c.Stream, ServerResponse{
++	return qtls.WrapError(WriteServerResponse(c.Stream, ServerResponse{
+ 		OK: true,
+-	})
++	}))
+ }
+ 
+ func (c *serverConn) Read(p []byte) (n int, err error) {
+diff -ruN sing-quic-a/hysteria2/service.go sing-quic-b/hysteria2/service.go
+--- a/hysteria2/service.go	2026-11-15 18:59:52.802847459 +0300
++++ b/hysteria2/service.go	2026-11-15 19:00:30.068177124 +0300
+@@ -397,7 +397,7 @@
+ 	c.responseWritten = true
+ 	buffer := protocol.WriteTCPResponse(false, err.Error(), nil)
+ 	defer buffer.Release()
+-	return common.Error(c.Stream.Write(buffer.Bytes()))
++	return qtls.WrapError(common.Error(c.Stream.Write(buffer.Bytes())))
+ }
+ 
+ func (c *serverConn) HandshakeSuccess() error {
+@@ -407,7 +407,7 @@
+ 	c.responseWritten = true
+ 	buffer := protocol.WriteTCPResponse(true, "", nil)
+ 	defer buffer.Release()
+-	return common.Error(c.Stream.Write(buffer.Bytes()))
++	return qtls.WrapError(common.Error(c.Stream.Write(buffer.Bytes())))
+ }
+ 
+ func (c *serverConn) Read(p []byte) (n int, err error) {
+diff -ruN sing-quic-a/quic_error.go sing-quic-b/quic_error.go
+--- a/quic_error.go	2026-11-15 18:59:52.802947021 +0300
++++ b/quic_error.go	2026-11-15 19:00:30.068115560 +0300
+@@ -36,7 +36,7 @@
+ 	case net.ErrClosed:
+ 		var streamErr *quic.StreamError
+ 		if errors.As(e.err, &streamErr) {
+-			return !streamErr.Remote && streamErr.ErrorCode == 0
++			return streamErr.ErrorCode == 0
+ 		}
+ 		var transportErr *quic.TransportError
+ 		if errors.As(e.err, &transportErr) {

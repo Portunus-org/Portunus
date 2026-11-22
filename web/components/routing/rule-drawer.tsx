@@ -86,7 +86,7 @@ export function RuleDrawer({
         ? { action: rule.action, nodeId: rule.nodeId }
         : initialScope > 0 || onSaveDraft
           ? { action: "direct" }
-          : exits.length
+          : exits.length || chains.length
             ? { action: "auto" }
             : { action: "direct" }
   )
@@ -233,7 +233,7 @@ export function RuleDrawer({
                   )
                 )}
                 <FormField id="rule-target" label={t("routing.rule.target")}>
-                  <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} allowBlock />
+                  <TargetSelect id="rule-target" value={target} onChange={setTarget} nodes={nodes} chains={chains} allowBlock />
                   {(target.action === "node" || target.action === "auto") && (
                     <p className="text-muted-foreground">{t("routing.failClosed")}</p>
                   )}

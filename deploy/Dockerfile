@@ -41,18 +41,34 @@ WORKDIR /src/sing-box
 ARG SINGBOX_DEP_BUMPS="github.com/andybalholm/brotli@v1.2.8 github.com/go-chi/chi/v5@v5.5.0 github.com/klauspost/compress@v1.20.4 golang.org/x/crypto@v0.58.1-0.20261009181718-2f1f834330b2 golang.org/x/mod@v0.42.0 golang.org/x/net@v0.62.0 google.golang.org/grpc@v1.83.2"
 RUN --mount=type=cache,target=/go/pkg/mod \
     go get ${SINGBOX_DEP_BUMPS}
-# Patched sing-quic: a stable stateless-reset key so Hysteria2/TUIC clients
-# reconnect immediately after a reload instead of after a 30 s idle timeout
-# (the key is derived from the master key by the panel). The patch targets one sing-quic version; the
-# build fails loudly if a sing-box upgrade moves it.
+# Patched sing-box + dependencies:
+# - sing-box: downgrade peer-closed handshake/dial-canceled logs from ERROR to TRACE
+# - sing-quic: stable stateless-reset key + treat remote QUIC stream cancel error code 0 as net.ErrClosed
+# - sing-vmess: fix VisionConn Close/CloseWrite after direct splice, EOF buffering, and filterTLS race
+# - utls: disable pre-TLS1.3 HTTP close_notify alert lookahead on TLS 1.3 connections (fixes bogus version errors after Vision direct splice)
+# Each patch targets a pinned module version so the build fails loudly if a bump moves it.
 ARG SINGQUIC_VERSION=v0.7.0
-COPY deploy/patches/sing-quic-stable-stateless-reset.patch /patches/
+ARG SINGVMESS_VERSION=v0.2.8
+ARG UTLS_VERSION=v1.8.7
+COPY deploy/patches/ /patches/
+RUN patch -d /src/sing-box -p1 < /patches/sing-box-cancel-close-log.patch
 RUN --mount=type=cache,target=/go/pkg/mod \
     test "$(go list -m -f '{{.Version}}' github.com/sagernet/sing-quic)" = "${SINGQUIC_VERSION}" \
  && cp -r "$(go mod download -json github.com/sagernet/sing-quic@${SINGQUIC_VERSION} | sed -n 's/.*"Dir": "\(.*\)",/\1/p')" /src/sing-quic \
  && chmod -R u+w /src/sing-quic \
  && patch -d /src/sing-quic -p1 < /patches/sing-quic-stable-stateless-reset.patch \
- && go mod edit -replace github.com/sagernet/sing-quic=/src/sing-quic
+ && patch -d /src/sing-quic -p1 < /patches/sing-quic-remote-stream-cancel.patch \
+ && go mod edit -replace github.com/sagernet/sing-quic=/src/sing-quic \
+ && test "$(go list -m -f '{{.Version}}' github.com/sagernet/sing-vmess)" = "${SINGVMESS_VERSION}" \
+ && cp -r "$(go mod download -json github.com/sagernet/sing-vmess@${SINGVMESS_VERSION} | sed -n 's/.*"Dir": "\(.*\)",/\1/p')" /src/sing-vmess \
+ && chmod -R u+w /src/sing-vmess \
+ && patch -d /src/sing-vmess -p1 < /patches/sing-vmess-vision-fixes.patch \
+ && go mod edit -replace github.com/sagernet/sing-vmess=/src/sing-vmess \
+ && test "$(go list -m -f '{{.Version}}' github.com/metacubex/utls)" = "${UTLS_VERSION}" \
+ && cp -r "$(go mod download -json github.com/metacubex/utls@${UTLS_VERSION} | sed -n 's/.*"Dir": "\(.*\)",/\1/p')" /src/utls \
+ && chmod -R u+w /src/utls \
+ && patch -d /src/utls -p1 < /patches/utls-no-tls13-alert-lookahead.patch \
+ && go mod edit -replace github.com/metacubex/utls=/src/utls
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -tags "${SINGBOX_TAGS}" \
       -ldflags "-s -w -X github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION#v} -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0" \

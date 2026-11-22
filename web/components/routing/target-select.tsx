@@ -1,7 +1,7 @@
 "use client"
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { Node, RouteTarget } from "@/lib/api"
+import type { Chain, Node, RouteTarget } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 
 /** A route target as one select value: "direct", "auto", "block" or "node:<id>". */
@@ -30,6 +30,7 @@ export function TargetSelect({
   value,
   onChange,
   nodes,
+  chains = [],
   allowBlock = false,
   disabled,
   className,
@@ -38,12 +39,14 @@ export function TargetSelect({
   value: RouteTarget
   onChange: (t: RouteTarget) => void
   nodes: Node[]
+  chains?: Chain[]
   allowBlock?: boolean
   disabled?: boolean
   className?: string
 }) {
   const { t } = useI18n()
   const exits = nodes.filter((n) => n.isExit)
+  const hasAuto = exits.length > 0 || chains.length > 0
   return (
     <Select value={targetValue(value)} onValueChange={(v) => onChange(parseTarget(v))} disabled={disabled}>
       <SelectTrigger id={id} className={className ?? "w-full"}>
@@ -52,7 +55,7 @@ export function TargetSelect({
       <SelectContent>
         <SelectGroup>
           <SelectItem value="direct">{t("routing.target.direct")}</SelectItem>
-          {exits.length > 0 && <SelectItem value="auto">{t("routing.target.auto")}</SelectItem>}
+          {hasAuto && <SelectItem value="auto">{t("routing.target.auto")}</SelectItem>}
           {exits.map((n) => (
             <SelectItem key={n.id} value={`node:${n.id}`}>
               {t("routing.target.node", { name: n.name })}

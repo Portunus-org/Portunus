@@ -1,0 +1,89 @@
+diff --git a/route/conn.go b/route/conn.go
+index c2ab90d..fbf1b61 100644
+--- a/route/conn.go
++++ b/route/conn.go
+@@ -116,7 +116,11 @@ func (m *ConnectionManager) NewConnection(ctx context.Context, this N.Dialer, co
+ 		}
+ 		err = E.Cause(err, "open connection to ", remoteString, dialerString)
+ 		N.CloseOnHandshakeFailure(conn, onClose, err)
+-		m.logger.ErrorContext(ctx, err)
++		if E.IsMulti(err, context.Canceled) {
++			m.logger.TraceContext(ctx, err)
++		} else {
++			m.logger.ErrorContext(ctx, err)
++		}
+ 		return
+ 	}
+ 	err = N.ReportConnHandshakeSuccess(conn, remoteConn)
+@@ -124,7 +128,11 @@ func (m *ConnectionManager) NewConnection(ctx context.Context, this N.Dialer, co
+ 		err = E.Cause(err, "report handshake success")
+ 		remoteConn.Close()
+ 		N.CloseOnHandshakeFailure(conn, onClose, err)
+-		m.logger.ErrorContext(ctx, err)
++		if E.IsClosedOrCanceled(err) {
++			m.logger.TraceContext(ctx, err)
++		} else {
++			m.logger.ErrorContext(ctx, err)
++		}
+ 		return
+ 	}
+ 	if metadata.TLSFragment || metadata.TLSRecordFragment {
+@@ -191,7 +199,11 @@ func (m *ConnectionManager) NewPacketConnection(ctx context.Context, this N.Dial
+ 			}
+ 			err = E.Cause(err, "open packet connection to ", remoteString, dialerString)
+ 			N.CloseOnHandshakeFailure(conn, onClose, err)
+-			m.logger.ErrorContext(ctx, err)
++			if E.IsMulti(err, context.Canceled) {
++				m.logger.TraceContext(ctx, err)
++			} else {
++				m.logger.ErrorContext(ctx, err)
++			}
+ 			return
+ 		}
+ 		remotePacketConn = bufio.NewUnbindPacketConn(remoteConn)
+@@ -214,7 +226,11 @@ func (m *ConnectionManager) NewPacketConnection(ctx context.Context, this N.Dial
+ 			}
+ 			err = E.Cause(err, "listen packet connection using ", dialerString)
+ 			N.CloseOnHandshakeFailure(conn, onClose, err)
+-			m.logger.ErrorContext(ctx, err)
++			if E.IsMulti(err, context.Canceled) {
++				m.logger.TraceContext(ctx, err)
++			} else {
++				m.logger.ErrorContext(ctx, err)
++			}
+ 			return
+ 		}
+ 	}
+@@ -222,7 +238,11 @@ func (m *ConnectionManager) NewPacketConnection(ctx context.Context, this N.Dial
+ 	if err != nil {
+ 		conn.Close()
+ 		remotePacketConn.Close()
+-		m.logger.ErrorContext(ctx, "report handshake success: ", err)
++		if E.IsClosedOrCanceled(err) {
++			m.logger.TraceContext(ctx, "report handshake success: ", err)
++		} else {
++			m.logger.ErrorContext(ctx, "report handshake success: ", err)
++		}
+ 		return
+ 	}
+ 	if destinationAddress.IsValid() {
+@@ -358,9 +378,17 @@ func (m *ConnectionManager) kickWriteHandshake(ctx context.Context, source net.C
+ 	}
+ 	common.Close(source, destination)
+ 	if !direction {
+-		m.logger.ErrorContext(ctx, "connection upload handshake: ", err)
++		if E.IsClosedOrCanceled(err) {
++			m.logger.TraceContext(ctx, "connection upload handshake: ", err)
++		} else {
++			m.logger.ErrorContext(ctx, "connection upload handshake: ", err)
++		}
+ 	} else {
+-		m.logger.ErrorContext(ctx, "connection download handshake: ", err)
++		if E.IsClosedOrCanceled(err) {
++			m.logger.TraceContext(ctx, "connection download handshake: ", err)
++		} else {
++			m.logger.ErrorContext(ctx, "connection download handshake: ", err)
++		}
+ 	}
+ 	return true
+ }

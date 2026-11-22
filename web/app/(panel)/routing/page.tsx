@@ -27,7 +27,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cardTap } from "@/lib/card-tap"
 import { cn } from "@/lib/utils"
-import { api, errorText, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
+import { api, errorText, type Chain, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { useCanEdit } from "@/lib/session"
@@ -43,9 +43,9 @@ function useListSummary() {
 }
 
 /** A target that cannot carry traffic right now: its exit is gone or off. */
-function targetBroken(target: RouteTarget, nodes: Node[]): boolean {
+function targetBroken(target: RouteTarget, nodes: Node[], chains: Chain[]): boolean {
   const exits = nodes.filter((n) => n.isExit && n.enabled)
-  if (target.action === "auto") return exits.length === 0
+  if (target.action === "auto") return exits.length === 0 && chains.length === 0
   if (target.action === "node") return !exits.some((n) => n.id === target.nodeId)
   return false
 }
@@ -186,7 +186,7 @@ export default function RoutingPage() {
       target: (
         <div className="flex flex-wrap items-center gap-2">
           {targetLabel(rule)}
-          {rule.enabled && targetBroken(rule, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>}
+          {rule.enabled && targetBroken(rule, nodes, chains) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>}
         </div>
       ),
       toggle: (
@@ -277,7 +277,7 @@ export default function RoutingPage() {
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
           <div className="flex flex-wrap items-center gap-3">
-            <TargetSelect value={chosen} onChange={setPending} nodes={nodes} disabled={!canEdit} className="w-full sm:w-96" />
+            <TargetSelect value={chosen} onChange={setPending} nodes={nodes} chains={chains} disabled={!canEdit} className="w-full sm:w-96" />
             {changed ? (
               <>
                 <Button
@@ -294,7 +294,7 @@ export default function RoutingPage() {
                 </Button>
               </>
             ) : (
-              targetBroken(routing.default, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>
+              targetBroken(routing.default, nodes, chains) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>
             )}
           </div>
           {nodes.some((n) => n.isEntry && n.enabled) && chosen.action === "direct" && (
@@ -324,14 +324,14 @@ export default function RoutingPage() {
             </CardAction>
           )}
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
           {chains.length > 0 && (
-            <div className="grid gap-1.5">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
               <Tabs
                 value={scopeFilter == null ? "all" : String(scopeFilter)}
                 onValueChange={(v) => setScopeFilter(v === "all" ? null : Number(v))}
               >
-                <TabsList className="flex-wrap">
+                <TabsList className="h-auto max-w-full flex-wrap justify-start">
                   <TabsTrigger value="all">{t("routing.rules.filter.all")}</TabsTrigger>
                   {chains.map((c) => (
                     <TabsTrigger key={c.id} value={String(c.id)}>
@@ -376,7 +376,7 @@ export default function RoutingPage() {
                     key={rule.id}
                     {...cardTap(canEdit ? () => openRule(rule) : undefined)}
                     className={cn(
-                      "grid gap-3 rounded-lg border p-4 text-sm",
+                      "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 rounded-lg border p-4 text-sm",
                       canEdit && cardTap(() => {}).className,
                       !rule.enabled && "text-muted-foreground"
                     )}
@@ -389,13 +389,19 @@ export default function RoutingPage() {
                       <div className="-mt-1 -mr-2 shrink-0">{part.controls}</div>
                     </div>
                     {showScope ? (
-                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 pl-6">
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 pl-6">
                         <dt className="text-muted-foreground">{t("routing.rule.scope")}</dt>
-                        <dd className="flex min-w-0 justify-end text-right">{part.scope}</dd>
+                        <dd className="flex min-w-0 max-w-full justify-end text-right [&>*]:min-w-0 [&>*]:max-w-full">
+                          {part.scope}
+                        </dd>
                         <dt className="text-muted-foreground">{t("routing.rules.col.target")}</dt>
-                        <dd className="flex min-w-0 justify-end text-right">{part.target}</dd>
+                        <dd className="flex min-w-0 max-w-full justify-end text-right [&>*]:min-w-0 [&>*]:max-w-full">
+                          {part.target}
+                        </dd>
                         <dt className="text-muted-foreground">{t("routing.rules.col.enabled")}</dt>
-                        <dd className="flex min-w-0 justify-end text-right">{part.toggle}</dd>
+                        <dd className="flex min-w-0 max-w-full justify-end text-right [&>*]:min-w-0 [&>*]:max-w-full">
+                          {part.toggle}
+                        </dd>
                       </dl>
                     ) : (
                       <div className="flex items-center justify-between gap-3 pl-6">

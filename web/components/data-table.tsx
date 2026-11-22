@@ -85,6 +85,7 @@ export function DataTable<T extends RowData>({
   found,
   onRowClick,
   inset = true,
+  stackedColumns = [],
 }: {
   data: T[]
   columns: ColumnDef<TableFeatures, T, any>[] // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -113,6 +114,8 @@ export function DataTable<T extends RowData>({
   onRowClick?: (row: T) => void
   /** The page's side padding; off where the table stands inside something padded already (a settings pane). */
   inset?: boolean
+  /** Column ids whose label + value stack on separate full-width lines in the mobile card view. */
+  stackedColumns?: string[]
 }) {
   const { t, tp } = useI18n()
   const [columnVisibility, setColumnVisibility] = React.useState<ColumnVisibilityState>(() =>
@@ -278,7 +281,11 @@ export function DataTable<T extends RowData>({
                     key={row.id}
                     data-row-id={row.id}
                     {...tap}
-                    className={cn("grid gap-3 rounded-lg border bg-card p-4 text-sm", tap.className, lit === row.id && "row-found")}
+                    className={cn(
+                      "grid grid-cols-[minmax(0,1fr)] gap-3 rounded-lg border bg-card p-4 text-sm",
+                      tap.className,
+                      lit === row.id && "row-found"
+                    )}
                   >
                     <div className="flex min-h-7 items-center justify-between gap-3">
                       <div className="min-w-0 font-medium break-words [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:text-left [&_[data-slot=button]]:whitespace-normal">
@@ -291,15 +298,26 @@ export function DataTable<T extends RowData>({
                       )}
                     </div>
                     {rest.length > 0 && (
-                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5">
-                        {rest.map((cell) => (
-                          <React.Fragment key={cell.id}>
-                            <dt className="text-muted-foreground">{labelOf(cell.column.id, cell.column.columnDef.header)}</dt>
-                            <dd className="flex min-w-0 justify-end text-right">
-                              <FlexRender cell={cell} />
-                            </dd>
-                          </React.Fragment>
-                        ))}
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2.5">
+                        {rest.map((cell) => {
+                          const stacked = stackedColumns.includes(cell.column.id)
+                          return (
+                            <React.Fragment key={cell.id}>
+                              <dt className={cn("text-muted-foreground", stacked && "col-span-full")}>
+                                {labelOf(cell.column.id, cell.column.columnDef.header)}
+                              </dt>
+                              <dd
+                                data-stacked={stacked ? "true" : undefined}
+                                className={cn(
+                                  "flex min-w-0 max-w-full [&>*]:min-w-0 [&>*]:max-w-full",
+                                  stacked ? "col-span-full justify-start text-left" : "justify-end text-right"
+                                )}
+                              >
+                                <FlexRender cell={cell} />
+                              </dd>
+                            </React.Fragment>
+                          )
+                        })}
                       </dl>
                     )}
                   </div>

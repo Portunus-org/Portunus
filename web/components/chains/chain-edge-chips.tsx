@@ -22,12 +22,15 @@ export function ChainEdgeChips({
 }) {
   const nameOf = (id: number) => (id === 0 ? mainLabel : nodes.find((n) => n.id === id)?.name ?? "?")
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5 in-[dd]:justify-end">
+    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 in-[dd:not([data-stacked])]:justify-end">
       {chain.edges.map((e) => (
         <Badge
           key={e.id}
           variant="outline"
-          className={cn("gap-1 px-2 py-0.5", chain.backups.includes(e.from) && "border-dashed text-muted-foreground")}
+          className={cn(
+            "h-auto min-h-5 max-w-full min-w-0 shrink flex-wrap gap-1 px-2 py-0.5 whitespace-normal text-left",
+            chain.backups.includes(e.from) && "border-dashed text-muted-foreground"
+          )}
         >
           {nameOf(e.from)}
           <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />

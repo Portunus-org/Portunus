@@ -1,0 +1,192 @@
+diff -ruN sing-vmess-a/vless/vision.go sing-vmess-b/vless/vision.go
+--- a/vless/vision.go	2026-11-15 18:59:52.810449916 +0300
++++ b/vless/vision.go	2026-11-15 19:01:44.880015357 +0300
+@@ -4,11 +4,13 @@
+ 	"bytes"
+ 	"crypto/rand"
+ 	"crypto/tls"
++	"errors"
+ 	"io"
+ 	"math/big"
+ 	"net"
+ 	"reflect"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 	"unsafe"
+ 
+@@ -45,6 +47,7 @@
+ 	logger      logger.Logger
+ 
+ 	userUUID               [16]byte
++	filterAccess           sync.Mutex
+ 	isTLS                  bool
+ 	numberOfPacketToFilter int
+ 	isTLS12orAbove         bool
+@@ -52,13 +55,14 @@
+ 	cipher                 uint16
+ 	enableXTLS             bool
+ 	isPadding              bool
+-	directWrite            bool
++	directWrite            atomic.Bool
+ 	writeUUID              bool
+ 	withinPaddingBuffers   bool
+ 	remainingContent       int
+ 	remainingPadding       int
+ 	currentCommand         byte
+-	directRead             bool
++	directRead             atomic.Bool
++	readEOF                bool
+ 	remainingBuffers       []*buf.Buffer
+ }
+ 
+@@ -115,7 +119,10 @@
+ 	if n > 0 {
+ 		return
+ 	}
+-	if c.directRead {
++	if c.readEOF {
++		return 0, io.EOF
++	}
++	if c.directRead.Load() {
+ 		return c.netConn.Read(p)
+ 	}
+ 	var bufferBytes []byte
+@@ -123,9 +130,15 @@
+ 	if len(p) > xrayChunkSize {
+ 		n, err = c.Conn.Read(p)
+ 		if err != nil {
+-			return
++			if n > 0 && errors.Is(err, io.EOF) {
++				c.readEOF = true
++				err = nil
++			} else {
++				return 0, err
++			}
+ 		}
+ 		bufferBytes = p[:n]
++		n = 0
+ 	} else {
+ 		chunkBuffer, err = c.reader.ReadChunk()
+ 		if err != nil {
+@@ -133,7 +146,10 @@
+ 		}
+ 		bufferBytes = chunkBuffer.Bytes()
+ 	}
+-	if c.withinPaddingBuffers || c.numberOfPacketToFilter > 0 {
++	c.filterAccess.Lock()
++	needFilter := c.numberOfPacketToFilter > 0
++	c.filterAccess.Unlock()
++	if c.withinPaddingBuffers || needFilter {
+ 		buffers := c.unPadding(bufferBytes)
+ 		if chunkBuffer != nil {
+ 			chunkBuffer.Reset()
+@@ -145,7 +161,7 @@
+ 				c.remainingPadding = -1
+ 			} else if c.currentCommand == commandPaddingDirect {
+ 				c.withinPaddingBuffers = false
+-				c.directRead = true
++				c.directRead.Store(true)
+ 
+ 				inputBuffer, err := io.ReadAll(c.input)
+ 				if err != nil {
+@@ -171,53 +187,63 @@
+ 		} else {
+ 			c.withinPaddingBuffers = false
+ 		}
++		c.filterAccess.Lock()
+ 		if c.numberOfPacketToFilter > 0 {
+ 			c.filterTLS(buf.ToSliceMulti(buffers))
+ 		}
++		c.filterAccess.Unlock()
+ 		c.remainingBuffers = buffers
+ 		return c.Read(p)
+ 	} else {
++		c.filterAccess.Lock()
+ 		if c.numberOfPacketToFilter > 0 {
+ 			c.filterTLS([][]byte{bufferBytes})
+ 		}
++		c.filterAccess.Unlock()
+ 		if chunkBuffer != nil {
+ 			c.remainingBuffers = append(c.remainingBuffers, buf.As(chunkBuffer.Bytes()))
+ 			chunkBuffer.Reset() // chunkBuffer should not be release and only reused after c.remainingBuffers be emptied, so must reset at here
+ 			return c.Read(p)
+ 		}
+-		return
++		return len(bufferBytes), nil
+ 	}
+ }
+ 
+ func (c *VisionConn) Write(p []byte) (n int, err error) {
+ 	c.writeAccess.Lock()
+ 	defer c.writeAccess.Unlock()
++	c.filterAccess.Lock()
+ 	if c.numberOfPacketToFilter > 0 {
+ 		c.filterTLS([][]byte{p})
+ 	}
++	isTLS := c.isTLS
++	isTLS12orAbove := c.isTLS12orAbove
++	enableXTLS := c.enableXTLS
++	numberOfPacketToFilter := c.numberOfPacketToFilter
++	c.filterAccess.Unlock()
+ 	if c.isPadding {
+ 		inputLen := len(p)
+ 		buffers := reshapeBuffer(p)
+ 		var specIndex int
+ 		for i, buffer := range buffers {
+-			if c.isTLS && buffer.Len() > 6 && bytes.Equal(tlsApplicationDataStart, buffer.To(3)) {
++			if isTLS && buffer.Len() > 6 && bytes.Equal(tlsApplicationDataStart, buffer.To(3)) {
+ 				var command byte = commandPaddingEnd
+-				if c.enableXTLS {
+-					c.directWrite = true
++				if enableXTLS {
++					c.directWrite.Store(true)
+ 					specIndex = i
+ 					command = commandPaddingDirect
+ 				}
+ 				c.isPadding = false
+ 				buffers[i] = c.padding(buffer, command)
+ 				break
+-			} else if !c.isTLS12orAbove && c.numberOfPacketToFilter <= 1 {
++			} else if !isTLS12orAbove && numberOfPacketToFilter <= 1 {
+ 				c.isPadding = false
+ 				buffers[i] = c.padding(buffer, commandPaddingEnd)
+ 				break
+ 			}
+ 			buffers[i] = c.padding(buffer, commandPaddingContinue)
+ 		}
+-		if c.directWrite {
++		if c.directWrite.Load() {
+ 			encryptedBuffer := buffers[:specIndex+1]
+ 			err = c.writer.WriteVectorised(encryptedBuffer)
+ 			if err != nil {
+@@ -238,7 +264,7 @@
+ 		}
+ 		return
+ 	}
+-	if c.directWrite {
++	if c.directWrite.Load() {
+ 		return c.netConn.Write(p)
+ 	} else {
+ 		return c.Conn.Write(p)
+@@ -384,6 +410,20 @@
+ 	return true
+ }
+ 
++func (c *VisionConn) CloseWrite() error {
++	if c.directWrite.Load() {
++		return N.CloseWrite(c.netConn)
++	}
++	return N.CloseWrite(c.Conn)
++}
++
++func (c *VisionConn) Close() error {
++	if c.directRead.Load() || c.directWrite.Load() {
++		return c.netConn.Close()
++	}
++	return c.Conn.Close()
++}
++
+ func (c *VisionConn) Upstream() any {
+ 	return c.Conn
+ }

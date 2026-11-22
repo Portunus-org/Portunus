@@ -487,44 +487,104 @@ func TestChainIntermediateHopNoResolve(t *testing.T) {
 	}
 }
 
-// TestChainBindingUnderDefaultDirect ensures that clients bound to a chain
-// have their traffic routed to the chain outbound even when Default is RouteDirect.
-func TestChainBindingUnderDefaultDirect(t *testing.T) {
-	r := Routing{
-		ChainOutbounds: []any{map[string]any{"type": "direct", "tag": "clink-1"}},
-		Bindings: []Binding{
-			{Users: []string{"c1"}, Outbound: "clink-1"},
-		},
-		Default: RouteDirect,
-	}
-	cfg, err := ServerConfig(testInbounds(t), testClients, "127.0.0.1:2054", ACMEOptions{}, r)
+// TestChainBindingRespectsDefault ensures that Default ("All other traffic")
+// is respected for clients bound to a chain: RouteDirect sends unmatched
+// traffic directly from the entry point (both with and without address-based
+// rules), RouteNode sends it to that exit, and RouteAuto sends it through the
+// client's chain.
+func TestChainBindingRespectsDefault(t *testing.T) {
+	hop, err := NewHop(443, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	singBoxCheck(t, cfg)
-	rules, _ := routeRules(t, cfg)
+	telegram := mustList(1, "telegram.org")
+	cidrRule := mustList(2, "198.51.100.0/24")
 
-	resolveIdx := -1
-	routedC1Early := false
-	for i, rule := range rules {
-		if rule["action"] == "resolve" {
-			resolveIdx = i
-		}
-		users, _ := rule["auth_user"].([]any)
-		if len(users) == 0 {
-			if sub, ok := rule["rules"].([]any); ok {
-				users, _ = sub[len(sub)-1].(map[string]any)["auth_user"].([]any)
+	for _, tc := range []struct {
+		name     string
+		rules    []RouteRule
+		def      string
+		defExit  int64
+		wantOut  string // expected catch-all outbound for c1, or "direct" when final is direct
+	}{
+		{
+			name:    "default direct with domain rule",
+			rules:   []RouteRule{{List: telegram, Action: RouteNode, ExitID: 5}},
+			def:     RouteDirect,
+			wantOut: "direct",
+		},
+		{
+			name:    "default direct with auto rule",
+			rules:   []RouteRule{{List: telegram, Action: RouteAuto}},
+			def:     RouteDirect,
+			wantOut: "direct",
+		},
+		{
+			name:    "default direct with cidr rule (needsAddr)",
+			rules:   []RouteRule{{List: cidrRule, Action: RouteNode, ExitID: 5}},
+			def:     RouteDirect,
+			wantOut: "direct",
+		},
+		{
+			name:    "default auto routes via chain",
+			rules:   []RouteRule{{List: telegram, Action: RouteNode, ExitID: 5}},
+			def:     RouteAuto,
+			wantOut: "clink-1",
+		},
+		{
+			name:    "default node routes via that node",
+			rules:   []RouteRule{{List: telegram, Action: RouteAuto}},
+			def:     RouteNode,
+			defExit: 5,
+			wantOut: ExitTag(5),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := Routing{
+				Exits:          []Exit{{ID: 5, Outbound: hop.Outbound("203.0.113.20")}},
+				ChainOutbounds: []any{map[string]any{"type": "direct", "tag": "clink-1"}},
+				Bindings:       []Binding{{Users: []string{"c1"}, Outbound: "clink-1"}},
+				Rules:          tc.rules,
+				Default:        tc.def,
+				DefaultExit:    tc.defExit,
 			}
-		}
-		if rule["action"] == "route" && rule["outbound"] == "clink-1" {
-			for _, u := range users {
-				if u == "c1" && (resolveIdx == -1 || i < resolveIdx) {
-					routedC1Early = true
+			cfg, err := ServerConfig(testInbounds(t), testClients, "127.0.0.1:2054", ACMEOptions{}, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			singBoxCheck(t, cfg)
+			rules, final := routeRules(t, cfg)
+			if final != "direct" {
+				t.Fatalf("final %q, want direct", final)
+			}
+
+			// Find any catch-all rule (matching network [tcp, udp] without a rule_set).
+			catchAllOut := ""
+			for _, rule := range rules {
+				if rule["action"] != "route" {
+					continue
+				}
+				if _, hasSet := rule["rule_set"]; hasSet {
+					continue
+				}
+				if net, ok := rule["network"].([]any); ok && len(net) == 2 {
+					out, _ := rule["outbound"].(string)
+					// Check either unscoped catch-all or c1 catch-all.
+					users, _ := rule["auth_user"].([]any)
+					if len(users) == 0 || (len(users) == 1 && users[0] == "c1") {
+						catchAllOut = out
+						break
+					}
 				}
 			}
-		}
-	}
-	if !routedC1Early {
-		t.Fatalf("client c1 bound to chain was not routed to clink-1 before resolve: %v", rules)
+
+			if tc.wantOut == "direct" {
+				if catchAllOut != "" {
+					t.Fatalf("expected unmatched traffic to fall through to final direct, got catch-all route to %q: %v", catchAllOut, rules)
+				}
+			} else if catchAllOut != tc.wantOut {
+				t.Fatalf("catch-all outbound = %q, want %q: %v", catchAllOut, tc.wantOut, rules)
+			}
+		})
 	}
 }
