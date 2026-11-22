@@ -27,7 +27,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cardTap } from "@/lib/card-tap"
 import { cn } from "@/lib/utils"
-import { api, errorText, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
+import { api, errorText, type Chain, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { useCanEdit } from "@/lib/session"
@@ -43,9 +43,9 @@ function useListSummary() {
 }
 
 /** A target that cannot carry traffic right now: its exit is gone or off. */
-function targetBroken(target: RouteTarget, nodes: Node[]): boolean {
+function targetBroken(target: RouteTarget, nodes: Node[], chains: Chain[]): boolean {
   const exits = nodes.filter((n) => n.isExit && n.enabled)
-  if (target.action === "auto") return exits.length === 0
+  if (target.action === "auto") return exits.length === 0 && chains.length === 0
   if (target.action === "node") return !exits.some((n) => n.id === target.nodeId)
   return false
 }
@@ -186,7 +186,7 @@ export default function RoutingPage() {
       target: (
         <div className="flex flex-wrap items-center gap-2">
           {targetLabel(rule)}
-          {rule.enabled && targetBroken(rule, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>}
+          {rule.enabled && targetBroken(rule, nodes, chains) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>}
         </div>
       ),
       toggle: (
@@ -277,7 +277,7 @@ export default function RoutingPage() {
         </CardHeader>
         <CardContent className="grid gap-3 text-sm">
           <div className="flex flex-wrap items-center gap-3">
-            <TargetSelect value={chosen} onChange={setPending} nodes={nodes} disabled={!canEdit} className="w-full sm:w-96" />
+            <TargetSelect value={chosen} onChange={setPending} nodes={nodes} chains={chains} disabled={!canEdit} className="w-full sm:w-96" />
             {changed ? (
               <>
                 <Button
@@ -294,7 +294,7 @@ export default function RoutingPage() {
                 </Button>
               </>
             ) : (
-              targetBroken(routing.default, nodes) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>
+              targetBroken(routing.default, nodes, chains) && <StatusBadge tone="error">{t("routing.target.missing")}</StatusBadge>
             )}
           </div>
           {nodes.some((n) => n.isEntry && n.enabled) && chosen.action === "direct" && (
