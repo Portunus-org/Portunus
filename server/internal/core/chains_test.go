@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -508,8 +507,8 @@ func boundLocal(r proxy.Routing, user string) bool {
 }
 
 // TestChainFanOut checks a node with two outgoing edges: its incoming hop
-// hands the traffic to the urltest group, and each credential is bound to
-// the branch that reaches its sink.
+// hands traffic to the chain's urltest group, balancing across both branches
+// under one client credential.
 func TestChainFanOut(t *testing.T) {
 	c, ids := newChainCore(t)
 	ctx := context.Background()
@@ -523,7 +522,6 @@ func TestChainFanOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := proxy.Client{ID: cl.ID}.UserName()
-	other := base + "-e" + strconv.FormatInt(l, 10)
 
 	e0 := edgeBy(t, chainEdges(t, c, ch.ID), 0, a)
 	eB := edgeBy(t, chainEdges(t, c, ch.ID), a, b)
@@ -567,9 +565,9 @@ func TestChainFanOut(t *testing.T) {
 		return false
 	}
 
-	// The main server has one live way to both sinks.
+	// The main server carries the unified credential over the shared hop.
 	r := routing(0)
-	if !boundTo(r, base, proxy.ClinkTag(e0.ID)) || !boundTo(r, other, proxy.ClinkTag(e0.ID)) {
+	if !boundTo(r, base, proxy.ClinkTag(e0.ID)) {
 		t.Fatalf("main: %+v", r.Bindings)
 	}
 
@@ -587,8 +585,8 @@ func TestChainFanOut(t *testing.T) {
 	if !tagOf(r, proxy.ClinkTag(eB.ID)) || !tagOf(r, proxy.ClinkTag(eL.ID)) {
 		t.Fatalf("a outbounds: %+v", r.ChainOutbounds)
 	}
-	if !boundTo(r, base, proxy.ClinkTag(eB.ID)) || !boundTo(r, other, proxy.ClinkTag(eL.ID)) {
-		t.Fatalf("a bindings: %+v", r.Bindings)
+	if !boundTo(r, base, auto) {
+		t.Fatalf("a bindings: %+v, want %s->%s", r.Bindings, base, auto)
 	}
 }
 

@@ -272,9 +272,11 @@ type clientDTO struct {
 	ExpiresAt    *time.Time        `json:"expiresAt"`
 	Note         string            `json:"note"`
 	// ExitID is the exit the client is bound to (null: none or an auto one
-	// chosen by the panel). ChainID is the chain it travels through.
+	// chosen by the panel). ChainID is the primary chain; ChainIDs lists
+	// every chain assigned to the client.
 	ExitID    *int64    `json:"exitId"`
 	ChainID   *int64    `json:"chainId"`
+	ChainIDs  []int64   `json:"chainIds"`
 	CreatedAt time.Time `json:"createdAt"`
 	// Online: traffic of the client is being counted right now, at these
 	// speeds in bytes per second. LastSeenAt is when it last was (null:
@@ -297,10 +299,14 @@ func (s *Server) toClientDTO(ctx context.Context, c *store.ClientRow) clientDTO 
 		seen = &t
 	}
 	act := s.core.ClientActivity(c.ID)
+	chainIDs := c.Chains()
+	if chainIDs == nil {
+		chainIDs = []int64{}
+	}
 	return clientDTO{
 		ID: c.ID, Name: c.Name, Enabled: c.Enabled, Status: s.core.ClientStatus(c),
 		TrafficLimit: c.TrafficLimit, Upload: c.Upload, Download: c.Download,
-		ExpiresAt: exp, Note: c.Note, ExitID: c.ExitID, ChainID: c.ChainID, CreatedAt: c.CreatedAt.UTC(),
+		ExpiresAt: exp, Note: c.Note, ExitID: c.ExitID, ChainID: c.ChainID, ChainIDs: chainIDs, CreatedAt: c.CreatedAt.UTC(),
 		Online: act.Online, DownRate: act.DownRate, UpRate: act.UpRate, LastSeenAt: seen,
 	}
 }
@@ -315,13 +321,15 @@ type clientRequest struct {
 	ExitID *int64 `json:"exitId"`
 	// ChainID: absent keeps the chain, 0 means no chain (an exit is used).
 	ChainID *int64 `json:"chainId"`
+	// ChainIDs sets all chains assigned to the client (empty slice clears).
+	ChainIDs *[]int64 `json:"chainIds"`
 }
 
 func (req clientRequest) input() core.ClientInput {
 	return core.ClientInput{
 		Name: req.Name, Enabled: req.Enabled == nil || *req.Enabled,
 		TrafficLimit: req.TrafficLimit, ExpiresAt: req.ExpiresAt, Note: req.Note,
-		Exit: req.ExitID, Chain: req.ChainID,
+		Exit: req.ExitID, Chain: req.ChainID, Chains: req.ChainIDs,
 	}
 }
 

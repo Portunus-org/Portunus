@@ -90,3 +90,82 @@ func TestChains(t *testing.T) {
 		}
 	}
 }
+
+func TestChainDefaultRouteAPI(t *testing.T) {
+	e := newTestEnv(t)
+	h := map[string]string{csrfHeader: e.loginFresh(t)}
+
+	resp, hk := e.do(t, "POST", "/api/nodes", map[string]any{"kind": "agent", "name": "HK", "address": "203.0.113.10", "isEntry": true}, h)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create entry: %d %v", resp.StatusCode, hk)
+	}
+	resp, tw := e.do(t, "POST", "/api/nodes", map[string]any{"kind": "agent", "name": "TW", "address": "203.0.113.20", "isExit": true}, h)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create exit: %d %v", resp.StatusCode, tw)
+	}
+	hkID := int64(hk["id"].(float64))
+	twID := int64(tw["id"].(float64))
+
+	// Create one chain defaulting to direct, another defaulting to auto (via chain).
+	resp, c1 := e.do(t, "POST", "/api/chains", map[string]any{
+		"name":    "DirectChain",
+		"default": map[string]any{"action": "direct"},
+		"edges":   []map[string]int64{{"from": 0, "to": hkID}, {"from": hkID, "to": twID}},
+	}, h)
+	if resp.StatusCode != http.StatusCreated || c1["default"].(map[string]any)["action"] != "direct" {
+		t.Fatalf("create direct chain: %d %v", resp.StatusCode, c1)
+	}
+	c1ID := int64(c1["id"].(float64))
+
+	resp, c2 := e.do(t, "POST", "/api/chains", map[string]any{
+		"name":  "AutoChain",
+		"edges": []map[string]int64{{"from": 0, "to": twID}},
+	}, h)
+	if resp.StatusCode != http.StatusCreated || c2["default"] != nil {
+		t.Fatalf("create default-inherit chain: %d %v", resp.StatusCode, c2)
+	}
+	c2ID := int64(c2["id"].(float64))
+
+	// Set c2's default via PUT /api/routing/default with chainId.
+	if resp, body := e.do(t, "PUT", "/api/routing/default", map[string]any{"chainId": c2ID, "action": "auto"}, h); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("set chain default auto: %d %v", resp.StatusCode, body)
+	}
+	// Block is invalid as default.
+	if resp, _ := e.do(t, "PUT", "/api/routing/default", map[string]any{"chainId": c2ID, "action": "block"}, h); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for block default, got %d", resp.StatusCode)
+	}
+	// Unknown chain returns 404; negative chainId returns 400.
+	if resp, _ := e.do(t, "PUT", "/api/routing/default", map[string]any{"chainId": 99999, "action": "direct"}, h); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown chain, got %d", resp.StatusCode)
+	}
+	if resp, _ := e.do(t, "PUT", "/api/routing/default", map[string]any{"chainId": -1, "action": "direct"}, h); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative chainId, got %d", resp.StatusCode)
+	}
+
+	// PUT /api/chains/{id} without default keeps c1's default intact.
+	resp, up1 := e.do(t, "PUT", "/api/chains/"+strconv.FormatInt(c1ID, 10), map[string]any{
+		"name":  "DirectChain",
+		"color": "#0ea5e9",
+		"edges": []map[string]int64{{"from": 0, "to": hkID}, {"from": hkID, "to": twID}},
+	}, h)
+	if resp.StatusCode != http.StatusOK || up1["default"].(map[string]any)["action"] != "direct" {
+		t.Fatalf("update chain without default: %d %v", resp.StatusCode, up1)
+	}
+
+	// Clear c1's default via PUT /api/routing/default with action: "".
+	if resp, body := e.do(t, "PUT", "/api/routing/default", map[string]any{"chainId": c1ID, "action": ""}, h); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("clear chain default: %d %v", resp.StatusCode, body)
+	}
+	for _, ch := range e.list(t, "/api/chains") {
+		switch int64(ch["id"].(float64)) {
+		case c1ID:
+			if ch["default"] != nil {
+				t.Fatalf("c1 default not cleared: %v", ch)
+			}
+		case c2ID:
+			if ch["default"] == nil || ch["default"].(map[string]any)["action"] != "auto" {
+				t.Fatalf("c2 default missing: %v", ch)
+			}
+		}
+	}
+}

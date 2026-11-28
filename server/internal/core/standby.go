@@ -225,6 +225,17 @@ func (c *Core) PromoteNode(ctx context.Context, id int64) (Node, error) {
 			return Node{}, err
 		}
 	}
+	chains, err := c.store.ListChains(ctx)
+	if err != nil {
+		return Node{}, err
+	}
+	for _, ch := range chains {
+		if ch.DefaultAction == proxy.RouteNode && ch.DefaultNodeID != nil && *ch.DefaultNodeID == id {
+			if err := c.store.SetChainDefault(ctx, ch.ID, proxy.RouteDirect, nil); err != nil {
+				return Node{}, err
+			}
+		}
+	}
 	return n, c.store.DeleteNode(ctx, id)
 }
 

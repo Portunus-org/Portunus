@@ -38,6 +38,13 @@ type EdgeInput struct {
 	To   int64
 }
 
+// ChainDefaultInput sets a chain's default route ("all other traffic").
+// Empty Action clears the override so the chain follows the global default.
+type ChainDefaultInput struct {
+	Action string
+	NodeID *int64
+}
+
 // ChainInput is what the operator submits for a chain: its name, the edges
 // of its graph, and the sources marked as backups.
 type ChainInput struct {
@@ -45,6 +52,7 @@ type ChainInput struct {
 	Color   string // display color; empty means the default
 	Edges   []EdgeInput
 	Backups []int64
+	Default *ChainDefaultInput // nil on update leaves the chain's default unchanged
 }
 
 // ChainEdge is one directed edge of a chain with its hop material.
@@ -68,13 +76,15 @@ func (e ChainEdge) ready() bool { return e.Port != 0 && e.UUID != "" }
 var ChainColors = []string{"#0ea5e9", "#8b5cf6", "#10b981", "#f59e0b", "#f43f5e", "#84cc16"}
 
 type Chain struct {
-	ID        int64
-	Name      string
-	Color     string // display color on the map; empty means the default
-	Edges     []ChainEdge
-	Backups   []int64 // source nodes marked as backups
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            int64
+	Name          string
+	Color         string // display color on the map; empty means the default
+	DefaultAction string // '', 'direct', 'auto', or 'node'
+	DefaultNodeID *int64
+	Edges         []ChainEdge
+	Backups       []int64 // source nodes marked as backups
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func edgeAAD(id int64) string { return "chain-edge:" + strconv.FormatInt(id, 10) }
@@ -431,7 +441,11 @@ func (c *Core) decodeChain(row store.ChainRow, edges []store.ChainEdgeRow, backu
 		}
 		out = append(out, e)
 	}
-	return &Chain{ID: row.ID, Name: row.Name, Color: row.Color, Edges: out, Backups: backups, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	return &Chain{
+		ID: row.ID, Name: row.Name, Color: row.Color,
+		DefaultAction: row.DefaultAction, DefaultNodeID: row.DefaultNodeID,
+		Edges: out, Backups: backups, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}, nil
 }
 
 // Chains lists every chain.
@@ -540,11 +554,36 @@ func (c *Core) reconcileChainEdges(ctx context.Context, chainID int64, in ChainI
 	return c.store.SetChainEntryFlags(ctx, chainID, in.Backups)
 }
 
+func (c *Core) validateChainDefault(ctx context.Context, action string, nodeID *int64) (*int64, error) {
+	if action == "" {
+		return nil, nil
+	}
+	if action == proxy.RouteBlock {
+		return nil, invalid("action", "unsupported")
+	}
+	if err := c.validateRouteTarget(ctx, action, nodeID); err != nil {
+		return nil, err
+	}
+	if action != proxy.RouteNode {
+		return nil, nil
+	}
+	return nodeID, nil
+}
+
 // CreateChain stores a new chain and provisions the material of its edges.
 func (c *Core) CreateChain(ctx context.Context, in ChainInput) (*Chain, error) {
 	nodes, err := c.validateChain(ctx, in)
 	if err != nil {
 		return nil, err
+	}
+	var defAction string
+	var defNode *int64
+	if in.Default != nil {
+		defNode, err = c.validateChainDefault(ctx, in.Default.Action, in.Default.NodeID)
+		if err != nil {
+			return nil, err
+		}
+		defAction = in.Default.Action
 	}
 	id, err := c.store.CreateChain(ctx, in.Name, in.Color)
 	if err != nil {
@@ -552,6 +591,12 @@ func (c *Core) CreateChain(ctx context.Context, in ChainInput) (*Chain, error) {
 			return nil, invalid("name", "taken")
 		}
 		return nil, err
+	}
+	if defAction != "" {
+		if err := c.store.SetChainDefault(ctx, id, defAction, defNode); err != nil {
+			c.store.DeleteChain(ctx, id)
+			return nil, err
+		}
 	}
 	if err := c.reconcileChainEdges(ctx, id, in, nodes); err != nil {
 		c.store.DeleteChain(ctx, id) // leave no orphan behind
@@ -570,17 +615,47 @@ func (c *Core) UpdateChain(ctx context.Context, id int64, in ChainInput) (*Chain
 	if err != nil {
 		return nil, err
 	}
+	var defNode *int64
+	if in.Default != nil {
+		defNode, err = c.validateChainDefault(ctx, in.Default.Action, in.Default.NodeID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := c.store.UpdateChain(ctx, id, in.Name, in.Color); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			return nil, invalid("name", "taken")
 		}
 		return nil, err
 	}
+	if in.Default != nil {
+		if err := c.store.SetChainDefault(ctx, id, in.Default.Action, defNode); err != nil {
+			return nil, err
+		}
+	}
 	if err := c.reconcileChainEdges(ctx, id, in, nodes); err != nil {
 		return nil, err
 	}
 	c.Reconcile(ctx)
 	return c.Chain(ctx, id)
+}
+
+// SetChainDefaultRoute sets or clears a chain's default route ("all other
+// traffic"). Empty action clears the override so the chain follows the global
+// default.
+func (c *Core) SetChainDefaultRoute(ctx context.Context, chainID int64, action string, nodeID *int64) error {
+	if _, err := c.store.ChainByID(ctx, chainID); err != nil {
+		return err
+	}
+	nodeID, err := c.validateChainDefault(ctx, action, nodeID)
+	if err != nil {
+		return err
+	}
+	if err := c.store.SetChainDefault(ctx, chainID, action, nodeID); err != nil {
+		return err
+	}
+	c.Reconcile(ctx)
+	return nil
 }
 
 // DeleteChain removes a chain; its clients are unbound by the database.
@@ -628,8 +703,7 @@ func autoTag(chainID, nodeID int64) string {
 }
 
 // chainClientNames returns the sing-box user names of every active client
-// riding ch: the base name for its first sink and one derived name per
-// further sink (the same scheme chainRouting binds).
+// riding ch: one user name per client on that chain.
 func (c *Core) chainClientNames(ctx context.Context, ch Chain) ([]string, error) {
 	clients, err := c.store.ListClients(ctx)
 	if err != nil {
@@ -637,17 +711,12 @@ func (c *Core) chainClientNames(ctx context.Context, ch Chain) ([]string, error)
 	}
 	var names []string
 	for _, cl := range clients {
-		if c.ClientStatus(cl) != ClientActive || cl.ChainID == nil || *cl.ChainID != ch.ID {
+		if c.ClientStatus(cl) != ClientActive {
 			continue
 		}
-		sinks := ch.sinks()
-		base := "c" + strconv.FormatInt(cl.ID, 10)
-		for i, s := range sinks {
-			name := base
-			if i > 0 {
-				name += "-e" + strconv.FormatInt(s, 10)
-			}
-			names = append(names, name)
+		chs := cl.Chains()
+		if slices.Contains(chs, ch.ID) {
+			names = append(names, chainUserName(cl.ID, chs, ch.ID))
 		}
 	}
 	return names, nil
@@ -708,35 +777,25 @@ func (c *Core) chainRouting(ctx context.Context, self int64) (links []proxy.Chai
 	}
 	isEntry := self == 0 || (self != 0 && nodes[self].IsEntry)
 
-	// Every active client bound to a chain wants out of each of the chain's
-	// sinks, under its own credential: the first sink carries the base uuid,
-	// the rest derived ones.
-	type userTarget struct {
-		name string
-		sink int64
-	}
-	usersByChain := map[int64][]userTarget{}
+	// Every active client bound to one or more chains carries one credential
+	// per chain; traffic across multiple exits inside a chain shares that
+	// credential and fails over automatically on the server.
+	usersByChain := map[int64][]string{}
 	if isEntry {
 		clients, err := c.store.ListClients(ctx)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		for _, cl := range clients {
-			if c.ClientStatus(cl) != ClientActive || cl.ChainID == nil {
+			if c.ClientStatus(cl) != ClientActive {
 				continue
 			}
-			ch, ok := chainByID(chains, *cl.ChainID)
-			if !ok {
-				continue
-			}
-			sinks := ch.sinks()
-			base := "c" + strconv.FormatInt(cl.ID, 10)
-			for i, s := range sinks {
-				name := base
-				if i > 0 {
-					name += "-e" + strconv.FormatInt(s, 10)
+			chs := cl.Chains()
+			for _, cid := range chs {
+				if _, ok := chainByID(chains, cid); !ok {
+					continue
 				}
-				usersByChain[ch.ID] = append(usersByChain[ch.ID], userTarget{name: name, sink: s})
+				usersByChain[cid] = append(usersByChain[cid], chainUserName(cl.ID, chs, cid))
 			}
 		}
 	}
@@ -770,15 +829,22 @@ func (c *Core) chainRouting(ctx context.Context, self int64) (links []proxy.Chai
 
 		live := liveOutgoing(ch, outE, unusable)
 		autoNeeded := false
-
-		// Tags of every ready outgoing branch (dead ones included): a tag is
-		// only ever referenced by a urltest group or a binding when it also
-		// exists as an outbound, so sing-box can resolve the config.
+		branchTarget := ""
 		tags := make([]any, 0, len(outE))
 		for _, e := range outE {
 			if e.ready() {
 				tags = append(tags, proxy.ClinkTag(e.ID))
 			}
+		}
+		switch {
+		case len(live) == 1:
+			branchTarget = proxy.ClinkTag(live[0].ID)
+		case len(tags) > 0:
+			// Multiple live branches (or none confirmed live right now): let the
+			// server-side urltest group pick the best live branch and fail over
+			// automatically without touching the client's config.
+			autoNeeded = true
+			branchTarget = autoTag(ch.ID, self)
 		}
 
 		// The hops that end on this server, and where each one carries the
@@ -787,18 +853,10 @@ func (c *Core) chainRouting(ctx context.Context, self int64) (links []proxy.Chai
 			if !e.ready() {
 				continue // converted without material: no hop inbound to render
 			}
-			next := ""
-			switch {
-			case ch.isSink(self):
+			next := branchTarget
+			if ch.isSink(self) {
 				// The traffic leaves from this server.
 				next = "direct"
-			case len(live) == 1:
-				next = proxy.ClinkTag(live[0].ID)
-			case len(tags) > 0:
-				// Several branches leave here (or none is live right now):
-				// let the urltest group pick among them.
-				autoNeeded = true
-				next = autoTag(ch.ID, self)
 			}
 			links = append(links, proxy.ChainLink{ID: e.ID, Port: e.Port, Settings: e.Set, Secret: e.Sec, UUID: e.UUID, Next: next})
 		}
@@ -806,33 +864,9 @@ func (c *Core) chainRouting(ctx context.Context, self int64) (links []proxy.Chai
 		users := usersByChain[ch.ID]
 		if isEntry && len(users) > 0 {
 			if ch.isSink(self) {
-				// Traffic that entered here leaves from here — but only for
-				// the credentials aimed at this sink; the others have no way
-				// out through this server.
-				for _, u := range users {
-					if u.sink == self {
-						bindings = append(bindings, proxy.Binding{Users: []string{u.name}, Local: true})
-					}
-				}
+				bindings = append(bindings, proxy.Binding{Users: users, Local: true})
 			} else if len(tags) > 0 && (len(live) > 0 || len(outE) > 1) {
-				for _, u := range users {
-					var cand []ChainEdge
-					for _, e := range live {
-						if ch.sinksFrom(e.ToNodeID, func(id int64) bool { return !unusable(id) })[u.sink] {
-							cand = append(cand, e)
-						}
-					}
-					switch {
-					case len(cand) == 1:
-						bindings = append(bindings, proxy.Binding{Users: []string{u.name}, Outbound: proxy.ClinkTag(cand[0].ID)})
-					default:
-						// Several branches reach the sink — or none is live
-						// right now: let the urltest group pick (or fail over to
-						// one that comes back).
-						autoNeeded = true
-						bindings = append(bindings, proxy.Binding{Users: []string{u.name}, Outbound: autoTag(ch.ID, self)})
-					}
-				}
+				bindings = append(bindings, proxy.Binding{Users: users, Outbound: branchTarget})
 			}
 		}
 		if len(outE) == 0 {

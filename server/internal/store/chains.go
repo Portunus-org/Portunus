@@ -14,11 +14,13 @@ import (
 // id; their per-exit credentials are derived from the client's own uuid and
 // the chain's sinks, so nothing extra is stored per client.
 type ChainRow struct {
-	ID        int64
-	Name      string
-	Color     string // display color on the map; empty means the default
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            int64
+	Name          string
+	Color         string // display color on the map; empty means the default
+	DefaultAction string // '', 'direct', 'auto', or 'node'
+	DefaultNodeID *int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ChainEdgeRow is one directed edge of a chain. FromNodeID 0 means "every
@@ -40,15 +42,20 @@ type ChainEdgeRow struct {
 func scanChain(row interface{ Scan(...any) error }) (ChainRow, error) {
 	var (
 		c       ChainRow
+		defNode sql.NullInt64
 		created int64
 		updated int64
 	)
-	err := row.Scan(&c.ID, &c.Name, &c.Color, &created, &updated)
+	err := row.Scan(&c.ID, &c.Name, &c.Color, &c.DefaultAction, &defNode, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChainRow{}, ErrNotFound
 	}
 	if err != nil {
 		return ChainRow{}, err
+	}
+	if defNode.Valid {
+		v := defNode.Int64
+		c.DefaultNodeID = &v
 	}
 	c.CreatedAt = time.Unix(created, 0)
 	c.UpdatedAt = time.Unix(updated, 0)
@@ -69,7 +76,7 @@ func scanEdge(row interface{ Scan(...any) error }) (ChainEdgeRow, error) {
 
 // ListChains returns every chain in name order.
 func (s *Store) ListChains(ctx context.Context) ([]ChainRow, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, name, color, created_at, updated_at FROM chains ORDER BY name")
+	rows, err := s.db.QueryContext(ctx, "SELECT id, name, color, default_action, default_node_id, created_at, updated_at FROM chains ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +95,7 @@ func (s *Store) ListChains(ctx context.Context) ([]ChainRow, error) {
 
 // ChainByID returns one chain.
 func (s *Store) ChainByID(ctx context.Context, id int64) (ChainRow, error) {
-	c, err := scanChain(s.db.QueryRowContext(ctx, "SELECT id, name, color, created_at, updated_at FROM chains WHERE id = ?", id))
+	c, err := scanChain(s.db.QueryRowContext(ctx, "SELECT id, name, color, default_action, default_node_id, created_at, updated_at FROM chains WHERE id = ?", id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ChainRow{}, ErrNotFound
 	}
@@ -111,6 +118,19 @@ func (s *Store) CreateChain(ctx context.Context, name, color string) (int64, err
 // UpdateChain renames a chain and sets its color.
 func (s *Store) UpdateChain(ctx context.Context, id int64, name, color string) error {
 	res, err := s.db.ExecContext(ctx, "UPDATE chains SET name = ?, color = ?, updated_at = ? WHERE id = ?", name, color, s.now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetChainDefault stores or clears a chain's default route override.
+func (s *Store) SetChainDefault(ctx context.Context, id int64, action string, nodeID *int64) error {
+	res, err := s.db.ExecContext(ctx, "UPDATE chains SET default_action = ?, default_node_id = ?, updated_at = ? WHERE id = ?", action, nodeID, s.now().Unix(), id)
 	if err != nil {
 		return err
 	}
@@ -292,12 +312,26 @@ func (s *Store) SetChainEntryFlags(ctx context.Context, chainID int64, ids []int
 
 // SetClientChain binds a client to a chain (nil clears it). The binding is
 // mutually exclusive with the client's direct exit.
-func (s *Store) SetClientChain(ctx context.Context, clientID int64, chainID *int64) error {
-	var v any
-	if chainID != nil {
-		v = *chainID
+// SetClientChains sets all chains bound to a client in order (empty clears).
+func (s *Store) SetClientChains(ctx context.Context, clientID int64, chainIDs []int64) error {
+	seen := map[int64]bool{}
+	unique := make([]int64, 0, len(chainIDs))
+	for _, id := range chainIDs {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
 	}
-	res, err := s.db.ExecContext(ctx, "UPDATE clients SET chain_id = ? WHERE id = ?", v, clientID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var first any
+	if len(unique) > 0 {
+		first = unique[0]
+	}
+	res, err := tx.ExecContext(ctx, "UPDATE clients SET chain_id = ? WHERE id = ?", first, clientID)
 	if err != nil {
 		return err
 	}
@@ -305,10 +339,26 @@ func (s *Store) SetClientChain(ctx context.Context, clientID int64, chainID *int
 	if err != nil || n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, "DELETE FROM client_chains WHERE client_id = ?", clientID); err != nil {
+		return err
+	}
+	for _, id := range unique {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO client_chains (client_id, chain_id) VALUES (?, ?)", clientID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
-// ClientChain returns the chain bound to a client.
+// SetClientChain binds a single chain (nil: none) to a client.
+func (s *Store) SetClientChain(ctx context.Context, clientID int64, chainID *int64) error {
+	if chainID == nil || *chainID == 0 {
+		return s.SetClientChains(ctx, clientID, nil)
+	}
+	return s.SetClientChains(ctx, clientID, []int64{*chainID})
+}
+
+// ClientChain returns the primary chain bound to a client.
 func (s *Store) ClientChain(ctx context.Context, clientID int64) (*int64, error) {
 	var id sql.NullInt64
 	if err := s.db.QueryRowContext(ctx, "SELECT chain_id FROM clients WHERE id = ?", clientID).Scan(&id); err != nil {
@@ -327,7 +377,7 @@ func (s *Store) ClientChain(ctx context.Context, clientID int64) (*int64, error)
 // ClientChainCount returns how many clients are bound to a chain.
 func (s *Store) ClientChainCount(ctx context.Context, chainID int64) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clients WHERE chain_id = ?", chainID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT client_id) FROM client_chains WHERE chain_id = ?", chainID).Scan(&n)
 	return n, err
 }
 

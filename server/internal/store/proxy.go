@@ -131,13 +131,27 @@ type ClientRow struct {
 	Note         string
 	// ExitID is the exit the client is bound to (nil: none yet).
 	ExitID *int64
-	// ChainID is the chain the client's traffic travels through (nil: an
-	// exit is chosen for it instead). Mutually exclusive with ExitID.
+	// ChainID is the primary (first) chain the client's traffic travels
+	// through (nil: none). Kept in sync with ChainIDs[0].
 	ChainID *int64
+	// ChainIDs are all chains assigned to this client.
+	ChainIDs []int64
 	// LastSeen is when traffic of the client was last counted (nil: never).
 	LastSeen  *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// Chains returns all chain IDs assigned to the client, falling back to
+// ChainID when a caller built ClientRow in memory without ChainIDs.
+func (c *ClientRow) Chains() []int64 {
+	if len(c.ChainIDs) > 0 {
+		return c.ChainIDs
+	}
+	if c.ChainID != nil && *c.ChainID > 0 {
+		return []int64{*c.ChainID}
+	}
+	return nil
 }
 
 const clientColumns = `id, name, enabled, uuid, password, sub_token, traffic_limit, expires_at, upload, download, note, exit_node_id, chain_id, last_seen_at, created_at, updated_at`
@@ -184,6 +198,37 @@ func unixOrNil(t *time.Time) any {
 	return t.Unix()
 }
 
+func (s *Store) attachClientChains(ctx context.Context, clients ...*ClientRow) error {
+	if len(clients) == 0 {
+		return nil
+	}
+	byID := make(map[int64]*ClientRow, len(clients))
+	for _, c := range clients {
+		byID[c.ID] = c
+		c.ChainIDs = nil
+		c.ChainID = nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT client_id, chain_id FROM client_chains ORDER BY client_id, rowid`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, chid int64
+		if err := rows.Scan(&cid, &chid); err != nil {
+			return err
+		}
+		if c, ok := byID[cid]; ok {
+			c.ChainIDs = append(c.ChainIDs, chid)
+			if c.ChainID == nil {
+				v := chid
+				c.ChainID = &v
+			}
+		}
+	}
+	return rows.Err()
+}
+
 func (s *Store) ListClients(ctx context.Context) ([]*ClientRow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+clientColumns+` FROM clients ORDER BY id`)
 	if err != nil {
@@ -198,15 +243,35 @@ func (s *Store) ListClients(ctx context.Context) ([]*ClientRow, error) {
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachClientChains(ctx, out...); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) ClientByID(ctx context.Context, id int64) (*ClientRow, error) {
-	return scanClient(s.db.QueryRowContext(ctx, `SELECT `+clientColumns+` FROM clients WHERE id = ?`, id))
+	c, err := scanClient(s.db.QueryRowContext(ctx, `SELECT `+clientColumns+` FROM clients WHERE id = ?`, id))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachClientChains(ctx, c); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func (s *Store) ClientBySubToken(ctx context.Context, token string) (*ClientRow, error) {
-	return scanClient(s.db.QueryRowContext(ctx, `SELECT `+clientColumns+` FROM clients WHERE sub_token = ?`, token))
+	c, err := scanClient(s.db.QueryRowContext(ctx, `SELECT `+clientColumns+` FROM clients WHERE sub_token = ?`, token))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachClientChains(ctx, c); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func (s *Store) CreateClient(ctx context.Context, c *ClientRow) error {

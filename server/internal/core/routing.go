@@ -640,6 +640,43 @@ func (c *Core) routing(ctx context.Context, self int64) (proxy.Routing, error) {
 		r.Rules = append(r.Rules, pRule)
 	}
 	r.Default, r.DefaultExit = local(c.DefaultRoute(ctx))
+	isEntry := self == 0
+	if !isEntry {
+		for _, n := range nodes {
+			if n.ID == self {
+				isEntry = n.IsEntry
+				break
+			}
+		}
+	}
+	if isEntry {
+		chains, err := c.Chains(ctx)
+		if err != nil {
+			return r, err
+		}
+		for _, ch := range chains {
+			if ch.DefaultAction == "" {
+				continue
+			}
+			names, err := c.chainClientNames(ctx, ch)
+			if err != nil {
+				return r, err
+			}
+			if len(names) == 0 {
+				continue
+			}
+			var node int64
+			if ch.DefaultNodeID != nil {
+				node = *ch.DefaultNodeID
+			}
+			act, node := local(ch.DefaultAction, node)
+			r.UserDefaults = append(r.UserDefaults, proxy.UserDefault{
+				Users:  names,
+				Action: act,
+				ExitID: node,
+			})
+		}
+	}
 	if self == 0 {
 		r.ControlAPI, r.ControlSecret = c.controlAPI, c.controlSecret()
 	}

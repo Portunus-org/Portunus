@@ -6,6 +6,7 @@ allowBuilds:
 # (trivy must report no HIGH or CRITICAL findings). Drop an entry once the
 # parent requires that version or newer.
 overrides:
+  minimatch@>=7.0.0 <11.0.1: ^11.0.1
   sharp: 0.35.5
   source-map-js: 1.2.2
   zod: 4.6.7

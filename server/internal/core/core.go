@@ -13,7 +13,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/Portunus-org/Portunus/server/internal/backup"
 	"log/slog"
 	"net"
 	"net/http"
@@ -26,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Portunus-org/Portunus/server/internal/backup"
 
 	"github.com/Portunus-org/Portunus/server/internal/agent"
 	"github.com/Portunus-org/Portunus/server/internal/proxy"
@@ -633,15 +634,17 @@ func (c *Core) ClientStatus(cl *store.ClientRow) ClientStatus {
 }
 
 // toProxyClient lifts a client row into the proxy view. When the client
-// travels a chain with several exits, every exit but the first gets a
-// credential of its own (derived from the client's uuid), so links and
-// stats can be told apart per exit.
-func toProxyClient(cl *store.ClientRow, ch *Chain) proxy.Client {
+// belongs to multiple chains, every chain after the first gets its own
+// derived credential so links, stats, and chain-scoped rules stay separate.
+func toProxyClient(cl *store.ClientRow) proxy.Client {
 	c := proxy.Client{ID: cl.ID, Name: cl.Name, UUID: cl.UUID, Password: cl.Password}
-	if ch != nil {
-		sinks := ch.sinks()
-		for _, s := range sinks[1:] {
-			c.Extras = append(c.Extras, proxy.ExtraUser{Name: fmt.Sprintf("c%d-e%d", cl.ID, s), UUID: exitCredential(cl, *ch, s)})
+	chainIDs := cl.Chains()
+	if len(chainIDs) > 1 {
+		for _, cid := range chainIDs[1:] {
+			c.Extras = append(c.Extras, proxy.ExtraUser{
+				Name: chainUserName(cl.ID, chainIDs, cid),
+				UUID: chainCredential(cl, chainIDs, cid),
+			})
 		}
 	}
 	return c
@@ -664,10 +667,36 @@ type ClientInput struct {
 	// Exit changes the exit the client is bound to: nil leaves it, 0 has
 	// one chosen anew.
 	Exit *int64
-	// Chain changes the chain the client travels through: nil leaves it,
-	// 0 means no chain (an exit may be used), anything else must be a
-	// stored chain. A client rides a chain or an exit, never both.
+	// Chain changes the primary chain the client travels through (legacy
+	// single-chain field; ignored when Chains is set).
 	Chain *int64
+	// Chains sets the list of chains the client travels through: nil leaves
+	// it unchanged, an empty slice releases all chains, non-empty binds
+	// the client to those chains (mutually exclusive with a specific Exit).
+	Chains *[]int64
+}
+
+func effectiveChains(in ClientInput) *[]int64 {
+	if in.Chains != nil {
+		out := make([]int64, 0, len(*in.Chains))
+		seen := map[int64]bool{}
+		for _, id := range *in.Chains {
+			if id > 0 && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+		return &out
+	}
+	if in.Chain != nil {
+		if *in.Chain == 0 {
+			empty := []int64{}
+			return &empty
+		}
+		one := []int64{*in.Chain}
+		return &one
+	}
+	return nil
 }
 
 func validateClient(in *ClientInput) error {
@@ -727,12 +756,15 @@ func (c *Core) CreateClient(ctx context.Context, in ClientInput) (*store.ClientR
 			return nil, invalid("exitId", "not_an_exit")
 		}
 	}
-	if in.Chain != nil && *in.Chain != 0 {
+	chains := effectiveChains(in)
+	if chains != nil && len(*chains) > 0 {
 		if in.Exit != nil && *in.Exit != 0 {
 			return nil, invalid("chainId", "route_conflict")
 		}
-		if _, err := c.store.ChainByID(ctx, *in.Chain); err != nil {
-			return nil, invalid("chainId", "unknown_chain")
+		for _, cid := range *chains {
+			if _, err := c.store.ChainByID(ctx, cid); err != nil {
+				return nil, invalid("chainId", "unknown_chain")
+			}
 		}
 	}
 	if err := c.store.CreateClient(ctx, cl); err != nil {
@@ -746,8 +778,8 @@ func (c *Core) CreateClient(ctx context.Context, in ClientInput) (*store.ClientR
 			return nil, err
 		}
 	}
-	if in.Chain != nil && *in.Chain != 0 {
-		if err := c.store.SetClientChain(ctx, cl.ID, in.Chain); err != nil {
+	if chains != nil && len(*chains) > 0 {
+		if err := c.store.SetClientChains(ctx, cl.ID, *chains); err != nil {
 			return nil, err
 		}
 	}
@@ -764,36 +796,42 @@ func (c *Core) UpdateClient(ctx context.Context, id int64, in ClientInput) (*sto
 		return nil, err
 	}
 	cl.Name, cl.Enabled, cl.TrafficLimit, cl.ExpiresAt, cl.Note = in.Name, in.Enabled, in.TrafficLimit, in.ExpiresAt, in.Note
-	// The route: a client travels through its chain or an exit, never both.
+	chains := effectiveChains(in)
+	// The route: a client travels through chain(s) or an exit, never both.
 	switch {
-	case in.Chain != nil && *in.Chain != 0:
+	case chains != nil && len(*chains) > 0:
 		if in.Exit != nil && *in.Exit != 0 {
 			return nil, invalid("chainId", "route_conflict")
 		}
-		if _, err := c.store.ChainByID(ctx, *in.Chain); err != nil {
-			return nil, invalid("chainId", "unknown_chain")
+		for _, cid := range *chains {
+			if _, err := c.store.ChainByID(ctx, cid); err != nil {
+				return nil, invalid("chainId", "unknown_chain")
+			}
 		}
-		if err := c.store.SetClientChain(ctx, id, in.Chain); err != nil {
+		if err := c.store.SetClientChains(ctx, id, *chains); err != nil {
 			return nil, err
 		}
-		cl.ChainID = in.Chain
+		cl.ChainIDs = *chains
+		cl.ChainID = &(*chains)[0]
 		if cl.ExitID != nil {
-			// The chain takes over the route.
+			// The chains take over the route.
 			if err := c.store.SetClientExit(ctx, id, nil); err != nil {
 				return nil, err
 			}
 			cl.ExitID = nil
 		}
-	case in.Chain != nil: // zero: no chain, an exit may be used.
-		if err := c.store.SetClientChain(ctx, id, nil); err != nil {
+	case chains != nil: // empty slice: no chains, an exit may be used.
+		if err := c.store.SetClientChains(ctx, id, nil); err != nil {
 			return nil, err
 		}
+		cl.ChainIDs = nil
 		cl.ChainID = nil
-	case in.Exit != nil && cl.ChainID != nil:
-		// Any choice of an exit releases the chain.
-		if err := c.store.SetClientChain(ctx, id, nil); err != nil {
+	case in.Exit != nil && len(cl.Chains()) > 0:
+		// Any choice of an exit releases the chains.
+		if err := c.store.SetClientChains(ctx, id, nil); err != nil {
 			return nil, err
 		}
+		cl.ChainIDs = nil
 		cl.ChainID = nil
 	}
 	if in.Exit != nil && (cl.ExitID == nil || *cl.ExitID != *in.Exit) {
@@ -1235,22 +1273,10 @@ func (c *Core) activeClients(ctx context.Context) ([]proxy.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	chains, err := c.Chains(ctx)
-	if err != nil {
-		return nil, err
-	}
-	chainByID := map[int64]*Chain{}
-	for i := range chains {
-		chainByID[chains[i].ID] = &chains[i]
-	}
 	var active []proxy.Client
 	for _, r := range rows {
 		if c.ClientStatus(r) == ClientActive {
-			var ch *Chain
-			if r.ChainID != nil {
-				ch = chainByID[*r.ChainID]
-			}
-			active = append(active, toProxyClient(r, ch))
+			active = append(active, toProxyClient(r))
 		}
 	}
 	return active, nil
