@@ -8,13 +8,13 @@ import { ChainColorSelect } from "@/components/chains/chain-color-picker"
 import { NodeMap, NodeMapLegend, nodeMapState, type MapPath, type MapPoint, type MapState } from "@/components/nodes/node-map"
 import type { DraftChainRule } from "@/components/routing/rule-drawer"
 import { sourceToList } from "@/components/routing/source-fields"
-import { useTargetLabel } from "@/components/routing/target-select"
+import { ChainDefaultSelect, useTargetLabel } from "@/components/routing/target-select"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { api, errorText, type Chain, type GeoLocation, type MapStyle, type Node, type RouteList, type RouteRule } from "@/lib/api"
+import { api, errorText, type Chain, type GeoLocation, type MapStyle, type Node, type RouteList, type RouteRule, type RouteTarget } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
@@ -34,6 +34,7 @@ export interface ChainDraft {
   id: number | null
   name: string
   color: string
+  default: RouteTarget | null
   edges: ChainEdgeDraft[]
   backups: number[]
   pendingRules?: DraftChainRule[]
@@ -215,6 +216,7 @@ export function NodesMapCard({
   onDeleteChain,
   rules = [],
   lists = [],
+  defaultTarget,
   onOpenRule,
   onOpenDraftRule,
 }: {
@@ -235,6 +237,7 @@ export function NodesMapCard({
   onDeleteChain?: (chain: Chain) => void
   rules?: RouteRule[]
   lists?: RouteList[]
+  defaultTarget?: RouteTarget
   onOpenRule?: (rule: RouteRule | null, chainId: number) => void
   onOpenDraftRule?: (rule: DraftChainRule | null) => void
 }) {
@@ -448,6 +451,7 @@ export function NodesMapCard({
     const payload = {
       name: draft.name.trim(),
       color: draft.color,
+      default: draft.default,
       edges: draft.edges,
       backups: draft.backups,
     }
@@ -985,6 +989,16 @@ export function NodesMapCard({
                     ) : (
                       <span className="text-xs text-muted-foreground">{t("chains.stage.emptyExit")}</span>
                     )}
+                  </div>
+                  <div className="grid gap-1 pt-0.5" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-[11px] font-medium text-muted-foreground">{t("routing.default.title")}</span>
+                    <ChainDefaultSelect
+                      value={draft.default}
+                      globalTarget={defaultTarget}
+                      onChange={(def) => onDraftChange({ ...draft, default: def })}
+                      nodes={nodes}
+                      className="h-7 w-full text-xs"
+                    />
                   </div>
                   <span className="text-[11px] text-muted-foreground">{t("chains.stage.exitHint")}</span>
                 </div>

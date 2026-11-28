@@ -207,6 +207,8 @@ export interface Client {
   exitId: number | null
   /** The chain the client travels through instead of an exit; null: none. */
   chainId: number | null
+  /** Every chain assigned to this client. */
+  chainIds: number[]
   createdAt: string
   /** Connected and passing traffic right now, at these speeds in bytes per second. */
   online: boolean
@@ -233,6 +235,8 @@ export interface ClientInput {
   exitId?: number
   /** Left out: keep the chain. 0: no chain, an exit is used instead. */
   chainId?: number
+  /** Left out: keep chains unchanged. Empty array: release all chains. */
+  chainIds?: number[]
 }
 
 export interface ClientAccess {
@@ -483,6 +487,8 @@ export interface Chain {
   name: string
   /** Display color of the chain's lines; empty means the default. */
   color: string
+  /** Per-chain override for all other traffic; absent means follow the global default. */
+  default?: RouteTarget
   edges: ChainEdge[]
   /** Source nodes marked as backup entry points. */
   backups: number[]
@@ -736,17 +742,19 @@ export const api = {
   deleteNode: (id: number) => request<void>("DELETE", `/api/nodes/${id}`),
 
   chains: () => request<Chain[]>("GET", "/api/chains"),
-  createChain: (input: { name: string; color?: string; edges: ChainEdgeInput[]; backups?: number[] }) =>
+  createChain: (input: { name: string; color?: string; default?: RouteTarget | null; edges: ChainEdgeInput[]; backups?: number[] }) =>
     request<Chain>("POST", "/api/chains", {
       name: input.name,
       color: input.color ?? "",
+      ...(input.default !== undefined && { default: input.default ?? { action: "" } }),
       edges: input.edges.map(({ from, to }) => ({ from, to })),
       backups: input.backups ?? [],
     }),
-  updateChain: (id: number, input: { name: string; color?: string; edges: ChainEdgeInput[]; backups?: number[] }) =>
+  updateChain: (id: number, input: { name: string; color?: string; default?: RouteTarget | null; edges: ChainEdgeInput[]; backups?: number[] }) =>
     request<Chain>("PUT", `/api/chains/${id}`, {
       name: input.name,
       color: input.color ?? "",
+      ...(input.default !== undefined && { default: input.default ?? { action: "" } }),
       edges: input.edges.map(({ from, to }) => ({ from, to })),
       backups: input.backups ?? [],
     }),
@@ -763,7 +771,8 @@ export const api = {
   setServerLocation: (location: { lat: number; lon: number } | null) => request<void>("PUT", "/api/topology/location", { location }),
 
   routing: () => request<Routing>("GET", "/api/routing"),
-  setDefaultRoute: (target: RouteTarget) => request<void>("PUT", "/api/routing/default", target),
+  setDefaultRoute: (target: RouteTarget | { action: "" }, chainId?: number) =>
+    request<void>("PUT", "/api/routing/default", chainId ? { ...target, chainId } : target),
   createRouteList: (input: RouteListInput) => request<RouteList>("POST", "/api/routing/lists", input),
   updateRouteList: (id: number, input: RouteListInput) => request<RouteList>("PUT", `/api/routing/lists/${id}`, input),
   deleteRouteList: (id: number) => request<void>("DELETE", `/api/routing/lists/${id}`),

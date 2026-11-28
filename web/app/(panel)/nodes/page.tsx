@@ -113,6 +113,7 @@ export default function NodesPage() {
         id: chain.id,
         name: chain.name,
         color: chain.color ?? "",
+        default: chain.default ?? null,
         edges: chain.edges.map(({ from, to }) => ({ from, to })),
         backups: [...chain.backups],
       })
@@ -121,6 +122,7 @@ export default function NodesPage() {
         id: null,
         name: "",
         color: "",
+        default: null,
         edges: [],
         backups: [],
       })
@@ -455,6 +457,17 @@ export default function NodesPage() {
             )
           },
         }),
+        chainCol.accessor((c) => c.default?.action ?? "inherit", {
+          id: "default",
+          header: t("routing.default.title"),
+          cell: ({ row }) => {
+            const def = row.original.default
+            if (!def) {
+              return <span className="text-xs text-muted-foreground">{t("routing.default.inherit")}</span>
+            }
+            return <span className="text-sm">{targetLabel(def)}</span>
+          },
+        }),
         chainCol.accessor("clients", {
           header: t("nodes.col.clients"),
           cell: ({ row }) => <div className="tabular-nums">{row.original.clients}</div>,
@@ -606,6 +619,7 @@ export default function NodesPage() {
                 onDeleteChain={confirmDeleteChain}
                 rules={routingData?.rules ?? []}
                 lists={routingData?.lists ?? []}
+                defaultTarget={routingData?.default}
                 onOpenRule={isAdmin ? openRuleForChain : undefined}
                 onOpenDraftRule={isAdmin ? openDraftRule : undefined}
               />
@@ -656,6 +670,7 @@ export default function NodesPage() {
               columnLabels={{
                 route: t("clients.col.route"),
                 filters: t("chains.col.filters"),
+                default: t("routing.default.title"),
                 clients: t("nodes.col.clients"),
               }}
               stackedColumns={["filters"]}

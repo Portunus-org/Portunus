@@ -24,26 +24,34 @@ func clientIDFromName(name string) (int64, bool) {
 	return id, err == nil && id > 0
 }
 
-// deriveExitUUID is the deterministic credential of a client's extra exit:
-// derived from the client's own uuid and the exit node, so it survives
-// re-renders and chain edits without changing a working link.
-func deriveExitUUID(base string, sink int64) string {
-	sum := sha256.Sum256([]byte(base + ":exit:" + strconv.FormatInt(sink, 10)))
+// deriveChainUUID is the deterministic credential of a client's extra chain:
+// derived from the client's own uuid and the chain, so it survives
+// re-renders and client edits without changing working links.
+func deriveChainUUID(base string, chainID int64) string {
+	sum := sha256.Sum256([]byte(base + ":chain:" + strconv.FormatInt(chainID, 10)))
 	b := sum[:16]
 	b[6] = b[6]&0x0f | 0x40 // version 4
 	b[8] = b[8]&0x3f | 0x80 // variant 10
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// exitCredential is the credential that carries a client's traffic out of
-// sink: the base uuid for the first sink of its chain, a derived one for
-// the rest.
-func exitCredential(cl *store.ClientRow, ch Chain, sink int64) string {
-	sinks := ch.sinks()
-	if len(sinks) > 0 && sinks[0] == sink {
+// chainCredential is the credential that carries a client's traffic on
+// chainID: the base uuid for the client's first chain, a derived one for any
+// additional chain.
+func chainCredential(cl *store.ClientRow, chainIDs []int64, chainID int64) string {
+	if len(chainIDs) == 0 || chainIDs[0] == chainID {
 		return cl.UUID
 	}
-	return deriveExitUUID(cl.UUID, sink)
+	return deriveChainUUID(cl.UUID, chainID)
+}
+
+// chainUserName is the sing-box auth_user name of clientID on chainID.
+func chainUserName(clientID int64, chainIDs []int64, chainID int64) string {
+	base := "c" + strconv.FormatInt(clientID, 10)
+	if len(chainIDs) > 0 && chainIDs[0] != chainID {
+		return base + "-c" + strconv.FormatInt(chainID, 10)
+	}
+	return base
 }
 
 // ClientLink is one connection of a client: where to enter (host), through
@@ -142,7 +150,8 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		}
 	}
 
-	if cl.ChainID == nil {
+	chainIDs := cl.Chains()
+	if len(chainIDs) == 0 {
 		for i := range rows {
 			if err := addPoint(rows[i].ID); err != nil {
 				return nil, err
@@ -154,7 +163,7 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		return out, nil
 	}
 
-	ch, err := c.Chain(ctx, *cl.ChainID)
+	allChains, err := c.Chains(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -173,119 +182,110 @@ func (c *Core) ClientLinks(ctx context.Context, cl *store.ClientRow) ([]ClientLi
 		n, ok := nodesByID[id]
 		return !ok || c.nodeUnusable(n)
 	}
-
-	fallback := func() error {
-		// The chain is down (or nothing dialable feeds it): the client
-		// reaches every entry point with its own credential, and the panel
-		// gives it an exit for now. Its chain links return when the chain
-		// works again.
-		for i := range rows {
-			if err := addPoint(rows[i].ID); err != nil {
-				return err
-			}
-		}
-		for _, p := range points {
-			add(p, cl.UUID, "", false)
-		}
-		return nil
-	}
 	isEntry := func(id int64) bool {
 		n, ok := nodesByID[id]
 		return ok && n.IsEntry
 	}
-	if !c.chainWorks(*ch, unusable, isEntry) {
-		return out, fallback()
-	}
 
-	// Dialable entries: the main server when it feeds the chain, then every
-	// entry point that takes part in the graph in id order, backup-marked
-	// ones last.
-	backups := map[int64]bool{}
-	for _, id := range ch.Backups {
-		backups[id] = true
-	}
-	inGraph := map[int64]bool{}
-	for _, e := range ch.Edges {
-		if e.FromNodeID != 0 {
-			inGraph[e.FromNodeID] = true
-		}
-		if e.ToNodeID != 0 {
-			inGraph[e.ToNodeID] = true
-		}
-	}
-	var primary, backup []int64
-	for id := range inGraph {
-		n, ok := nodesByID[id]
-		if !ok || n.Kind != NodeAgent || !n.IsEntry {
+	// Render one link per dialable entry point for each assigned chain:
+	// failover between multiple exits inside a chain happens on the server,
+	// so the client sees one clean connection per chain (per entry).
+	broken := make([]int64, 0)
+	for _, cid := range chainIDs {
+		ch, ok := chainByID(allChains, cid)
+		if !ok || !c.chainWorks(ch, unusable, isEntry) {
+			broken = append(broken, cid)
 			continue
 		}
-		if backups[id] {
-			backup = append(backup, id)
-		} else {
-			primary = append(primary, id)
-		}
-	}
-	slices.Sort(primary)
-	slices.Sort(backup)
-	var entryIDs []int64
-	if ch.isSource(0) || ch.mainIsDirectEntry() {
-		entryIDs = append(entryIDs, 0)
-	}
-	entryIDs = append(entryIDs, primary...)
-	entryIDs = append(entryIDs, backup...)
 
-	pointIdx := map[int64]int{}
-	for _, id := range entryIDs {
-		idx := len(points)
-		if err := addPoint(id); err != nil {
-			return nil, err
+		backups := map[int64]bool{}
+		for _, id := range ch.Backups {
+			backups[id] = true
 		}
-		switch {
-		case id == 0:
-			pointIdx[0] = 0 // the main server is always first
-		case len(points) > idx:
-			pointIdx[id] = idx
+		inGraph := map[int64]bool{}
+		for _, e := range ch.Edges {
+			if e.FromNodeID != 0 {
+				inGraph[e.FromNodeID] = true
+			}
+			if e.ToNodeID != 0 {
+				inGraph[e.ToNodeID] = true
+			}
 		}
-	}
-	if len(pointIdx) == 0 {
-		return out, fallback()
-	}
-
-	for _, id := range entryIDs {
-		idx, ok := pointIdx[id]
-		if !ok {
-			continue
-		}
-		p := points[idx]
-		entryName := ""
-		if id != 0 {
-			entryName = nodesByID[id].Name
-		} else {
-			entryName = c.mainServerName(ctx)
-		}
-		// Structural reachability: links stay put while nodes flap; the
-		// panel re-binds the traffic automatically.
-		reach := ch.sinksFrom(id, func(int64) bool { return true })
-		if id == 0 && ch.mainIsDirectEntry() {
-			reach[0] = true
-		}
-		firstSink := true
-		for _, s := range ch.sinks() {
-			if !reach[s] {
+		var primary, backup []int64
+		for id := range inGraph {
+			n, ok := nodesByID[id]
+			if !ok || n.Kind != NodeAgent || !n.IsEntry {
 				continue
 			}
-			sinkName := ""
-			if s == 0 {
-				sinkName = c.mainServerName(ctx)
+			if backups[id] {
+				backup = append(backup, id)
 			} else {
-				sinkName = nodesByID[s].Name
+				primary = append(primary, id)
 			}
-			label := sinkName
-			if entryName != "" && entryName != sinkName {
-				label = fmt.Sprintf("%s → %s", entryName, sinkName)
+		}
+		slices.Sort(primary)
+		slices.Sort(backup)
+		var entryIDs []int64
+		if ch.isSource(0) || ch.mainIsDirectEntry() {
+			entryIDs = append(entryIDs, 0)
+		}
+		entryIDs = append(entryIDs, primary...)
+		entryIDs = append(entryIDs, backup...)
+
+		pointIdx := map[int64]int{}
+		for _, id := range entryIDs {
+			idx := len(points)
+			if err := addPoint(id); err != nil {
+				return nil, err
 			}
-			add(p, exitCredential(cl, *ch, s), label, !firstSink)
-			firstSink = false
+			switch {
+			case id == 0:
+				pointIdx[0] = 0 // the main server is always first
+			case len(points) > idx:
+				pointIdx[id] = idx
+			}
+		}
+		if len(pointIdx) == 0 {
+			broken = append(broken, cid)
+			continue
+		}
+
+		cred := chainCredential(cl, chainIDs, cid)
+		onlyUUID := cred != cl.UUID
+		for _, id := range entryIDs {
+			idx, ok := pointIdx[id]
+			if !ok {
+				continue
+			}
+			p := points[idx]
+			entryName := c.mainServerName(ctx)
+			if id != 0 {
+				entryName = nodesByID[id].Name
+			}
+			label := ch.Name
+			if entryName != "" && entryName != ch.Name {
+				label = fmt.Sprintf("%s → %s", entryName, ch.Name)
+			}
+			add(p, cred, label, onlyUUID)
+		}
+	}
+
+	if len(broken) > 0 {
+		for i := range rows {
+			if err := addPoint(rows[i].ID); err != nil {
+				return nil, err
+			}
+		}
+		for _, cid := range broken {
+			cred := chainCredential(cl, chainIDs, cid)
+			onlyUUID := cred != cl.UUID
+			label := ""
+			if ch, ok := chainByID(allChains, cid); ok && len(chainIDs) > 1 {
+				label = ch.Name
+			}
+			for _, p := range points {
+				add(p, cred, label, onlyUUID)
+			}
 		}
 	}
 	return out, nil

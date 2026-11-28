@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowRightIcon, EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
+import { ArrowRightIcon, ChevronDownIcon, EllipsisVerticalIcon, KeyRoundIcon, QrCodeIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
 import { toast } from "@/lib/toast"
 
 import { ChainEdgeChips } from "@/components/chains/chain-edge-chips"
@@ -17,14 +17,16 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { drawerScroll } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
@@ -252,22 +254,24 @@ function ClientForm({
   const canEdit = useCanEdit()
   const [enabled, setEnabled] = React.useState(client?.enabled ?? true)
   const { errors, wrong, clear, fail, numbers } = useFormErrors()
-  // The client's route is either one chain or an exit. One select carries
-  // both: chain items are "c<id>", exits "xe<id>", the automatic one "x0".
-  const [chainVal, setChainVal] = React.useState(String(client?.chainId ?? 0))
+  const initialChainIds = React.useMemo(
+    () => (client?.chainIds?.length ? client.chainIds : client?.chainId != null ? [client.chainId] : []),
+    [client],
+  )
+  // The client's route is either one or more chains or a single exit.
+  const [chainIds, setChainIds] = React.useState<number[]>(initialChainIds)
   const [exitVal, setExitVal] = React.useState(String(client?.exitId ?? 0))
-  // The one select shows whichever of the two is in effect.
-  const routeVal = chainVal !== "0" ? `c${chainVal}` : exitVal === "0" ? "x0" : `xe${exitVal}`
+  const routeTouched = React.useRef(false)
 
-  function onRouteChange(v: string) {
-    if (v.startsWith("c")) setChainVal(v.slice(1))
-    else if (v === "x0") {
-      setChainVal("0")
-      setExitVal("0")
-    } else {
-      setChainVal("0")
-      setExitVal(v.slice(2))
-    }
+  function toggleChain(id: number) {
+    routeTouched.current = true
+    setChainIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  function selectExit(v: string) {
+    routeTouched.current = true
+    setChainIds([])
+    setExitVal(v)
   }
   const [allNodes, setAllNodes] = React.useState<Node[]>([])
   const [chains, setChains] = React.useState<Chain[]>([])
@@ -275,8 +279,16 @@ function ClientForm({
 
   React.useEffect(() => {
     api.nodes().then(setAllNodes, () => {})
-    api.chains().then(setChains, () => {})
-  }, [])
+    api.chains().then(
+      (list) => {
+        setChains(list)
+        if (!client && !routeTouched.current && list.length > 0) {
+          setChainIds([list[0].id])
+        }
+      },
+      () => {},
+    )
+  }, [client])
 
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -288,18 +300,17 @@ function ClientForm({
       wrong("limit", t("clients.form.limitInvalid"))
       return
     }
-    // Only the route fields that actually changed go to the server. Both
-    // may change at once: switching from a chain to an exit in one save.
-    const prevChain = client?.chainId ?? 0
+    const prevChains = initialChainIds
     const prevExit = client?.exitId ?? 0
-    const chainId = Number(chainVal)
     const exitId = Number(exitVal)
     const changes: Partial<ClientInput> = {}
-    if (chainId !== prevChain) {
-      // Picking or unpicking a chain takes over the route.
-      changes.chainId = chainId
+    const chainsChanged =
+      chainIds.length !== prevChains.length || chainIds.some((id, idx) => id !== prevChains[idx])
+    if (chainsChanged) {
+      // Picking or unpicking chains updates the client's chain set.
+      changes.chainIds = chainIds
     }
-    if (chainId === 0 && exitId !== prevExit) {
+    if (chainIds.length === 0 && exitId !== prevExit) {
       changes.exitId = exitId
     }
     const input = {
@@ -342,51 +353,112 @@ function ClientForm({
             hint={t("clients.form.routeHint")}
             error={errors.route}
           >
-            <Select value={routeVal} onValueChange={onRouteChange}>
-              <SelectTrigger id="route" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {chains.length > 0 && (
-                  <>
-                    <SelectGroup>
-                      <SelectLabel>{t("clients.form.routeChains")}</SelectLabel>
-                      {chains.map((c) => (
-                        <SelectItem key={c.id} value={`c${c.id}`}>
-                          <span className="flex items-center gap-2">
-                            <span
-                              className="size-2 shrink-0 rounded-full bg-foreground"
-                              style={c.color ? { backgroundColor: c.color } : undefined}
-                            />
-                            <span>{c.name}</span>
-                          </span>
-                        </SelectItem>
+            {(() => {
+              const selectedChains = chainIds
+                .map((id) => chains.find((c) => c.id === id))
+                .filter((c): c is Chain => Boolean(c))
+              const selectedExit = exitVal !== "0" ? exits.find((n) => String(n.id) === exitVal) : undefined
+              const exitLabel = selectedExit
+                ? selectedExit.status.latencyMs === undefined
+                  ? selectedExit.name
+                  : t("clients.form.exitSpeed", { name: selectedExit.name, ms: selectedExit.status.latencyMs })
+                : t(client?.exitId || initialChainIds.length > 0 ? "clients.form.exitAnew" : "clients.form.exitAuto")
+              return (
+                <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        id="route"
+                        type="button"
+                        disabled={!canEdit}
+                        className="flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-left text-sm transition-colors outline-none hover:bg-input/20 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50"
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
+                          {selectedChains.length > 0 ? (
+                            <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 truncate">
+                              {selectedChains.map((c) => (
+                                <span key={c.id} className="inline-flex items-center gap-1.5 truncate">
+                                  <span
+                                    className="size-2 shrink-0 rounded-full bg-foreground"
+                                    style={c.color ? { backgroundColor: c.color } : undefined}
+                                  />
+                                  <span className="truncate">{c.name}</span>
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="truncate">{exitLabel}</span>
+                          )}
+                        </span>
+                        <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {chains.length > 0 && (
+                        <>
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                              {t("clients.form.routeChains")}
+                            </DropdownMenuLabel>
+                            {chains.map((c) => (
+                              <DropdownMenuCheckboxItem
+                                key={c.id}
+                                checked={chainIds.includes(c.id)}
+                                onSelect={(e) => {
+                                  e.preventDefault()
+                                  toggleChain(c.id)
+                                }}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span
+                                    className="size-2 shrink-0 rounded-full bg-foreground"
+                                    style={c.color ? { backgroundColor: c.color } : undefined}
+                                  />
+                                  <span>{c.name}</span>
+                                </span>
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                          </DropdownMenuGroup>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                          {t("clients.form.routeExits")}
+                        </DropdownMenuLabel>
+                        <DropdownMenuCheckboxItem
+                          checked={chainIds.length === 0 && exitVal === "0"}
+                          onSelect={() => selectExit("0")}
+                        >
+                          {t(client?.exitId || initialChainIds.length > 0 ? "clients.form.exitAnew" : "clients.form.exitAuto")}
+                        </DropdownMenuCheckboxItem>
+                        {exits.map((n) => (
+                          <DropdownMenuCheckboxItem
+                            key={n.id}
+                            checked={chainIds.length === 0 && exitVal === String(n.id)}
+                            onSelect={() => selectExit(String(n.id))}
+                          >
+                            {n.status.latencyMs === undefined
+                              ? n.name
+                              : t("clients.form.exitSpeed", { name: n.name, ms: n.status.latencyMs })}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  {selectedChains.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {selectedChains.map((c) => (
+                        <div key={c.id} className="flex flex-col gap-1">
+                          {selectedChains.length > 1 && <span className="text-xs font-medium text-muted-foreground">{c.name}</span>}
+                          <ChainEdgeChips chain={c} nodes={allNodes} mainLabel={t("chains.main")} backupLabel={t("chains.backup")} />
+                        </div>
                       ))}
-                    </SelectGroup>
-                    <SelectSeparator />
-                  </>
-                )}
-                <SelectGroup>
-                  <SelectLabel>{t("clients.form.routeExits")}</SelectLabel>
-                  <SelectItem value="x0">{t(client?.exitId || client?.chainId ? "clients.form.exitAnew" : "clients.form.exitAuto")}</SelectItem>
-                  {exits.map((n) => (
-                    <SelectItem key={n.id} value={`xe${n.id}`}>
-                      {n.status.latencyMs === undefined ? n.name : t("clients.form.exitSpeed", { name: n.name, ms: n.status.latencyMs })}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {chainVal !== "0" &&
-              (() => {
-                const c = chains.find((x) => x.id === Number(chainVal))
-                if (!c) return null
-                return (
-                  <div className="mt-2">
-                    <ChainEdgeChips chain={c} nodes={allNodes} mainLabel={t("chains.main")} backupLabel={t("chains.backup")} />
-                  </div>
-                )
-              })()}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </FormField>
         )}
         <FormField id="name" label={t("clients.form.name")} error={errors.name}>
@@ -501,7 +573,7 @@ export function ClientDrawer({
               </>
             )}
             <ClientForm
-              key={client ? `${client.id}:${client.exitId ?? 0}:${client.chainId ?? 0}` : "new"}
+              key={client ? `${client.id}:${client.exitId ?? 0}:${(client.chainIds ?? []).join(",")}:${client.chainId ?? 0}` : "new"}
               client={client}
               formId="client-form"
               setPending={setPending}

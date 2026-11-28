@@ -205,11 +205,19 @@ func (c *Core) bindClients(ctx context.Context) error {
 		return best, ok
 	}
 	for _, cl := range clients {
-		if cl.ChainID != nil {
-			ch, ok := chainByID[*cl.ChainID]
-			if ok && c.chainWorks(ch, unusable, isEntry) {
+		chs := cl.Chains()
+		if len(chs) > 0 {
+			allWorking := true
+			for _, cid := range chs {
+				ch, ok := chainByID[cid]
+				if !ok || !c.chainWorks(ch, unusable, isEntry) {
+					allWorking = false
+					break
+				}
+			}
+			if allWorking {
 				if cl.ExitID != nil {
-					// The chain came back: the client leaves its stopgap exit.
+					// All assigned chains work: the client leaves its stopgap exit.
 					c.log.Info("client returned to its chain", "client", cl.Name, "from", *cl.ExitID)
 					load[*cl.ExitID]--
 					if err := c.store.SetClientExit(ctx, cl.ID, nil); err != nil {
@@ -264,22 +272,50 @@ func (c *Core) bindings(ctx context.Context, self int64, exits []int64) ([]proxy
 	for _, ch := range chains {
 		chainByID[ch.ID] = ch
 	}
+	nodes, err := c.store.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nodeByID := map[int64]*store.NodeRow{}
+	for _, n := range nodes {
+		nodeByID[n.ID] = n
+	}
+	unusable := func(id int64) bool {
+		if id == 0 {
+			return false
+		}
+		n, ok := nodeByID[id]
+		if !ok || !n.Enabled {
+			return true
+		}
+		switch {
+		case n.Kind == NodeAgent && c.chainLost(id):
+			return true
+		case n.IsExit:
+			_, lost := c.exitState(id)
+			return lost
+		}
+		return false
+	}
+	isEntry := func(id int64) bool {
+		n, ok := nodeByID[id]
+		return ok && n.IsEntry
+	}
 	var out []proxy.Binding
 	for _, id := range exits {
 		b := proxy.Binding{ExitID: id, Local: id == self}
 		for _, cl := range clients {
 			if cl.ExitID != nil && *cl.ExitID == id && c.ClientStatus(cl) == ClientActive {
-				var ch *Chain
-				if cl.ChainID != nil {
-					c2, ok := chainByID[*cl.ChainID]
-					if ok {
-						ch = &c2
-					}
+				chs := cl.Chains()
+				if len(chs) == 0 {
+					b.Users = append(b.Users, toProxyClient(cl).UserName())
+					continue
 				}
-				pc := toProxyClient(cl, ch)
-				b.Users = append(b.Users, pc.UserName())
-				for _, e := range pc.Extras {
-					b.Users = append(b.Users, e.Name)
+				for _, cid := range chs {
+					ch, ok := chainByID[cid]
+					if !ok || !c.chainWorks(ch, unusable, isEntry) {
+						b.Users = append(b.Users, chainUserName(cl.ID, chs, cid))
+					}
 				}
 			}
 		}

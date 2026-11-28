@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { api, errorText, type Client } from "@/lib/api"
+import { api, errorText, type Chain, type Client } from "@/lib/api"
 import { daysUntil, formatDate } from "@/lib/format"
 import { useI18n } from "@/lib/i18n"
 import { useCanEdit } from "@/lib/session"
@@ -113,28 +113,38 @@ export default function ClientsPage() {
           header: t("clients.col.status"),
           cell: ({ row }) => <ClientStatus client={row.original} />,
         }),
-        col.accessor((c) => c.chainId ?? String(c.exitId ?? ""), {
-          id: "route",
-          header: t("clients.col.route"),
-          enableSorting: false,
-          cell: ({ row }) => {
-            const c = row.original
-            const chain = c.chainId != null ? chainsData?.find((x) => x.id === c.chainId) : undefined
-            if (chain) {
-              return (
-                <Badge variant="outline" className="gap-1.5 px-1.5 text-muted-foreground">
-                  <span
-                    className="size-2 shrink-0 rounded-full bg-foreground"
-                    style={chain.color ? { backgroundColor: chain.color } : undefined}
-                  />
-                  {chain.name}
-                </Badge>
-              )
-            }
-            const exit = nodesData?.find((n) => n.id === c.exitId)
-            return exit ? <span className="text-muted-foreground">{t("clients.col.routeVia", { name: exit.name })}</span> : null
+        col.accessor(
+          (c) => (c.chainIds?.length ? c.chainIds.join(",") : c.chainId != null ? String(c.chainId) : String(c.exitId ?? "")),
+          {
+            id: "route",
+            header: t("clients.col.route"),
+            enableSorting: false,
+            cell: ({ row }) => {
+              const c = row.original
+              const ids = c.chainIds?.length ? c.chainIds : c.chainId != null ? [c.chainId] : []
+              const matched = ids
+                .map((id) => chainsData?.find((x) => x.id === id))
+                .filter((x): x is Chain => Boolean(x))
+              if (matched.length > 0) {
+                return (
+                  <div className="flex flex-wrap gap-1">
+                    {matched.map((chain) => (
+                      <Badge key={chain.id} variant="outline" className="gap-1.5 px-1.5 text-muted-foreground">
+                        <span
+                          className="size-2 shrink-0 rounded-full bg-foreground"
+                          style={chain.color ? { backgroundColor: chain.color } : undefined}
+                        />
+                        {chain.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )
+              }
+              const exit = nodesData?.find((n) => n.id === c.exitId)
+              return exit ? <span className="text-muted-foreground">{t("clients.col.routeVia", { name: exit.name })}</span> : null
+            },
           },
-        }),
+        ),
         col.accessor(used, {
           id: "traffic",
           header: t("clients.col.traffic"),

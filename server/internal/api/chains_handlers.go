@@ -29,21 +29,23 @@ type chainEdgeDTO struct {
 }
 
 type chainDTO struct {
-	ID        int64          `json:"id"`
-	Name      string         `json:"name"`
-	Color     string         `json:"color"`
-	Edges     []chainEdgeDTO `json:"edges"`
-	Backups   []int64        `json:"backups"`
-	Clients   int            `json:"clients"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	Color     string          `json:"color"`
+	Default   *routeTargetDTO `json:"default,omitempty"`
+	Edges     []chainEdgeDTO  `json:"edges"`
+	Backups   []int64         `json:"backups"`
+	Clients   int             `json:"clients"`
+	CreatedAt time.Time       `json:"createdAt"`
+	UpdatedAt time.Time       `json:"updatedAt"`
 }
 
 type chainRequest struct {
-	Name    string        `json:"name"`
-	Color   string        `json:"color"`
-	Edges   []edgeRequest `json:"edges"`
-	Backups []int64       `json:"backups"`
+	Name    string          `json:"name"`
+	Color   string          `json:"color"`
+	Default *routeTargetDTO `json:"default"`
+	Edges   []edgeRequest   `json:"edges"`
+	Backups []int64         `json:"backups"`
 }
 
 type edgeRequest struct {
@@ -56,7 +58,11 @@ func (req chainRequest) input() core.ChainInput {
 	for _, e := range req.Edges {
 		edges = append(edges, core.EdgeInput{From: e.From, To: e.To})
 	}
-	return core.ChainInput{Name: req.Name, Color: req.Color, Edges: edges, Backups: req.Backups}
+	var def *core.ChainDefaultInput
+	if req.Default != nil {
+		def = &core.ChainDefaultInput{Action: req.Default.Action, NodeID: req.Default.NodeID}
+	}
+	return core.ChainInput{Name: req.Name, Color: req.Color, Edges: edges, Backups: req.Backups, Default: def}
 }
 
 func (s *Server) toChainDTO(ch *core.Chain, clients int) chainDTO {
@@ -68,7 +74,11 @@ func (s *Server) toChainDTO(ch *core.Chain, clients int) chainDTO {
 	if backups == nil {
 		backups = []int64{}
 	}
-	return chainDTO{ID: ch.ID, Name: ch.Name, Color: ch.Color, Edges: edges, Backups: backups,
+	var def *routeTargetDTO
+	if ch.DefaultAction != "" {
+		def = &routeTargetDTO{Action: ch.DefaultAction, NodeID: ch.DefaultNodeID}
+	}
+	return chainDTO{ID: ch.ID, Name: ch.Name, Color: ch.Color, Default: def, Edges: edges, Backups: backups,
 		Clients: clients, CreatedAt: ch.CreatedAt, UpdatedAt: ch.UpdatedAt}
 }
 

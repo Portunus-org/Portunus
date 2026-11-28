@@ -205,6 +205,14 @@ type Binding struct {
 	Outbound string
 }
 
+// UserDefault overrides Default/DefaultExit for a set of clients (for
+// example, clients bound to a chain with its own default route).
+type UserDefault struct {
+	Users  []string
+	Action string
+	ExitID int64
+}
+
 // Routing is everything that decides where traffic leaves.
 type Routing struct {
 	// Exits that exist and are enabled; rules pointing elsewhere fail
@@ -215,6 +223,8 @@ type Routing struct {
 	// with RouteNode.
 	Default     string
 	DefaultExit int64
+	// UserDefaults override Default/DefaultExit for particular clients.
+	UserDefaults []UserDefault
 	// Bindings say which exit RouteAuto means for which client. A client
 	// in none of them is refused there.
 	Bindings []Binding
@@ -479,8 +489,39 @@ func (r Routing) apply(cfg obj) {
 		}
 	}
 
+	var activeDefaults []UserDefault
+	var overrideUsers []string
+	for _, ud := range r.UserDefaults {
+		if len(ud.Users) == 0 {
+			continue
+		}
+		activeDefaults = append(activeDefaults, ud)
+		overrideUsers = append(overrideUsers, ud.Users...)
+	}
+
+	if !needsAddr {
+		for _, ud := range activeDefaults {
+			out := r.target(ud.Action, ud.ExitID)
+			if out == "direct" {
+				continue
+			}
+			if out == boundTag {
+				bound(everything, true, ud.Users)
+				rules = append(rules, routeAction(notDirect(scoped(everything(), ud.Users)), rejectTag))
+			} else {
+				rules = append(rules, routeAction(notDirect(scoped(everything(), ud.Users)), out))
+			}
+		}
+	}
+
 	final := r.target(r.Default, r.DefaultExit)
 	if final != "direct" && !needsAddr {
+		// Users with a per-chain default are handled by activeDefaults (in
+		// Pass 1 above or Pass 2 below), so the global catch-all must not
+		// swallow them before resolve.
+		if len(overrideUsers) > 0 {
+			claims = append(claims, obj{"auth_user": overrideUsers, "invert": true})
+		}
 		// Everything else leaves through an exit (or is refused) and no rule
 		// needs an address: do not resolve it here.
 		switch {
@@ -514,6 +555,14 @@ func (r Routing) apply(cfg obj) {
 			out = rejectTag
 		}
 		rules = append(rules, routeAction(scoped(set(), rule.Users), out))
+	}
+	for _, ud := range activeDefaults {
+		out := r.target(ud.Action, ud.ExitID)
+		if out == boundTag {
+			bound(everything, false, ud.Users)
+			out = rejectTag
+		}
+		rules = append(rules, routeAction(scoped(everything(), ud.Users), out))
 	}
 	if final == boundTag {
 		bound(everything, false, nil)

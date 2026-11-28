@@ -406,6 +406,16 @@ func (c *Core) exitInUse(ctx context.Context, id int64) (bool, error) {
 		}
 		auto = auto || r.Action == proxy.RouteAuto
 	}
+	chains, err := c.store.ListChains(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, ch := range chains {
+		if ch.DefaultAction == proxy.RouteNode && ch.DefaultNodeID != nil && *ch.DefaultNodeID == id {
+			return true, nil
+		}
+		auto = auto || ch.DefaultAction == proxy.RouteAuto
+	}
 	if !auto {
 		return false, nil
 	}

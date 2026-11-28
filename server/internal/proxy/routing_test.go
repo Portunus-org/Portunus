@@ -588,3 +588,184 @@ func TestChainBindingRespectsDefault(t *testing.T) {
 		})
 	}
 }
+
+// TestPerChainDefaultRoutes verifies that UserDefaults route different chains'
+// clients independently (e.g. one chain direct, another through its chain, and
+// global clients following Default), both before and after DNS resolution, while
+// respecting explicit rules and failing closed on missing exits.
+func TestPerChainDefaultRoutes(t *testing.T) {
+	hop, err := NewHop(443, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clients := []Client{
+		{ID: 1, Name: "direct-chain", UUID: NewUUID(), Password: NewPassword()},
+		{ID: 2, Name: "vpn-chain", UUID: NewUUID(), Password: NewPassword()},
+		{ID: 3, Name: "global-client", UUID: NewUUID(), Password: NewPassword()},
+	}
+	yt := mustList(1, "youtube.com")
+	bank := mustList(2, "bank.example")
+	cidr := mustList(3, "198.51.100.0/24")
+
+	for _, tc := range []struct {
+		name         string
+		rules        []RouteRule
+		def          string
+		defExit      int64
+		userDefaults []UserDefault
+		bindings     []Binding
+		wantResolve  bool // whether c1 (direct) sits after resolve, and c2 (clink-2) before resolve when !needsAddr
+	}{
+		{
+			name:    "chain1 direct, chain2 auto, global node (no cidr)",
+			rules:   []RouteRule{{List: yt, Action: RouteNode, ExitID: 5}},
+			def:     RouteNode,
+			defExit: 5,
+			userDefaults: []UserDefault{
+				{Users: []string{"c1"}, Action: RouteDirect},
+				{Users: []string{"c2"}, Action: RouteAuto},
+			},
+			bindings: []Binding{
+				{Users: []string{"c1"}, Outbound: "clink-1"},
+				{Users: []string{"c2"}, Outbound: "clink-2"},
+			},
+			wantResolve: true,
+		},
+		{
+			name:    "chain1 direct, chain2 auto, global direct (with direct rule)",
+			rules:   []RouteRule{{List: bank, Action: RouteDirect}, {List: yt, Action: RouteAuto, Users: []string{"c1"}}},
+			def:     RouteDirect,
+			userDefaults: []UserDefault{
+				{Users: []string{"c1"}, Action: RouteDirect},
+				{Users: []string{"c2"}, Action: RouteAuto},
+			},
+			bindings: []Binding{
+				{Users: []string{"c1"}, Outbound: "clink-1"},
+				{Users: []string{"c2"}, Outbound: "clink-2"},
+			},
+			wantResolve: true,
+		},
+		{
+			name:    "with cidr rule (needsAddr)",
+			rules:   []RouteRule{{List: cidr, Action: RouteDirect}},
+			def:     RouteNode,
+			defExit: 5,
+			userDefaults: []UserDefault{
+				{Users: []string{"c1"}, Action: RouteDirect},
+				{Users: []string{"c2"}, Action: RouteAuto},
+			},
+			bindings: []Binding{
+				{Users: []string{"c1"}, Outbound: "clink-1"},
+				{Users: []string{"c2"}, Outbound: "clink-2"},
+			},
+		},
+		{
+			name:    "local sink chain and missing exit fails closed",
+			rules:   nil,
+			def:     RouteDirect,
+			userDefaults: []UserDefault{
+				{Users: []string{"c1"}, Action: RouteAuto},
+				{Users: []string{"c2"}, Action: RouteNode, ExitID: 999},
+			},
+			bindings: []Binding{
+				{Users: []string{"c1"}, Local: true},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := Routing{
+				Exits: []Exit{{ID: 5, Outbound: hop.Outbound("203.0.113.20")}},
+				ChainOutbounds: []any{
+					map[string]any{"type": "direct", "tag": "clink-1"},
+					map[string]any{"type": "direct", "tag": "clink-2"},
+				},
+				Bindings:     tc.bindings,
+				Rules:        tc.rules,
+				Default:      tc.def,
+				DefaultExit:  tc.defExit,
+				UserDefaults: tc.userDefaults,
+			}
+			cfg, err := ServerConfig(testInbounds(t), clients, "127.0.0.1:2054", ACMEOptions{}, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			singBoxCheck(t, cfg)
+
+			rules, _ := routeRules(t, cfg)
+			resolve := -1
+			for i, rule := range rules {
+				if rule["action"] == "resolve" {
+					resolve = i
+				}
+			}
+			if resolve == -1 {
+				t.Fatalf("missing resolve guard: %v", rules)
+			}
+
+			if tc.wantResolve {
+				// c1 must only route direct AFTER resolve + ip_is_private guard, and must NOT
+				// match the global node-5 catch-all before resolve.
+				c1DirectAfterResolve := false
+				c2ChainBeforeResolve := false
+				globalExcludesC1 := false
+				for i, rule := range rules {
+					out, _ := rule["outbound"].(string)
+					users, _ := rule["auth_user"].([]any)
+					if out == "direct" && i > resolve && len(users) == 1 && users[0] == "c1" {
+						c1DirectAfterResolve = true
+					}
+					if out == "clink-2" && i < resolve {
+						u := users
+						if len(u) == 0 {
+							if sub, ok := rule["rules"].([]any); ok {
+								last := sub[len(sub)-1].(map[string]any)
+								u, _ = last["auth_user"].([]any)
+							}
+						}
+						if len(u) == 1 && u[0] == "c2" {
+							c2ChainBeforeResolve = true
+						}
+					}
+					if tc.def == RouteNode && out == ExitTag(5) && i < resolve {
+						if sub, ok := rule["rules"].([]any); ok {
+							for _, s := range sub {
+								m, _ := s.(map[string]any)
+								if m["invert"] == true {
+									if u, _ := m["auth_user"].([]any); len(u) == 2 {
+										globalExcludesC1 = true
+									}
+								}
+							}
+						}
+					}
+				}
+				if !c1DirectAfterResolve {
+					t.Fatalf("c1 direct rule missing after resolve: %v", rules)
+				}
+				if !c2ChainBeforeResolve {
+					t.Fatalf("c2 chain rule missing before resolve: %v", rules)
+				}
+				if tc.def == RouteNode && !globalExcludesC1 {
+					t.Fatalf("global catch-all before resolve does not exclude overridden users: %v", rules)
+				}
+			}
+
+			if tc.name == "local sink chain and missing exit fails closed" {
+				foundC1Direct := false
+				foundC2Reject := false
+				for i, rule := range rules {
+					users, _ := rule["auth_user"].([]any)
+					if len(users) == 1 && users[0] == "c1" && rule["outbound"] == "direct" && i > resolve {
+						foundC1Direct = true
+					}
+					if len(users) == 1 && users[0] == "c2" && rule["action"] == "reject" {
+						foundC2Reject = true
+					}
+				}
+				if !foundC1Direct || !foundC2Reject {
+					t.Fatalf("local=%v reject=%v rules=%v", foundC1Direct, foundC2Reject, rules)
+				}
+			}
+		})
+	}
+}

@@ -344,9 +344,32 @@ func (s *Server) handleGetRouting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+type defaultRouteRequest struct {
+	ChainID int64  `json:"chainId"`
+	Action  string `json:"action"`
+	NodeID  *int64 `json:"nodeId"`
+}
+
 func (s *Server) handleSetDefaultRoute(w http.ResponseWriter, r *http.Request) {
-	var req routeTargetDTO
+	var req defaultRouteRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.ChainID < 0 {
+		writeError(w, http.StatusBadRequest, "invalid")
+		return
+	}
+	if req.ChainID > 0 {
+		if err := s.core.SetChainDefaultRoute(r.Context(), req.ChainID, req.Action, req.NodeID); err != nil {
+			s.writeCoreError(w, r, err)
+			return
+		}
+		target := req.Action
+		if target == "" {
+			target = "inherit"
+		}
+		s.auditAction(r, "routing.default", target, map[string]any{"chainId": req.ChainID})
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err := s.core.SetDefaultRoute(r.Context(), req.Action, req.NodeID); err != nil {

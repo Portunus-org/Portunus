@@ -121,3 +121,110 @@ func TestRouteRuleBadChain(t *testing.T) {
 		t.Fatalf("bad chain: %v", err)
 	}
 }
+
+// Per-chain default routes override the global default per chain, protect
+// referenced exit nodes from deletion, and reach entry points only.
+func TestChainDefaultRouteCore(t *testing.T) {
+	c, ids := newChainCore(t)
+	ctx := context.Background()
+	a, b, cn := ids["a"], ids["b"], ids["c"]
+
+	ch1, err := c.CreateChain(ctx, ChainInput{
+		Name:    "Split",
+		Edges:   []EdgeInput{{From: 0, To: a}, {From: a, To: b}},
+		Default: &ChainDefaultInput{Action: proxy.RouteDirect},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch1.DefaultAction != proxy.RouteDirect || ch1.DefaultNodeID != nil {
+		t.Fatalf("ch1 default = %q %v", ch1.DefaultAction, ch1.DefaultNodeID)
+	}
+
+	ch2, err := c.CreateChain(ctx, ChainInput{
+		Name:    "FullVPN",
+		Edges:   []EdgeInput{{From: 0, To: cn}, {From: cn, To: b}},
+		Default: &ChainDefaultInput{Action: proxy.RouteAuto},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl1, err := c.CreateClient(ctx, ClientInput{Name: "u1", Enabled: true, Chain: &ch1.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl2, err := c.CreateClient(ctx, ClientInput{Name: "u2", Enabled: true, Chain: &ch2.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Updating ch1 without Default preserves its existing override.
+	updated, err := c.UpdateChain(ctx, ch1.ID, ChainInput{
+		Name:  "Split2",
+		Edges: []EdgeInput{{From: 0, To: a}, {From: a, To: b}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DefaultAction != proxy.RouteDirect {
+		t.Fatalf("DefaultAction lost on update without Default: %q", updated.DefaultAction)
+	}
+
+	// Routing on main server (entry) includes UserDefaults for both chains.
+	r0, err := c.routing(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r0.UserDefaults) != 2 {
+		t.Fatalf("UserDefaults on main: %+v", r0.UserDefaults)
+	}
+	u1 := proxy.Client{ID: cl1.ID}.UserName()
+	u2 := proxy.Client{ID: cl2.ID}.UserName()
+	gotByUser := map[string]string{}
+	for _, ud := range r0.UserDefaults {
+		if len(ud.Users) != 1 {
+			t.Fatalf("unexpected users: %+v", ud)
+		}
+		gotByUser[ud.Users[0]] = ud.Action
+	}
+	if gotByUser[u1] != proxy.RouteDirect || gotByUser[u2] != proxy.RouteAuto {
+		t.Fatalf("UserDefaults actions: %v", gotByUser)
+	}
+
+	// Routing on non-entry sink b has no UserDefaults.
+	rb, err := c.routing(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rb.UserDefaults) != 0 {
+		t.Fatalf("UserDefaults reached non-entry sink: %+v", rb.UserDefaults)
+	}
+
+	// Pointing ch1 default to exit node b protects b from DeleteNode/disabling exit.
+	if err := c.SetChainDefaultRoute(ctx, ch1.ID, proxy.RouteNode, &b); err != nil {
+		t.Fatal(err)
+	}
+	// Make a standalone chain without b to test exitInUse specifically for default_node_id.
+	ch3, err := c.CreateChain(ctx, ChainInput{
+		Name:    "RefExit",
+		Edges:   []EdgeInput{{From: 0, To: a}, {From: a, To: cn}},
+		Default: &ChainDefaultInput{Action: proxy.RouteNode, NodeID: &b},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used, err := c.exitInUse(ctx, b); err != nil || !used {
+		t.Fatalf("exitInUse for b = %v, %v", used, err)
+	}
+	// Clear ch3 default and verify clearing works.
+	if err := c.SetChainDefaultRoute(ctx, ch3.ID, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	got3, err := c.Chain(ctx, ch3.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got3.DefaultAction != "" || got3.DefaultNodeID != nil {
+		t.Fatalf("cleared default still set: %+v", got3)
+	}
+}
